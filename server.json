@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.isoglu/benthic",
+  "title": "Benthic",
+  "description": "Checks references for invented, misattributed and retracted sources and fetches open-access papers.",
+  "version": "1.0.0",
+  "websiteUrl": "https://benthic.isoglu.com/download/",
+  "repository": {
+    "url": "https://github.com/isoglu/benthic",
+    "source": "github"
+  }
+}

@@ -1,0 +1,22 @@
+name: Bug report
+description: Something does not work as described.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead. For a wrong verdict, include the reference text and the DOI. Please no private files.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Benthic version
+      description: In the app menu under Benthic → Über Benthic.
+      placeholder: "1.0.0"
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "macOS 15.1, Apple Silicon"

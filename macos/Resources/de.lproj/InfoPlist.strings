@@ -1,0 +1,2 @@
+/* Benthic: Texte aus der Info.plist (Deutsch) */
+"NSLocalNetworkUsageDescription" = "Benthic verbindet sich mit dem lokal gestarteten Backend auf 127.0.0.1.";

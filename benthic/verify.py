@@ -1,0 +1,626 @@
+"""Prüft Literaturangaben: Gibt es die Quelle, passt sie zur Angabe, ist sie zurückgezogen?
+
+Gedacht für Literaturlisten aus LLMs. Für jede Referenz aus ``refs.parse``:
+
+1. Kennung auflösen (DOI direkt, arXiv über DataCite, PMID über Europe PMC).
+2. Das echte Werk holen (OpenAlex, sonst Crossref, sonst nur der DOI-Resolver).
+3. Behauptete Angaben (Titel, Autor:innen, Jahr) mit dem echten Werk vergleichen.
+4. Ohne oder mit falscher DOI: per Titel suchen (Crossref und OpenAlex).
+5. Rückzüge erkennen (OpenAlex ``is_retracted``, Crossref ``updated-by``).
+
+Urteile: verified, corrected, partial, uncertain, mismatch, not_found, retracted.
+"""
+
+from __future__ import annotations
+
+import difflib
+import re
+import threading
+import time
+import unicodedata
+from typing import Callable, Dict, List, Optional, Tuple
+from urllib.parse import quote
+
+from . import oa, quota, refs
+from .i18n import current as current_lang, join_list, tr
+
+VERDICTS = ("verified", "corrected", "partial", "uncertain", "mismatch", "not_found", "retracted")
+
+VERDICT_LABEL = {
+    "verified": "Bestätigt",
+    "corrected": "DOI korrigiert",
+    "partial": "Weicht ab",
+    "uncertain": "Unsicher",
+    "mismatch": "Passt nicht",
+    "not_found": "Nicht auffindbar",
+    "retracted": "Zurückgezogen",
+}
+
+# Schwellen für den Titelvergleich (0 bis 1).
+TITLE_OK = 0.85       # gleicher Titel (kleine Abweichungen, Untertitel)
+TITLE_FOUND = 0.90    # Suche gilt als eindeutig
+TITLE_MAYBE = 0.72    # ähnlichster Treffer, aber unsicher
+TITLE_OTHER = 0.60    # darunter: anderes Werk
+
+
+# --------------------------------------------------------------------------
+# HTTP mit kleinem Cache (pro Prozess)
+# --------------------------------------------------------------------------
+_cache: Dict[str, object] = {}
+_cache_lock = threading.Lock()
+
+
+_FAILED = object()  # Quelle hat nicht geantwortet: nicht zwischenspeichern, später erneut fragen
+
+
+def _cached(key: str, fn: Callable[[], object]) -> object:
+    with _cache_lock:
+        if key in _cache:
+            return _cache[key]
+    value = fn()
+    if value is _FAILED:
+        return None
+    with _cache_lock:
+        if len(_cache) > 2000:
+            _cache.clear()
+        _cache[key] = value
+    return value
+
+
+# Nachvollziehbarkeit: welche Quellen eine Prüfung gefragt hat und was sie fanden (je Thread)
+_trace = threading.local()
+
+
+def _t(source: str, step: str, **detail) -> None:
+    steps = getattr(_trace, "steps", None)
+    if steps is not None and len(steps) < 40:
+        steps.append({"source": source, "step": step, **{k: v for k, v in detail.items() if v is not None}})
+
+
+def _mailto(email: str) -> Dict[str, str]:
+    """Polite pool von Crossref/OpenAlex, aber nie mit einer Platzhalter-Adresse."""
+    if email and "@" in email and not email.endswith(("example.org", "example.com")):
+        return {"mailto": email}
+    return {}
+
+
+def crossref_work(doi: str, email: str = "") -> Optional[Dict]:
+    def fetch():
+        resp = oa._api_get(f"https://api.crossref.org/works/{quote(doi, safe='/')}", params=_mailto(email))
+        j = oa._json(resp)
+        if j is None and (resp is None or resp.status_code != 404):
+            return _FAILED  # keine Antwort: nicht merken
+        return (j or {}).get("message")
+    found = _cached("cr:" + doi.lower(), fetch)
+    _t("Crossref", "doi", found=bool(found))
+    return found  # type: ignore[return-value]
+
+
+def doi_exists(doi: str) -> Optional[bool]:
+    """Fragt den DOI-Resolver direkt (deckt auch DataCite, Zenodo, arXiv ab)."""
+    def fetch():
+        resp = oa._api_get(f"https://doi.org/api/handles/{quote(doi, safe='/')}", timeout=12.0)
+        if resp is None:
+            return None
+        try:
+            code = resp.json().get("responseCode")
+        except ValueError:
+            return None
+        return True if code == 1 else (False if code == 100 else None)
+    return _cached("hdl:" + doi.lower(), fetch)  # type: ignore[return-value]
+
+
+def europepmc_by_pmid(pmid: str) -> Optional[Dict]:
+    def fetch():
+        j = oa._json(oa._api_get(
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+            params={"query": f"EXT_ID:{pmid} AND SRC:MED", "format": "json", "resultType": "lite"},
+        ))
+        hits = ((j or {}).get("resultList") or {}).get("result") or []
+        return hits[0] if hits else None
+    return _cached("pmid:" + pmid, fetch)  # type: ignore[return-value]
+
+
+# arXiv bittet um höchstens eine Anfrage alle drei Sekunden.
+_arxiv_lock = threading.Lock()
+_arxiv_last = [0.0]
+
+
+def _arxiv_query(params: Dict[str, str]) -> List[Dict]:
+    def fetch():
+        with _arxiv_lock:
+            wait = 3.0 - (time.monotonic() - _arxiv_last[0])
+            if wait > 0:
+                time.sleep(wait)
+            resp = oa._api_get("https://export.arxiv.org/api/query", params=params, timeout=15.0)
+            _arxiv_last[0] = time.monotonic()
+        if resp is None or resp.status_code != 200:
+            return []
+        out = []
+        for entry in re.findall(r"<entry>(.*?)</entry>", resp.text, re.S):
+            ident = re.search(r"<id>https?://arxiv\.org/abs/([^<]+?)(?:v\d+)?</id>", entry)
+            title = re.search(r"<title>(.*?)</title>", entry, re.S)
+            year = re.search(r"<published>(\d{4})", entry)
+            if not ident or not title:
+                continue
+            names = re.findall(r"<name>(.*?)</name>", entry)
+            out.append({
+                "doi": refs.arxiv_doi(ident.group(1)),
+                "title": re.sub(r"\s+", " ", title.group(1)).strip(),
+                "authors": [oa._surname(n) for n in names][:12],
+                "year": year.group(1) if year else None,
+                "venue": "arXiv", "type": "preprint", "retracted": False,
+                "cited_by": None, "is_oa": True, "source": "arXiv",
+            })
+        return out
+    return _cached("arx:" + repr(sorted(params.items())), fetch)  # type: ignore[return-value]
+
+
+def arxiv_meta(arxiv_id: str) -> Optional[Dict]:
+    hits = _arxiv_query({"id_list": arxiv_id, "max_results": "1"})
+    return hits[0] if hits else None
+
+
+def _search_arxiv(title: str) -> List[Dict]:
+    words = re.sub(r"[^\w\s-]", " ", title).split()
+    if len(words) < 2:
+        return []
+    return _arxiv_query({"search_query": 'ti:"' + " ".join(words[:20]) + '"', "max_results": "3"})
+
+
+# --------------------------------------------------------------------------
+# Einheitliche Werk-Darstellung
+# --------------------------------------------------------------------------
+def _from_openalex(w: Dict) -> Dict:
+    names = [((a.get("author") or {}).get("display_name") or "") for a in (w.get("authorships") or [])]
+    loc = (w.get("primary_location") or {}).get("source") or {}
+    doi = (w.get("doi") or "").replace("https://doi.org/", "") or None
+    if not doi:  # z. B. Konferenzfassung ohne DOI, aber mit arXiv-Eintrag
+        for l in w.get("locations") or []:
+            m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})", str(l.get("landing_page_url") or l.get("pdf_url") or ""))
+            if m:
+                doi = refs.arxiv_doi(m.group(1))
+                break
+    return {
+        "doi": doi,
+        "title": w.get("title") or w.get("display_name") or "",
+        "authors": [oa._surname(n) for n in names if n][:12],
+        "year": str(w.get("publication_year") or "") or None,
+        "venue": loc.get("display_name"),
+        "type": w.get("type"),
+        "volume": (w.get("biblio") or {}).get("volume"),
+        "issue": (w.get("biblio") or {}).get("issue"),
+        "pages": "–".join(p for p in ((w.get("biblio") or {}).get("first_page"), (w.get("biblio") or {}).get("last_page")) if p) or None,
+        "author_count": len(names),
+        "retracted": bool(w.get("is_retracted")),
+        "cited_by": w.get("cited_by_count"),
+        "is_oa": bool((w.get("open_access") or {}).get("is_oa")),
+        "source": "OpenAlex",
+    }
+
+
+def _from_crossref(m: Dict) -> Dict:
+    parts = ((m.get("issued") or m.get("published") or {}).get("date-parts") or [[None]])[0]
+    updates = m.get("updated-by") or []
+    return {
+        "doi": m.get("DOI"),
+        "title": ((m.get("title") or [""])[0]) or "",
+        "authors": [a.get("family") or a.get("name") or "" for a in (m.get("author") or [])][:12],
+        "year": str(parts[0]) if parts and parts[0] else None,
+        "venue": (m.get("container-title") or [None])[0],
+        "type": m.get("type"),
+        "volume": m.get("volume"),
+        "issue": m.get("issue"),
+        "pages": (m.get("page") or "").replace("-", "–") or None,
+        "author_count": len(m.get("author") or []),
+        "retracted": any(str(u.get("type", "")).lower() in ("retraction", "removal") for u in updates),
+        "cited_by": m.get("is-referenced-by-count"),
+        "is_oa": None,
+        "source": "Crossref",
+    }
+
+
+def lookup(doi: str, email: str = "") -> Optional[Dict]:
+    """Echtes Werk zu einer DOI: OpenAlex zuerst (mit Rückzugs-Flag), dann Crossref."""
+    arxiv_id = doi.split(".", 2)[2] if doi.lower().startswith("10.48550/arxiv.") else None
+    w = oa.openalex_work(doi, email if _mailto(email) else "")
+    _t("OpenAlex", "doi", found=bool(w and (w.get("title") or w.get("display_name"))))
+    if arxiv_id:
+        # Für arXiv zählt die erste Fassung; OpenAlex datiert manche Einträge neu.
+        meta = arxiv_meta(arxiv_id)
+        if meta:
+            if w and (w.get("title") or w.get("display_name")):
+                base = _from_openalex(w)
+                return {**base, "year": meta["year"], "authors": base["authors"] or meta["authors"]}
+            return meta
+    if w and (w.get("title") or w.get("display_name")):
+        work = _from_openalex(w)
+        if not work["retracted"]:
+            m = crossref_work(doi, email)
+            if m and _from_crossref(m)["retracted"]:
+                work["retracted"] = True
+        return work
+    m = crossref_work(doi, email)
+    if m:
+        return _from_crossref(m)
+    return None
+
+
+# --------------------------------------------------------------------------
+# Vergleich
+# --------------------------------------------------------------------------
+def _norm_name(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in s if c.isalpha()).lower()
+
+
+def title_similarity(a: Optional[str], b: Optional[str]) -> float:
+    na, nb = refs.normalize_title(a or ""), refs.normalize_title(b or "")
+    if not na or not nb:
+        return 0.0
+    ratio = difflib.SequenceMatcher(None, na, nb).ratio()
+    short, long_ = sorted((na, nb), key=len)
+    # Untertitel oder ganze Zitatzeile: der kürzere Titel steckt im längeren.
+    if len(short) >= 20 and short in long_:
+        ratio = max(ratio, 0.95)
+    return ratio
+
+
+def compare(claimed: Dict, actual: Dict) -> Tuple[int, List[str], float]:
+    """Vergleicht Angabe und Werk. Liefert (Score 0 bis 100, Abweichungen, Titelähnlichkeit)."""
+    weights, got, flags = 0.0, 0.0, []
+    sim = 1.0
+    claim_title = claimed.get("title") or claimed.get("query")
+    if claim_title:
+        sim = title_similarity(str(claim_title), actual.get("title"))
+        weights += 70
+        got += 70 * sim
+        if claimed.get("title") and sim < TITLE_OK:
+            flags.append("title")
+    if claimed.get("year") and actual.get("year"):
+        weights += 15
+        try:
+            ok = abs(int(str(claimed["year"])) - int(str(actual["year"]))) <= 1  # Preprint vs. Druck
+        except ValueError:
+            ok = False
+        got += 15 if ok else 0
+        if not ok:
+            flags.append("year")
+    claimed_names = {_norm_name(n) for n in (claimed.get("authors") or []) if n}
+    if claimed_names and actual.get("authors"):
+        weights += 15
+        actual_names = {_norm_name(n) for n in actual["authors"] if n}
+        ok = bool(claimed_names & actual_names)
+        got += 15 if ok else 0
+        if not ok:
+            flags.append("authors")
+    score = round(100 * got / weights) if weights else 100
+    return score, flags, sim
+
+
+# --------------------------------------------------------------------------
+# Suche nach Titel
+# --------------------------------------------------------------------------
+def _search_crossref(query: str, email: str) -> List[Dict]:
+    def fetch():
+        params = {"query.bibliographic": query[:300], "rows": 5,
+                  "select": "DOI,title,author,issued,published,container-title,type,updated-by,is-referenced-by-count"}
+        params.update(_mailto(email))
+        j = oa._json(oa._api_get("https://api.crossref.org/works", params=params, timeout=15.0))
+        if j is None:
+            return _FAILED
+        return [_from_crossref(m) for m in ((j.get("message") or {}).get("items") or [])]
+    hits = _cached("crs:" + query.lower(), fetch)
+    _t("Crossref", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def _search_openalex(query: str, email: str, year: Optional[str] = None) -> List[Dict]:
+    def fetch():
+        params = {"search": re.sub(r"[,:;]", " ", query)[:300], "per-page": 5}
+        if year and str(year).isdigit():  # Preprint und Druckfassung liegen oft ein Jahr auseinander
+            params["filter"] = f"publication_year:{int(year) - 1}-{int(year) + 1}"
+        params.update(_mailto(email))
+        j = oa._json(oa._api_get("https://api.openalex.org/works", params=params, timeout=15.0))
+        if j is None:
+            return _FAILED
+        return [_from_openalex(w) for w in (j.get("results") or [])]
+    hits = _cached(f"oas:{year}:" + query.lower(), fetch)
+    _t("OpenAlex", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def _search_semanticscholar(title: str) -> List[Dict]:
+    """Semantic Scholar: auch Magazine (HBR), Buchkapitel und Konferenzbeiträge ohne DOI."""
+    def fetch():
+        resp = oa._api_get("https://api.semanticscholar.org/graph/v1/paper/search/match", params={
+            "query": title[:300], "fields": "title,year,authors,venue,externalIds,url,journal,publicationTypes"},
+            timeout=15.0)
+        if resp is not None and resp.status_code == 404:
+            return []  # kein passender Titel
+        j = oa._json(resp)
+        if j is None:
+            return _FAILED
+        out = []
+        for paper in j.get("data") or []:
+            ext = paper.get("externalIds") or {}
+            doi = ext.get("DOI") or (refs.arxiv_doi(ext["ArXiv"]) if ext.get("ArXiv") else None)
+            names = [a.get("name") or "" for a in paper.get("authors") or []]
+            out.append({"doi": doi, "title": paper.get("title") or "", "authors": [oa._surname(n) for n in names if n][:12],
+                        "year": str(paper["year"]) if paper.get("year") else None,
+                        "venue": paper.get("venue") or (paper.get("journal") or {}).get("name"),
+                        "type": ",".join(paper.get("publicationTypes") or []) or None, "author_count": len(names),
+                        "retracted": False, "cited_by": None, "is_oa": None, "source": "Semantic Scholar",
+                        "url": paper.get("url")})
+        return out
+    hits = _cached("s2:" + title.lower(), fetch)
+    _t("Semantic Scholar", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def _search_openlibrary(title: str, authors: List[str]) -> List[Dict]:
+    """Open Library: Bücher (ohne DOI), etwa Monografien und Sammelbände."""
+    def fetch():
+        params = {"title": title[:200], "limit": 5, "fields": "key,title,subtitle,author_name,first_publish_year,publisher"}
+        if authors:
+            params["author"] = authors[0]
+        j = oa._json(oa._api_get("https://openlibrary.org/search.json", params=params, timeout=15.0))
+        if j is None:
+            return _FAILED
+        out = []
+        for d in j.get("docs") or []:
+            full = d.get("title") or ""
+            if d.get("subtitle"):
+                full += ": " + d["subtitle"]
+            names = d.get("author_name") or []
+            out.append({"doi": None, "title": full, "authors": [oa._surname(n) for n in names][:12],
+                        "year": str(d["first_publish_year"]) if d.get("first_publish_year") else None,
+                        "venue": (d.get("publisher") or [None])[0], "type": "book", "author_count": len(names),
+                        "retracted": False, "cited_by": None, "is_oa": None, "source": "Open Library",
+                        "url": "https://openlibrary.org" + str(d.get("key") or "")})
+        return out
+    hits = _cached(f"ol:{(authors or [''])[0]}:" + title.lower(), fetch)
+    _t("Open Library", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
+    """Bester Treffer für eine Angabe ohne (passende) DOI: (Werk, Score, Titelähnlichkeit)."""
+    query = str(claimed.get("title") or claimed.get("query") or claimed.get("raw") or "").strip()
+    if len(query) < 8:
+        return None, 0, 0.0
+    full = query
+    if claimed.get("title"):
+        extra = " ".join([*(claimed.get("authors") or [])[:2], str(claimed.get("year") or "")]).strip()
+        full = f"{query} {extra}".strip()
+    best, best_score, best_sim = None, -1, 0.0
+    candidates = _search_crossref(full, email) + _search_openalex(query, email)
+    if claimed.get("year"):
+        candidates += _search_openalex(query, email, str(claimed["year"]))
+    def pick(cands: List[Dict]) -> None:
+        nonlocal best, best_score, best_sim
+        for cand in cands:
+            if not cand.get("title") or not (cand.get("doi") or cand.get("url")):
+                continue
+            score, _flags, sim = compare(claimed, cand)
+            # Bei Gleichstand gewinnt der Treffer mit Rückzugs-Information (OpenAlex).
+            if score > best_score or (score == best_score and cand["source"] == "OpenAlex"):
+                best, best_score, best_sim = cand, score, sim
+
+    pick(candidates)
+    # Preprints (Informatik, Physik): arXiv selbst fragen, wenn nichts eindeutig passt.
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_arxiv(str(claimed["title"])))
+    # Magazine (HBR), Buchkapitel, Konferenzen ohne DOI: Semantic Scholar; Bücher: Open Library
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_semanticscholar(str(claimed["title"])))
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_openlibrary(str(claimed["title"]), list(claimed.get("authors") or [])))
+    if best:
+        _t(best.get("source") or "", "best", title=best.get("title"), similarity=round(best_sim, 2), score=max(best_score, 0))
+    if best and best["source"] == "Crossref":
+        richer = lookup(best["doi"], email)  # Rückzugs-Flag und Open-Access-Status nachladen
+        if richer:
+            best = {**best, "retracted": richer["retracted"] or best["retracted"], "is_oa": richer.get("is_oa")}
+    return best, max(best_score, 0), best_sim
+
+
+# --------------------------------------------------------------------------
+# Urteil für eine Referenz
+# --------------------------------------------------------------------------
+# Satzteile für Abweichungen; eigene Tabelle, weil „Titel“ im Katalog die Spaltenüberschrift ist.
+_FLAG_TEXT = {"de": {"title": "Titel", "year": "Jahr", "authors": "Autor:innen"},
+              "en": {"title": "title", "year": "year", "authors": "authors"}}
+
+
+def _diff_note(flags: List[str], via_title: bool = False) -> str:
+    """„Werk gefunden, aber Titel und Jahr weichen von der Angabe ab.“ in der eingestellten Sprache."""
+    words = _FLAG_TEXT.get(current_lang(), _FLAG_TEXT["en"])
+    diffs = join_list([words[f] for f in flags])
+    plural = len(flags) > 1 or flags == ["authors"]
+    if via_title:
+        msg = "Über den Titel gefunden, aber {diffs} weichen ab." if plural else "Über den Titel gefunden, aber {diffs} weicht ab."
+    else:
+        msg = ("Werk gefunden, aber {diffs} weichen von der Angabe ab." if plural
+               else "Werk gefunden, aber {diffs} weicht von der Angabe ab.")
+    return tr(msg, diffs=diffs)
+
+
+def _claimed(ref: Dict) -> Dict:
+    return {k: ref.get(k) for k in ("title", "authors", "year", "venue", "query", "raw")}
+
+
+def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], None]] = None) -> Dict:
+    label = str(ref.get("label") or refs.label(ref))
+
+    def emit(phase: str, **kw) -> None:
+        if on_event:
+            try:
+                on_event({"phase": phase, "identifier": label, **kw})
+            except Exception:
+                pass
+
+    claimed = _claimed(ref)
+    result: Dict = {
+        "identifier": label,
+        "input": str(ref.get("raw") or "")[:400],
+        "format": ref.get("format"),
+        "claimed": {k: claimed.get(k) for k in ("title", "authors", "year", "venue")},
+        "doi": ref.get("doi"),
+        "claimed_doi": ref.get("doi"),
+        "resolved_by": None,
+        "found": None,
+        "verdict": "not_found",
+        "score": 0,
+        "flags": [],
+        "note": "",
+    }
+    emit("verify_start")
+    _trace.steps = []
+    quota.track()
+    doi = ref.get("doi")
+    if ref.get("arxiv") and doi:
+        result["resolved_by"] = "arxiv"
+    elif doi:
+        result["resolved_by"] = "doi"
+
+    # PMID ohne DOI: über Europe PMC auflösen.
+    if not doi and ref.get("pmid"):
+        emit("lookup", source="europepmc")
+        hit = europepmc_by_pmid(str(ref["pmid"]))
+        if hit and hit.get("doi"):
+            doi = hit["doi"]
+            result.update(doi=doi, resolved_by="pmid")
+            if not claimed.get("title"):
+                claimed["title"] = hit.get("title")
+
+    def finish(verdict: str, note: str, found: Optional[Dict] = None, score: int = 0, flags=None) -> Dict:
+        if found and found.get("retracted"):
+            verdict, note = "retracted", tr("Zurückgezogen.") + (" " + note if note else "")
+        failed = quota.problems()
+        if verdict == "not_found" and failed:
+            names = join_list([f["name"] for f in failed])
+            if any(f["service"] == "crossref" for f in failed):
+                # Die wichtigste Quelle hat nicht geantwortet: kein Urteil "erfunden" auf dieser Grundlage
+                verdict = "uncertain"
+                note = tr("Nicht gefunden, aber {names} hat nicht geantwortet. Bitte später erneut prüfen.", names=names)
+            else:
+                note = (note + " " + tr("{names} war nicht verfügbar; geprüft mit den übrigen Quellen.", names=names)).strip()
+        result.update(verdict=verdict, note=note.strip(), found=found, score=score, flags=flags or [])
+        result["trace"] = list(getattr(_trace, "steps", []) or [])
+        result["sources_failed"] = failed
+        if found and found.get("doi"):
+            same = str(found["doi"]).lower() == str(result.get("doi") or "").lower()
+            result["doi"] = result["doi"] if same else found["doi"]  # Schreibweise der Angabe behalten
+        result["status"] = verdict
+        emit("done", status=verdict)
+        return result
+
+    if doi:
+        emit("lookup", source="openalex")
+        actual = lookup(str(doi), email)
+        if actual:
+            score, flags, sim = compare(claimed, actual)
+            if claimed.get("title") and sim < TITLE_OTHER:
+                emit("search")
+                best, bscore, bsim = search(claimed, email)
+                if best and bsim >= TITLE_FOUND and best.get("doi") and best["doi"].lower() != str(doi).lower():
+                    return finish("corrected",
+                                  tr("Die angegebene DOI gehört zu „{title}“. Das genannte Werk hat die DOI {doi}.",
+                                     title=actual["title"], doi=best["doi"]), best, bscore)
+                return finish("mismatch", tr("Die DOI existiert, gehört aber zu „{title}“.", title=actual["title"]),
+                              actual, score, flags)
+            if flags:
+                return finish("partial", _diff_note(flags), actual, score, flags)
+            return finish("verified", "", actual, score)
+        # Keine Metadaten: wenigstens prüfen, ob die DOI registriert ist.
+        exists = doi_exists(str(doi))
+        if exists:
+            if claimed.get("title"):
+                return finish("uncertain", tr("Die DOI ist registriert, die Angaben lassen sich aber nicht abgleichen."))
+            return finish("verified", tr("DOI registriert (ohne abrufbare Metadaten)."), {"doi": doi, "title": ""}, 100)
+        if exists is None and not claimed.get("title"):
+            return finish("uncertain", tr("Der DOI-Dienst hat nicht geantwortet. Später erneut prüfen."))
+        # DOI existiert nicht: vielleicht stimmt der Titel trotzdem.
+        if claimed.get("title") or claimed.get("query"):
+            emit("search")
+            best, bscore, bsim = search(claimed, email)
+            if best and bsim >= TITLE_FOUND:
+                return finish("corrected", tr("Die angegebene DOI existiert nicht. Das Werk hat die DOI {doi}.", doi=best["doi"]),
+                              best, bscore)
+        return finish("not_found", tr("Die DOI existiert nicht und kein passendes Werk wurde gefunden. Vermutlich erfunden."))
+
+    # Keine Kennung: über den Titel bzw. die ganze Angabe suchen.
+    emit("search")
+    best, bscore, bsim = search(claimed, email)
+    if best and bsim >= TITLE_FOUND and "year" not in compare(claimed, best)[1]:
+        result["resolved_by"] = "title"
+        _score, flags, _sim = compare(claimed, best)
+        if flags:
+            return finish("partial", _diff_note(flags, via_title=True), best, bscore, flags)
+        via = best.get("source") if best.get("source") in ("Semantic Scholar", "Open Library") else None
+        return finish("verified", tr("Über den Titel gefunden ({source}).", source=via) if via else tr("Über den Titel gefunden."),
+                      best, bscore)
+    if best and bsim >= TITLE_MAYBE:
+        result["resolved_by"] = "title"
+        return finish("uncertain", tr("Ähnlichster Treffer: „{title}“ ({year}). Bitte prüfen.",
+                                      title=best["title"], year=best.get("year") or tr("o. J.")),
+                      best, bscore)
+    grey = _grey_literature(str(ref.get("raw") or ""))
+    if grey:
+        return finish(*grey)
+    return finish("not_found", tr("Kein passendes Werk gefunden. Vermutlich erfunden oder sehr ungenau angegeben."))
+
+
+# Graue Literatur: echte Quellen, die Crossref, OpenAlex und arXiv nicht verzeichnen. Ohne Fund lautet das
+# Urteil dann "Unsicher" statt "Nicht auffindbar", mit einem Hinweis, was zu prüfen ist. Erfundene Links
+# bleiben "Nicht auffindbar": der Link wird aufgerufen.
+_URL = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+_CHAPTER = re.compile(r"\bIn\b[^.]{0,160}\((?:Eds?|Hrsg|Hg|eds?)\.?\)|\bIn:\s|\(Hrsg\.\)|\(Eds?\.\)", re.IGNORECASE)
+_MAGAZINES = re.compile(r"McKinsey|Harvard Business Review|MIT Sloan Management Review|Boston Consulting|\bBCG\b|"
+                        r"\bBain\b|Deloitte|PwC|PricewaterhouseCoopers|KPMG|Ernst & Young|\bEY\b|Gartner|Forrester|"
+                        r"Forbes|The Economist|Financial Times|Wall Street Journal|Handelsblatt|strategy\+business",
+                        re.IGNORECASE)
+
+
+def _url_reachable(url: str) -> Optional[bool]:
+    """True: die Seite gibt es (auch wenn sie Programme aussperrt); False: Adresse falsch; None: unklar."""
+    import requests
+    try:
+        resp = requests.get(url.rstrip(".,;"), timeout=10.0, allow_redirects=True, stream=True,
+                            headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
+        resp.close()
+    except requests.exceptions.ConnectionError:
+        return False  # Domain gibt es nicht oder nimmt keine Verbindung an
+    except requests.exceptions.RequestException:
+        return None
+    if resp.status_code in (404, 410):
+        return False
+    return resp.status_code < 400 or resp.status_code in (401, 403, 429)  # gesperrt heißt: es gibt die Seite
+
+
+def _grey_literature(raw: str) -> Optional[tuple]:
+    url = next((u for u in _URL.findall(raw) if "doi.org" not in u.lower()), None)
+    if url:
+        reachable = _url_reachable(url)
+        if reachable:
+            return ("uncertain", tr("Webseite oder graue Literatur: nicht in den wissenschaftlichen Verzeichnissen, "
+                                    "der Link ist aber erreichbar. Inhalt bitte selbst prüfen."))
+        if reachable is False:
+            return ("not_found", tr("Nicht in den Verzeichnissen, und der angegebene Link ist nicht erreichbar."))
+    if _CHAPTER.search(raw):
+        return ("uncertain", tr("Buchkapitel: oft nicht in Crossref oder OpenAlex verzeichnet. Bitte im Katalog "
+                                "einer Bibliothek prüfen."))
+    if _MAGAZINES.search(raw):
+        return ("uncertain", tr("Beratungs- oder Wirtschaftsquelle: meist nicht in den wissenschaftlichen "
+                                "Verzeichnissen. Bitte beim Herausgeber prüfen."))
+    return None
+
+
+def summarize(results: List[Dict]) -> Dict[str, int]:
+    counts = {v: 0 for v in VERDICTS}
+    for r in results:
+        v = r.get("verdict")
+        if v in counts:
+            counts[v] += 1
+    return counts

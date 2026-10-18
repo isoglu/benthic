@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Roadmap and votes
+    url: https://benthic.isoglu.com/roadmap/
+    about: See what is planned and which ideas have the most votes.

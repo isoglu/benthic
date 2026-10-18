@@ -1,0 +1,45 @@
+{
+  "name": "benthic",
+  "description": "Check reference lists from language models for invented, misattributed and retracted sources, and fetch the real papers through open access, with the Benthic app for macOS.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sinan Isoglu",
+    "url": "https://isoglu.com"
+  },
+  "homepage": "https://benthic.isoglu.com",
+  "repository": "https://github.com/isoglu/benthic",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "references",
+    "citations",
+    "doi",
+    "open-access",
+    "retractions",
+    "research",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Benthic",
+    "shortDescription": "Check references, fetch open-access papers",
+    "longDescription": "Check reference lists from language models for invented, misattributed and retracted sources, and fetch the real papers through open access, with the Benthic app for macOS. Benthic runs on your Mac; the app must be installed.",
+    "developerName": "Sinan Isoglu",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://benthic.isoglu.com",
+    "privacyPolicyURL": "https://isoglu.com/privacy/",
+    "defaultPrompt": [
+      "Check the sources in your last answer with Benthic",
+      "Fetch the open-access PDFs for these DOIs",
+      "Write the bibliography of my Benthic project in APA"
+    ],
+    "brandColor": "#11507F",
+    "composerIcon": "./macos/design/glyph.svg",
+    "logo": "./macos/design/glyph.svg",
+    "screenshots": []
+  }
+}

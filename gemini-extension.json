@@ -1,0 +1,14 @@
+{
+  "name": "benthic",
+  "version": "1.0.0",
+  "description": "Check reference lists from language models for invented, misattributed and retracted sources, and fetch the real papers through open access, with the Benthic app for macOS.",
+  "mcpServers": {
+    "benthic": {
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "for a in /Applications/Benthic.app \"$HOME/Applications/Benthic.app\" \"$(mdfind \"kMDItemCFBundleIdentifier == 'com.isoglu.benthic'\" 2>/dev/null | head -n 1)\"; do [ -n \"$a\" ] && [ -x \"$a/Contents/Resources/bin/benthic-mcp\" ] && exec \"$a/Contents/Resources/bin/benthic-mcp\"; done; echo \"Benthic is not installed. Download it from https://benthic.isoglu.com/download/\" >&2; exit 1"
+      ]
+    }
+  }
+}

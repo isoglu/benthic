@@ -1,0 +1,239 @@
+/* Benthic design tokens: "Deep Water" (since 1.3, the look of benthic.isoglu.com).
+ *
+ * Deep navy lit from the surface: soft blue and violet glows at the top of each view,
+ * glass cards with a lit top rim, white pill buttons, a cyan accent. Dark is the
+ * default; the light theme is its clear-water sibling with the same shapes and type.
+ * Tokens are named by role, never by hue.
+ *
+ * Type: SF Pro Display carries titles and big numbers, SF Pro Text the interface,
+ * SF Mono every identifier, the system serif (New York) only quotations. All ship
+ * with macOS, so the app stays offline and loads no fonts.
+ *
+ * Rule: the brand accent is the open-access colour (one token on purpose).
+ * Results from plugin routes have their own "deep" hue, and amber is reserved
+ * for system notices, never for a result channel.
+ *
+ * Contrast (WCAG 2.2): every state colour reaches at least 4.5:1 on the panel
+ * and on its own chip tint, in both themes. The state and chart colours below
+ * are the validated set and do not change with the surfaces.
+ */
+
+:root {
+  /* Depth ramp (icon gradient) ------------------------------------------ */
+  --depth-50:  #e8f8fb;
+  --depth-100: #c8eff7;
+  --depth-200: #8be3f1; /* light water */
+  --depth-400: #2e9fd3; /* mid water   */
+  --depth-600: #11507f; /* deep water  */
+  --depth-800: #0b2234;
+  --depth-900: #071a2a; /* abyss       */
+
+  /* Type ----------------------------------------------------------------- */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-title: var(--font-display);
+  --font-quote: ui-serif, "New York", "Iowan Old Style", "Apple Garamond", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --fs-2xs: 10.5px; /* eyebrows, axis labels   */
+  --fs-xs: 11px;    /* labels, captions        */
+  --fs-sm: 12px;    /* chips, table meta, mono */
+  --fs-base: 13px;  /* body                    */
+  --fs-md: 15px;    /* card titles             */
+  --fs-lg: 18px;    /* wordmark, small numbers */
+  --fs-xl: 34px;    /* view titles             */
+  --fs-2xl: 40px;   /* key figures             */
+  --lh-tight: 1.2;
+  --lh-base: 1.5;
+  --track-caps: .09em;
+
+  /* Shape, space, motion -------------------------------------------------- */
+  --r-sm: 7px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --dur-fast: 140ms;
+  --dur: 240ms;
+  --dur-slow: 520ms;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+  /* Light theme: clear water ------------------------------------------- */
+  color-scheme: light;
+  --bg: #f6f8fc;
+  --bg-2: #eef2f8;             /* lower water, for gradients */
+  --surface: #f1f5fa;          /* sidebar top             */
+  --surface-2: #e9eef6;        /* sidebar bottom          */
+  --panel: #ffffff;            /* cards                   */
+  --panel-2: #f4f7fb;          /* inputs, insets          */
+  --panel-3: #eaf0f7;          /* hover on insets         */
+  --border: #dde5ef;
+  --border-strong: #c3cfdd;
+  --edge-hi: #ffffff;          /* top edge of raised surfaces */
+  --edge-lo: #d6dfea;          /* bottom edge                 */
+  --text: #0b1830;
+  --muted: #4a5a75;
+  --faint: #7a889e;            /* decoration only, never body text */
+  --focus: #2f7cff;
+  --shadow: 0 1px 1px rgba(11, 24, 48, .03), 0 2px 6px rgba(11, 24, 48, .04), 0 14px 34px rgba(20, 60, 140, .07);
+  --shadow-hover: 0 1px 1px rgba(11, 24, 48, .04), 0 6px 14px rgba(11, 24, 48, .07), 0 22px 48px rgba(20, 60, 140, .11);
+  --shadow-lg: 0 30px 80px rgba(20, 60, 140, .2), 0 6px 18px rgba(11, 24, 48, .08);
+  --glass: rgba(255, 255, 255, .72);
+  --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0));
+  --caustic-a: rgba(110, 190, 255, .34);  /* blue glow, top left   */
+  --caustic-b: rgba(175, 155, 255, .26);  /* violet glow, top right */
+  --caustic-c: rgba(120, 200, 255, .12);
+
+  --accent: #08697d;           /* = open access, on purpose */
+  --accent-2: #1f8fbf;         /* luminous partner for gradients and glow */
+  --accent-hover: #065a6b;
+  --accent-ink: #ffffff;       /* text on accent          */
+  --accent-soft: rgba(8, 105, 125, .09);
+  --accent-glow: rgba(46, 159, 211, .28);
+  --btn-grad: linear-gradient(180deg, #13284a 0%, #0b1830 100%);
+  --btn-grad-hover: linear-gradient(180deg, #1b3560 0%, #10213f 100%);
+  --btn-ink: #ffffff;          /* text on the primary button */
+
+  --state-library: #4b6578;    /* surface: already there  */
+  --state-library-bg: rgba(75, 101, 120, .10);
+  --state-legal: #08697d;      /* clear water: open access */
+  --state-legal-bg: rgba(8, 105, 125, .10);
+  --state-deep: #6a47d6;       /* depth: plugin routes    */
+  --state-deep-bg: rgba(106, 71, 214, .10);
+  --state-fail: #b3302a;
+  --state-fail-bg: rgba(179, 48, 42, .09);
+  --state-warn: #8a5a00;       /* system notices only     */
+  --state-warn-bg: rgba(138, 90, 0, .10);
+  --state-activity: #2e9fd3;
+
+  --progress-track: #e1ebf1;
+  --progress-fill: linear-gradient(90deg, #2f7cff, #08697d);
+
+  /* Chart palette (validated: dataviz six checks, light surface) */
+  --chart-legal: #0a79a8;
+  --chart-manual: #b07d0e;
+  --chart-deep: #7a4fe0;
+  --chart-none: #d94e3a;
+  --chart-track: #e8f0f4;
+  --chart-grid: #dbe6ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #040a17;
+    --bg-2: #030712;
+    --surface: #071024;
+    --surface-2: #040a17;
+    --panel: #0a1426;
+    --panel-2: #0e1a31;
+    --panel-3: #13223d;
+    --border: rgba(160, 190, 255, .11);
+    --border-strong: rgba(160, 190, 255, .2);
+    --edge-hi: rgba(255, 255, 255, .1);
+    --edge-lo: rgba(0, 0, 0, .35);
+    --text: #eaf2ff;
+    --muted: #9aabc6;
+    --faint: #64759a;
+    --focus: #8fe3ff;
+    --shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 10px 24px rgba(0, 0, 0, .28), 0 30px 70px rgba(0, 10, 40, .4);
+    --shadow-hover: 0 1px 1px rgba(0, 0, 0, .3), 0 12px 28px rgba(0, 0, 0, .32), 0 36px 84px rgba(0, 10, 40, .5);
+    --shadow-lg: 0 40px 110px rgba(0, 10, 40, .65), 0 8px 20px rgba(0, 0, 0, .35);
+    --glass: rgba(10, 18, 36, .72);
+    --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, .065), rgba(255, 255, 255, .02));
+    --caustic-a: rgba(15, 108, 216, .42);
+    --caustic-b: rgba(106, 76, 255, .26);
+    --caustic-c: rgba(0, 150, 214, .1);
+    --accent: #45d3e6;
+    --accent-2: #8fe3ff;
+    --accent-hover: #8fe3ff;
+    --accent-ink: #04132e;
+    --accent-soft: rgba(69, 211, 230, .12);
+    --accent-glow: rgba(120, 170, 255, .45);
+    --btn-grad: linear-gradient(180deg, #ffffff 0%, #eef4ff 100%);
+    --btn-grad-hover: linear-gradient(180deg, #ffffff 0%, #dfeaff 100%);
+    --btn-ink: #04132e;
+    --state-library: #9aabc6;
+    --state-library-bg: rgba(154, 171, 198, .12);
+    --state-legal: #45d3e6;
+    --state-legal-bg: rgba(69, 211, 230, .13);
+    --state-deep: #b9a4ff;
+    --state-deep-bg: rgba(185, 164, 255, .14);
+    --state-fail: #ff8e84;
+    --state-fail-bg: rgba(255, 142, 132, .13);
+    --state-warn: #f2c14e;
+    --state-warn-bg: rgba(242, 193, 78, .13);
+    --state-activity: #8fe3ff;
+    --progress-track: rgba(160, 190, 255, .12);
+    --progress-fill: linear-gradient(90deg, #2f7cff, #5ee7ff);
+    --chart-legal: #2596c6;
+    --chart-manual: #b5891a;
+    --chart-deep: #8d72f4;
+    --chart-none: #e05a46;
+    --chart-track: rgba(160, 190, 255, .1);
+    --chart-grid: rgba(160, 190, 255, .14);
+  }
+}
+
+/* Explicit override, used by the appearance setting and for screenshots. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #040a17;
+  --bg-2: #030712;
+  --surface: #071024;
+  --surface-2: #040a17;
+  --panel: #0a1426;
+  --panel-2: #0e1a31;
+  --panel-3: #13223d;
+  --border: rgba(160, 190, 255, .11);
+  --border-strong: rgba(160, 190, 255, .2);
+  --edge-hi: rgba(255, 255, 255, .1);
+  --edge-lo: rgba(0, 0, 0, .35);
+  --text: #eaf2ff;
+  --muted: #9aabc6;
+  --faint: #64759a;
+  --focus: #8fe3ff;
+  --shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 10px 24px rgba(0, 0, 0, .28), 0 30px 70px rgba(0, 10, 40, .4);
+  --shadow-hover: 0 1px 1px rgba(0, 0, 0, .3), 0 12px 28px rgba(0, 0, 0, .32), 0 36px 84px rgba(0, 10, 40, .5);
+  --shadow-lg: 0 40px 110px rgba(0, 10, 40, .65), 0 8px 20px rgba(0, 0, 0, .35);
+  --glass: rgba(10, 18, 36, .72);
+  --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, .065), rgba(255, 255, 255, .02));
+  --caustic-a: rgba(15, 108, 216, .42);
+  --caustic-b: rgba(106, 76, 255, .26);
+  --caustic-c: rgba(0, 150, 214, .1);
+  --accent: #45d3e6;
+  --accent-2: #8fe3ff;
+  --accent-hover: #8fe3ff;
+  --accent-ink: #04132e;
+  --accent-soft: rgba(69, 211, 230, .12);
+  --accent-glow: rgba(120, 170, 255, .45);
+  --btn-grad: linear-gradient(180deg, #ffffff 0%, #eef4ff 100%);
+  --btn-grad-hover: linear-gradient(180deg, #ffffff 0%, #dfeaff 100%);
+  --btn-ink: #04132e;
+  --state-library: #9aabc6;
+  --state-library-bg: rgba(154, 171, 198, .12);
+  --state-legal: #45d3e6;
+  --state-legal-bg: rgba(69, 211, 230, .13);
+  --state-deep: #b9a4ff;
+  --state-deep-bg: rgba(185, 164, 255, .14);
+  --state-fail: #ff8e84;
+  --state-fail-bg: rgba(255, 142, 132, .13);
+  --state-warn: #f2c14e;
+  --state-warn-bg: rgba(242, 193, 78, .13);
+  --state-activity: #8fe3ff;
+  --progress-track: rgba(160, 190, 255, .12);
+  --progress-fill: linear-gradient(90deg, #2f7cff, #5ee7ff);
+  --chart-legal: #2596c6;
+  --chart-manual: #b5891a;
+  --chart-deep: #8d72f4;
+  --chart-none: #e05a46;
+  --chart-track: rgba(160, 190, 255, .1);
+  --chart-grid: rgba(160, 190, 255, .14);
+}
