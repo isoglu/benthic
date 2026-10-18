@@ -1,0 +1,30 @@
+# Python
+.venv/
+.uv-cache/
+__pycache__/
+*.pyc
+
+# Daten im Dev-Betrieb (in der App liegen sie in ~/Library/Application Support/Benthic)
+settings.json
+library.json
+history.json
+projects.json
+Benthic.mcpb
+downloads/
+plugin-data/
+journals-cache.json
+usage.json
+rankings/
+benthic-server.log
+*.log
+
+# Plugins gehören nicht ins Repository (siehe docs/extending.md)
+/plugins/
+
+# Native-App-Build
+dist/
+.swiftcache/
+.swifttmp/
+
+# macOS
+.DS_Store

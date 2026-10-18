@@ -1,0 +1,413 @@
+"""Paste anything: findet Literaturangaben in beliebigem Text.
+
+Erkennt BibTeX, RIS und Freitext (LLM-Antworten, Literaturlisten, Markdown,
+reine DOI-Listen). Pro Eintrag entsteht eine Referenz mit den Angaben, die der
+Text *behauptet* (Titel, Autor:innen, Jahr, Zeitschrift) und, falls vorhanden,
+einer Kennung (DOI, arXiv, PMID). Ob die Angaben stimmen, prüft ``verify``.
+
+Dieses Modul arbeitet ohne Netzwerk.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+from typing import Dict, List, Optional
+from urllib.parse import unquote
+
+Ref = Dict[str, object]
+
+# --------------------------------------------------------------------------
+# Kennungen
+# --------------------------------------------------------------------------
+# DOI: Präfix 10.NNNN/ und ein Suffix ohne Leerraum und ohne typische Begrenzer.
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>{}|\\^`\[\]]+", re.IGNORECASE)
+_DOI_URL_RE = re.compile(r"(?:https?://)?(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)", re.IGNORECASE)
+_ARXIV_RE = re.compile(
+    r"(?:arxiv(?:\.org/(?:abs|pdf)/|:\s*|\s+)|10\.48550/arxiv\.)"
+    r"((?:\d{4}\.\d{4,5})|(?:[a-z\-]+(?:\.[A-Z]{2})?/\d{7}))(?:v\d+)?",
+    re.IGNORECASE,
+)
+_PMID_RE = re.compile(r"\bPMID:?\s*(\d{5,9})\b", re.IGNORECASE)
+_YEAR_RE = re.compile(r"\b(1[89]\d{2}|20\d{2})[a-z]?\b")
+_TRAILING = ".,;:'\"”’»)]}>"
+
+
+def clean_doi(value: str) -> Optional[str]:
+    """Bereinigt eine DOI aus beliebigem Kontext (URL, BibTeX, Satzende)."""
+    if not value:
+        return None
+    s = unquote(value.strip())
+    m = _DOI_RE.search(s)
+    if not m:
+        return None
+    doi = m.group(0)
+    # Satzzeichen am Ende entfernen; ")" nur, wenn es keine offene "(" schließt,
+    # denn DOIs wie 10.1016/S0140-6736(97)11096-0 enthalten Klammern.
+    while doi and doi[-1] in _TRAILING:
+        if doi[-1] == ")" and doi.count("(") >= doi.count(")"):
+            break
+        doi = doi[:-1]
+    # Dateiendungen und Anker aus kopierten Links abschneiden.
+    doi = re.sub(r"(?:\.pdf|/full|/abstract|/pdf|#.*)$", "", doi, flags=re.IGNORECASE)
+    return doi if re.match(r"^10\.\d{4,9}/.+", doi) else None
+
+
+def arxiv_doi(arxiv_id: str) -> str:
+    """arXiv-ID → DataCite-DOI (ohne Versionsnummer)."""
+    return "10.48550/arXiv." + re.sub(r"v\d+$", "", arxiv_id)
+
+
+# --------------------------------------------------------------------------
+# Hilfen für Titel und Namen
+# --------------------------------------------------------------------------
+def normalize_title(title: str) -> str:
+    """Kleinbuchstaben, ohne Akzente, Satzzeichen und LaTeX-Reste."""
+    s = unicodedata.normalize("NFKD", title or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"\\[a-zA-Z]+\s*", " ", s)
+    s = re.sub(r"[^0-9a-zA-Z]+", " ", s).lower()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _strip_latex(s: str) -> str:
+    s = s.replace("\\&", "&").replace("~", " ").replace("--", "–")
+    s = re.sub(r"\\[`'^\"~=.uvHtcdb]\{?([A-Za-z])\}?", r"\1", s)  # {\"o} → o
+    s = re.sub(r"\\[a-zA-Z]+\{([^{}]*)\}", r"\1", s)  # \emph{x} → x
+    s = s.replace("{", "").replace("}", "")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _surname(name: str) -> str:
+    """Nachname aus "Nachname, Vorname" oder "Vorname Nachname"."""
+    name = name.strip().strip(".")
+    if not name:
+        return ""
+    if "," in name:
+        return name.split(",")[0].strip()
+    parts = name.split()
+    # Partikel wie "van der" gehören zum Nachnamen.
+    i = len(parts) - 1
+    while i > 0 and parts[i - 1].lower() in ("van", "von", "der", "den", "de", "da", "di", "del", "la", "le"):
+        i -= 1
+    return " ".join(parts[i:])
+
+
+def _surnames_from_text(segment: str) -> List[str]:
+    """Nachnamen aus einer Autorenangabe in Freitext (APA, MLA, "et al.")."""
+    segment = re.sub(r"\bet al\.?", "", segment)
+    found = re.findall(r"((?:(?:[Vv]an|[Vv]on|[Dd]e|[Dd]er|[Dd]en|[Dd]a|[Dd]i|[Ll]e|[Ll]a|[Tt]en|[Tt]er)\s+)*[A-ZÄÖÜ][\w'\-]+),\s*(?:[A-Z]\.\s*-?)+", segment)
+    if found:
+        return found[:8]
+    first = re.match(r"\s*((?:(?:[Vv]an|[Vv]on|[Dd]e|[Dd]er)\s+)*[A-ZÄÖÜ][\w'\-]+)", segment)
+    return [first.group(1)] if first else []
+
+
+def _empty(fmt: str, raw: str) -> Ref:
+    return {"format": fmt, "raw": raw.strip()[:400], "doi": None, "arxiv": None, "pmid": None,
+            "title": None, "authors": [], "year": None, "venue": None}
+
+
+# --------------------------------------------------------------------------
+# BibTeX
+# --------------------------------------------------------------------------
+def _bibtex_entries(text: str) -> List[str]:
+    entries, i = [], 0
+    while True:
+        m = re.search(r"@\s*\w+\s*[{(]", text[i:])
+        if not m:
+            return entries
+        start = i + m.start()
+        j, depth = i + m.end(), 1
+        while j < len(text) and depth:
+            if text[j] in "{(":
+                depth += 1
+            elif text[j] in "})":
+                depth -= 1
+            j += 1
+        entries.append(text[start:j])
+        i = j
+
+
+def _bibtex_fields(entry: str) -> Dict[str, str]:
+    body = entry[entry.find("{") + 1 if "{" in entry else 0:]
+    fields, i = {}, 0
+    for m in re.finditer(r"(\w[\w\-]*)\s*=\s*", body):
+        if m.start() < i:
+            continue
+        name, j = m.group(1).lower(), m.end()
+        if j >= len(body):
+            break
+        if body[j] == "{":
+            depth, k = 1, j + 1
+            while k < len(body) and depth:
+                depth += {"{": 1, "}": -1}.get(body[k], 0)
+                k += 1
+            value = body[j + 1:k - 1]
+        elif body[j] == '"':
+            k = body.find('"', j + 1)
+            k = len(body) if k < 0 else k + 1
+            value = body[j + 1:k - 1]
+        else:
+            k = j
+            while k < len(body) and body[k] not in ",}\n":
+                k += 1
+            value = body[j:k]
+        fields[name] = _strip_latex(value)
+        i = k
+    return fields
+
+
+def parse_bibtex(text: str) -> List[Ref]:
+    refs = []
+    for entry in _bibtex_entries(text):
+        if re.match(r"@\s*(comment|string|preamble)\b", entry, re.IGNORECASE):
+            continue
+        f = _bibtex_fields(entry)
+        r = _empty("bibtex", entry)
+        r["title"] = f.get("title") or None
+        r["authors"] = [_surname(a) for a in re.split(r"\s+and\s+", f.get("author", "")) if a.strip()][:8]
+        year = _YEAR_RE.search(f.get("year", "") or f.get("date", ""))
+        r["year"] = year.group(1) if year else None
+        r["venue"] = f.get("journal") or f.get("booktitle") or None
+        r["doi"] = clean_doi(f.get("doi", "")) or clean_doi(f.get("url", ""))
+        eprint = f.get("eprint", "")
+        if not r["doi"] and (f.get("archiveprefix", "").lower() == "arxiv" or re.match(r"^\d{4}\.\d{4,5}", eprint)):
+            r["arxiv"] = re.sub(r"v\d+$", "", eprint) or None
+        if not r["arxiv"] and not r["doi"]:
+            m = _ARXIV_RE.search(f.get("url", "") + " " + f.get("journal", ""))
+            r["arxiv"] = m.group(1) if m else None
+        pmid = f.get("pmid", "")
+        r["pmid"] = pmid if pmid.isdigit() else None
+        refs.append(r)
+    return refs
+
+
+# --------------------------------------------------------------------------
+# RIS
+# --------------------------------------------------------------------------
+def parse_ris(text: str) -> List[Ref]:
+    refs: List[Ref] = []
+    cur: Optional[Ref] = None
+    lines: List[str] = []
+    for line in text.splitlines():
+        m = re.match(r"^([A-Z][A-Z0-9])  - ?(.*)$", line.rstrip())
+        if not m:
+            continue
+        tag, val = m.group(1), m.group(2).strip()
+        if tag == "TY":
+            cur, lines = _empty("ris", ""), []
+        if cur is None:
+            continue
+        lines.append(line)
+        if tag in ("TI", "T1") and not cur["title"]:
+            cur["title"] = val
+        elif tag in ("AU", "A1"):
+            cur["authors"].append(_surname(val))  # type: ignore[union-attr]
+        elif tag in ("PY", "Y1", "DA") and not cur["year"]:
+            y = _YEAR_RE.search(val)
+            cur["year"] = y.group(1) if y else None
+        elif tag == "DO":
+            cur["doi"] = clean_doi(val)
+        elif tag in ("UR", "L1", "L2") and not cur["doi"]:
+            cur["doi"] = clean_doi(val)
+        elif tag in ("JO", "JF", "T2") and not cur["venue"]:
+            cur["venue"] = val
+        elif tag == "AN" and val.isdigit():
+            cur["pmid"] = val
+        if tag == "ER":
+            cur["raw"] = "\n".join(lines)[:400]
+            refs.append(cur)
+            cur = None
+    return refs
+
+
+# --------------------------------------------------------------------------
+# Freitext: LLM-Antworten, Literaturlisten, Markdown, DOI-Listen
+# --------------------------------------------------------------------------
+_LIST_PREFIX = re.compile(r"^\s*(?:[-*•–]\s+|\d{1,3}[.)]\s+|\[\d{1,3}\]\s*)")
+
+
+def _apa_title(line: str, year_match: Optional[re.Match]):
+    """(Titel, Endposition) nach dem Jahr im APA-Muster, wenn er nicht kursiv beginnt; sonst None."""
+    if not year_match:
+        return None
+    start = year_match.end()
+    lead = re.match(r"^[a-z]?\)?[.,:]?\s*", line[start:])
+    start += lead.end() if lead else 0
+    seg = re.split(r"\.\s+(?=[A-Z0-9*])|\s+https?://|\s+doi:", line[start:])[0].strip()
+    if len(seg.split()) < 2 or seg.startswith("*") or re.match(r"^\d", seg):
+        return None
+    return seg.rstrip(".,"), start + len(seg)
+
+
+def _claimed_title(line: str, year_match: Optional[re.Match]) -> Optional[str]:
+    """Titel aus einer Zeile: zuerst in Anführungszeichen, sonst APA-Muster."""
+    q = re.search(r"[\"“„«‘]([^\"”“»’]{12,300})[\"”“»’]", line)
+    if q:
+        return q.group(1).strip().rstrip(".,")
+    q = re.search(r"\*([^*]{12,300})\*", line)  # Markdown-Kursiv
+    if q:
+        italic = q.group(1).strip().rstrip(".,")
+        apa = _apa_title(line, year_match)
+        # APA: kursiv ist bei Artikeln die Zeitschrift ("*Organization Science, 13*(3)"), bei Büchern der Titel.
+        journal = re.search(r",\s*\d", italic) or re.match(r"\s*\(\d", line[q.end():q.end() + 3])
+        if apa and (q.start() >= apa[1] or journal):
+            return apa[0]
+        return italic
+    if year_match:
+        after = line[year_match.end():]
+        after = re.sub(r"^[a-z]?\)?[.,:]?\s*", "", after)
+        t = re.split(r"\.\s+(?=[A-Z0-9])|\s+https?://|\s+doi:", after)[0].strip()
+        if len(t.split()) >= 2 and not re.match(r"^\d", t):
+            return t.rstrip(".,")
+    return None
+
+
+def _text_ref(line: str) -> Optional[Ref]:
+    raw = line.strip()
+    body = _LIST_PREFIX.sub("", raw)
+    body = re.sub(r"[*_`]{2,}", "", body)  # Markdown-Fett
+    r = _empty("text", raw)
+    url_doi = _DOI_URL_RE.search(body)
+    r["doi"] = clean_doi(url_doi.group(1)) if url_doi else clean_doi(body)
+    if r["doi"] and r["doi"].lower().startswith("10.48550/arxiv."):
+        r["arxiv"] = r["doi"].split(".", 2)[2] if r["doi"].count(".") >= 2 else None
+    a = _ARXIV_RE.search(body)
+    if a and not r["doi"]:
+        r["arxiv"] = a.group(1)
+    p = _PMID_RE.search(body)
+    if p:
+        r["pmid"] = p.group(1)
+
+    # Text ohne Kennungen und URLs: daraus Titel, Jahr und Autor:innen lesen.
+    plain = re.sub(r"https?://\S+|doi:\s*\S+|10\.\d{4,9}/\S+|PMID:?\s*\d+|arxiv:\s*\S+", " ", body, flags=re.IGNORECASE)
+    plain = re.sub(r"\s+", " ", plain).strip(" .,;:-–")
+    # "Titel. arXiv." (APA für Preprints): der Server ist kein Teil des Titels.
+    plain = re.sub(r"[.,]\s*(?:arXiv|bioRxiv|medRxiv|SSRN|PsyArXiv|SocArXiv|Preprints?)(?:\s+preprint)?\s*$", "", plain,
+                   flags=re.IGNORECASE)
+    year = re.search(r"\((1[89]\d{2}|20\d{2})[a-z]?\)", plain) or _YEAR_RE.search(plain)
+    r["year"] = year.group(1) if year else None
+    r["title"] = _claimed_title(plain, year)
+    italic = re.search(r"\*([^*]{3,200})\*", plain)
+    if italic and r["title"] and italic.group(1).strip().rstrip(".,") != r["title"]:
+        r["venue"] = re.sub(r",\s*\d.*$", "", italic.group(1)).strip()  # "*Organization Science, 13*" → Zeitschrift
+    head = plain[:year.start()] if year else plain.split(".")[0]
+    r["authors"] = _surnames_from_text(head) if (year or r["title"]) else []
+    initials = _initials_first(plain)
+    if initials:  # "Y. Bengio, P. Simard, and P. Frasconi. Titel. Zeitschrift, 1994." (IEEE, CVPR)
+        r["authors"], title = initials
+        if title and not re.search(r"[\"“„«‘]", line):
+            r["title"] = title
+
+    has_id = bool(r["doi"] or r["arxiv"] or r["pmid"])
+    looks_like_ref = bool(r["title"]) or (bool(r["year"]) and len(plain.split()) >= 6)
+    if not has_id and not looks_like_ref:
+        return None  # Überschrift, Fließtext, Leerzeile
+    if not r["title"] and len(plain.split()) >= 4:
+        r["query"] = plain[:300]  # ganze Angabe als Suchtext
+    return r
+
+
+_INITIALS_START = re.compile(r"^(?:[A-Z]\.\s?-?){1,4}\s*(?:(?:van|von|de|der|den|da|di|le|la)\s+)*[A-ZÄÖÜ][\w'’\-]+")
+
+
+def _initials_first(plain: str):
+    """(Nachnamen, Titel) bei Angaben, die mit Initialen beginnen, sonst None.
+
+    Getrennt wird an Punkten, die nicht nach einer Initiale stehen: "C. R. Harris et al. Array …".
+    """
+    if not _INITIALS_START.match(plain):
+        return None
+    segs = [x.strip() for x in re.split(r"(?<![A-Z])\.\s+", plain) if x.strip()]
+    if len(segs) < 2:
+        return None
+    names = re.findall(r"(?:[A-Z]\.\s?-?)+\s*((?:(?:van|von|de|der|den|da|di|le|la)\s+)*[A-ZÄÖÜ][\w'’\-]+)", segs[0])
+    title = segs[1].rstrip(".,") if len(segs[1].split()) >= 2 else None
+    return names[:8], title
+
+
+def parse_text(text: str) -> List[Ref]:
+    refs: List[Ref] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        # Reine Listen von Kennungen ("10.1/a; 10.2/b") in Einzelteile zerlegen.
+        tokens = [t for t in re.split(r"[;,\s]+", line.strip()) if t]
+        if len(tokens) > 1 and all(clean_doi(t) or _ARXIV_RE.search(t) for t in tokens):
+            for t in tokens:
+                ref = _text_ref(t)
+                if ref:
+                    refs.append(ref)
+            continue
+        ref = _text_ref(line)
+        if ref:
+            refs.append(ref)
+    return refs
+
+
+# --------------------------------------------------------------------------
+# Einstieg
+# --------------------------------------------------------------------------
+def detect_format(text: str) -> str:
+    if re.search(r"@\s*(article|book|inproceedings|incollection|misc|phdthesis|techreport|online|report|conference)\s*[{(]", text, re.IGNORECASE):
+        return "bibtex"
+    if re.search(r"^TY  - ", text, re.MULTILINE) and re.search(r"^ER  -", text, re.MULTILINE):
+        return "ris"
+    return "text"
+
+
+def _key(r: Ref) -> str:
+    if r.get("doi"):
+        return "doi:" + str(r["doi"]).lower()
+    if r.get("arxiv"):
+        return "arxiv:" + str(r["arxiv"]).lower()
+    if r.get("pmid"):
+        return "pmid:" + str(r["pmid"])
+    return "t:" + normalize_title(str(r.get("title") or r.get("query") or r.get("raw")))
+
+
+def parse(text: str) -> List[Ref]:
+    """Findet alle Literaturangaben in ``text`` (ohne Duplikate, Reihenfolge bleibt)."""
+    fmt = detect_format(text or "")
+    if fmt == "bibtex":
+        found = parse_bibtex(text)
+    elif fmt == "ris":
+        found = parse_ris(text)
+    else:
+        found = parse_text(text or "")
+    out, seen = [], set()
+    for r in found:
+        # arXiv-Kennung ohne DOI: die DataCite-DOI ist bekannt und eindeutig.
+        if r.get("arxiv") and not r.get("doi"):
+            r["doi"] = arxiv_doi(str(r["arxiv"]))
+        k = _key(r)
+        if k in seen:
+            continue
+        seen.add(k)
+        r["label"] = label(r)
+        out.append(r)
+    return out
+
+
+def label(r: Ref) -> str:
+    """Kurze Anzeige für Fortschritt und Protokoll."""
+    if r.get("title"):
+        return str(r["title"])[:90]
+    if r.get("doi"):
+        return str(r["doi"])
+    if r.get("pmid"):
+        return "PMID " + str(r["pmid"])
+    return str(r.get("query") or r.get("raw") or "")[:90]
+
+
+def summary(refs: List[Ref]) -> Dict[str, object]:
+    """Zählt, was gefunden wurde (für die Vorschau beim Einfügen)."""
+    fmt = refs[0]["format"] if refs else None
+    return {
+        "count": len(refs),
+        "with_doi": sum(1 for r in refs if r.get("doi")),
+        "with_pmid": sum(1 for r in refs if r.get("pmid") and not r.get("doi")),
+        "title_only": sum(1 for r in refs if not r.get("doi") and not r.get("pmid")),
+        "format": fmt,
+    }

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Benthic · Quellen prüfen und laden</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.0.0">
+  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
+</head>
+<body>
+  <!-- Icon set: 24 px grid, 1.75 stroke, round caps. One icon per view, state and action. -->
+  <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h3"/><path d="M11 12h9"/><circle cx="9" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/></symbol>
+      <!-- states -->
+      <symbol id="i-library" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></symbol>
+      <symbol id="i-legal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></symbol>
+      <symbol id="i-oa" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.8"/></symbol>
+      <symbol id="i-blocked" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+      <symbol id="i-route" viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M3 19c2 0 2.4-1.6 4.5-1.6S10 19 12 19s2.4-1.6 4.5-1.6S19 19 21 19"/></symbol>
+      <symbol id="i-absent" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M8 11h6"/></symbol>
+      <symbol id="i-fail" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><circle cx="8" cy="16" r="3.5"/><circle cx="15" cy="9" r="2.4"/><circle cx="18.5" cy="3.8" r="1.3"/></symbol>
+      <symbol id="i-cancel" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 10v4"/><path d="M12 17.5h0"/></symbol>
+      <symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 12v6"/><path d="m9 15 3 3 3-3"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-verify" viewBox="0 0 24 24"><path d="M10 6h10"/><path d="M10 12h10"/><path d="M10 18h10"/><path d="m3.5 6 1.5 1.5L7.5 5"/><path d="m3.5 12 1.5 1.5 2.5-2.5"/><path d="m3.5 18 1.5 1.5 2.5-2.5"/></symbol>
+      <symbol id="i-question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6"/><path d="M12 16.8h0"/></symbol>
+      <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></symbol>
+      <symbol id="i-notequal" viewBox="0 0 24 24"><path d="M5 9h14"/><path d="M5 15h14"/><path d="M16 5 8 19"/></symbol>
+      <symbol id="i-fix" viewBox="0 0 24 24"><path d="m15 4 5 5L9 20H4v-5z"/><path d="m13 6 5 5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v5"/><path d="M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12"/><path d="M18 6 6 18"/></symbol>
+      <symbol id="i-quote" viewBox="0 0 24 24"><path d="M7 7h4v4c0 3-1.5 5-4 6"/><path d="M15 7h4v4c0 3-1.5 5-4 6"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-mark" src="/static/favicon.svg" width="36" height="36" alt="">
+        <div class="brand-text">
+          <span class="wordmark">Benthic</span>
+          <span class="descriptor">Quellen prüfen und laden</span>
+        </div>
+      </div>
+
+      <div class="project-switch" title="Neue Prüfungen und Downloads landen im aktiven Projekt">
+        <svg class="ic"><use href="#i-folder"/></svg>
+        <label for="project-select" class="sr-only">Aktives Projekt</label>
+        <select id="project-select"><option value="">Kein Projekt</option></select>
+      </div>
+      <button class="cmdk" id="cmdk-btn" type="button" title="Befehle und Suche (⌘K)">
+        <svg class="ic"><use href="#i-search"/></svg><span>Suchen und Befehle</span><kbd>⌘K</kbd>
+      </button>
+
+      <nav class="side-nav" aria-label="Ansichten">
+        <button class="nav-item" data-view="overview" type="button">
+          <svg class="ic"><use href="#i-chart"/></svg><span>Übersicht</span>
+        </button>
+        <button class="nav-item active" data-view="verify" type="button">
+          <svg class="ic"><use href="#i-verify"/></svg><span>Prüfen</span>
+        </button>
+        <button class="nav-item" data-view="batch" type="button">
+          <svg class="ic"><use href="#i-file"/></svg><span>Stapelprüfung</span>
+        </button>
+        <span class="nav-sep" aria-hidden="true"></span>
+        <button class="nav-item" data-view="projects" type="button">
+          <svg class="ic"><use href="#i-folder"/></svg><span>Projekte</span><b class="nav-badge" id="nav-watch" hidden></b>
+        </button>
+        <button class="nav-item" data-view="library" type="button">
+          <svg class="ic"><use href="#i-book"/></svg><span>Bibliothek</span>
+        </button>
+        <button class="nav-item" data-view="download" type="button">
+          <svg class="ic"><use href="#i-download"/></svg><span>Download</span>
+        </button>
+        <span class="nav-sep" aria-hidden="true"></span>
+        <button class="nav-item" data-view="history" type="button">
+          <svg class="ic"><use href="#i-clock"/></svg><span>Verlauf</span>
+        </button>
+        <span class="nav-sep" aria-hidden="true"></span>
+        <button class="nav-item" data-view="settings" type="button">
+          <svg class="ic"><use href="#i-sliders"/></svg><span>Einstellungen</span>
+        </button>
+        <button class="nav-item" data-view="about" type="button">
+          <svg class="ic"><use href="#i-user"/></svg><span>Über Benthic</span>
+        </button>
+      </nav>
+
+      <div class="side-foot">
+        <button class="ai-status" id="ai-status" type="button" title="KI-Anbindung in den Einstellungen">
+          <span class="ai-dot"></span><span id="ai-status-text">KI: nicht verbunden</span>
+        </button>
+        <button class="mode-badge needs-routes" id="mode-badge" type="button" title="Zusatzwege in den Einstellungen umschalten">
+          <svg class="ic"><use href="#i-shield"/></svg>
+          <span class="mode-text"><strong id="mode-title">Nur Open Access</strong><span id="mode-sub">Zusatzwege aus</span></span>
+        </button>
+        <div class="side-stats">
+          <div class="stat"><span class="num" id="side-count">0</span><span class="lbl">DOIs</span></div>
+          <div class="stat"><span class="num" id="side-runs">0</span><span class="lbl">Läufe</span></div>
+        </div>
+        <div class="health" title="Serverstatus"><span class="dot" id="health-dot"></span><span id="health">verbinde …</span></div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="update-banner" id="update-banner" hidden role="status">
+        <svg class="ic"><use href="#i-download"/></svg>
+        <div class="ub-text"><strong id="ub-title"></strong><span id="ub-notes"></span></div>
+        <button class="btn primary small" id="ub-get" type="button">Herunterladen</button>
+        <button class="btn ghost small" id="ub-later" type="button">Später</button>
+      </div>
+      <!-- Übersicht -->
+      <section class="view" id="view-overview">
+        <header class="view-head">
+          <h1>Übersicht</h1>
+          <p>Wie verlässlich sind die Quellen aus deinen LLM-Recherchen, und wie viel davon liegt schon in deiner Bibliothek?</p>
+        </header>
+        <div class="filters" role="group" aria-label="Filter">
+          <label class="filter"><svg class="ic"><use href="#i-folder"/></svg>
+            <select id="ov-project" aria-label="Projekt"><option value="">Alle Projekte</option></select>
+          </label>
+          <div class="segmented" id="ov-range" role="radiogroup" aria-label="Zeitraum">
+            <button type="button" role="radio" data-days="" aria-checked="true">Gesamt</button>
+            <button type="button" role="radio" data-days="30" aria-checked="false">30 Tage</button>
+            <button type="button" role="radio" data-days="7" aria-checked="false">7 Tage</button>
+          </div>
+          <span class="hint" id="ov-scope"></span>
+        </div>
+
+        <div class="ov-empty card" id="ov-empty" hidden>
+          <svg class="ic"><use href="#i-chart"/></svg>
+          <h2>Noch keine Zahlen</h2>
+          <p class="hint">Prüfe eine Literaturliste, dann füllt sich die Übersicht.</p>
+          <button class="btn primary" id="ov-start" type="button"><svg class="ic"><use href="#i-verify"/></svg>Beispiel prüfen</button>
+        </div>
+
+        <div id="ov-body">
+          <div class="kpis" id="ov-kpis"></div>
+          <div class="card">
+            <div class="card-head"><h2>Vom LLM-Vorschlag zur Bibliothek</h2><span class="hint">Quellen je Stufe</span></div>
+            <div class="funnel" id="ov-funnel"></div>
+          </div>
+          <div class="ov-grid">
+            <div class="card">
+              <div class="card-head"><h2>Wie Quellen geladen wurden</h2></div>
+              <div class="share" id="ov-share"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>Woher die PDFs kamen</h2><span class="hint">Open-Access-Quellen</span></div>
+              <div class="barlist" id="ov-sources"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>Urteile der Prüfung</h2></div>
+              <div class="barlist" id="ov-verdicts"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>Auffällige Quellen</h2><span class="hint">zurückgezogen, erfunden, falsch zugeordnet</span></div>
+              <div class="flag-list" id="ov-flagged"></div>
+            </div>
+          </div>
+          <details class="card table-view">
+            <summary>Alle Zahlen als Tabelle</summary>
+            <div class="table-wrap"><table class="plain" id="ov-table"></table></div>
+          </details>
+        </div>
+      </section>
+
+      <!-- Prüfen: Paste anything + Hallucination-Check -->
+      <section class="view active" id="view-verify">
+        <header class="view-head">
+          <h1>Quellen prüfen</h1>
+          <p>Füge eine LLM-Antwort, eine Literaturliste, BibTeX oder RIS ein. Benthic findet jede Quelle, prüft, ob es sie gibt und ob sie zur Angabe passt, und meldet zurückgezogene Arbeiten.</p>
+        </header>
+
+        <div class="card">
+          <div class="dropzone" id="verify-drop">
+            <textarea id="verify-input" spellcheck="false" aria-label="Literaturangaben"
+              placeholder="Hier einfügen, zum Beispiel die Literaturliste aus ChatGPT oder Claude.&#10;&#10;Oder eine ganze Arbeit als PDF oder Word-Datei hierherziehen, oder eine .bib-, .ris-, .txt- oder .md-Datei."></textarea>
+            <div class="drop-overlay" aria-hidden="true"><svg class="ic"><use href="#i-upload"/></svg>Datei loslassen</div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="verify-btn" type="button"><svg class="ic"><use href="#i-verify"/></svg>Prüfen</button>
+            <label class="btn" for="verify-file"><svg class="ic"><use href="#i-upload"/></svg>Datei laden</label>
+            <input type="file" id="verify-file" accept=".bib,.ris,.txt,.md,.markdown,.csv,.nbib,.pdf,.docx,.tex,.ltx,.zip" multiple hidden>
+            <button class="btn ghost" id="verify-sample" type="button">Beispiel einfügen</button>
+            <button class="btn ghost" id="watch-file-btn" type="button" title="Bei jedem Sichern neu prüfen"><svg class="ic"><use href="#i-clock"/></svg>Datei beobachten</button>
+            <span class="counter" id="verify-preview">Noch nichts eingefügt</span>
+            <span class="project-hint" hidden></span>
+          </div>
+          <div class="watch-files" id="watch-files" hidden></div>
+        </div>
+
+        <div class="card" id="verify-progress" hidden>
+          <div class="card-head">
+            <h2>Prüfung</h2>
+            <span id="verify-status"></span>
+          </div>
+          <p class="notice warn" id="verify-paused" hidden></p>
+          <div class="progressbar" id="verify-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="progressbar-fill" id="verify-fill"></div>
+          </div>
+          <div class="progress-meta">
+            <span class="num" id="verify-count">0 / 0</span>
+            <span class="num" id="verify-eta"></span>
+          </div>
+          <div class="dive" id="verify-dive" aria-hidden="true"></div>
+          <div class="live-now" id="verify-live"></div>
+        </div>
+
+        <div class="card" id="verify-results" data-tab="sources" hidden>
+          <div class="card-head">
+            <h2 id="verify-title">Prüfbericht</h2>
+            <div class="chips" id="verify-stats"></div>
+          </div>
+          <div class="trust" id="verify-trust" aria-hidden="true"></div>
+          <nav class="report-tabs segmented" id="report-tabs" aria-label="Teile des Prüfberichts">
+            <button type="button" data-tab="sources" class="on">Quellen</button>
+            <button type="button" data-tab="document">Abgleich und Zitate</button>
+            <button type="button" data-tab="style">Zitierstil</button>
+            <button type="button" data-tab="list">Liste</button>
+          </nav>
+          <section class="doc-check" id="verify-doc" aria-label="Abgleich mit der Arbeit" hidden></section>
+          <section class="paper-health" id="verify-health" aria-label="Gesundheit der Literaturliste" hidden></section>
+          <section class="missing-works" id="verify-missing" aria-label="Oft zitiert von deinen Quellen" hidden></section>
+          <section class="style-check" id="verify-style" aria-label="Zitierstil" hidden></section>
+          <div class="table-wrap">
+            <table class="results verify">
+              <thead>
+                <tr><th class="c-state">Urteil</th><th>Angabe und Fund</th><th class="c-score">Übereinst.</th><th class="c-act"><span class="sr-only">Link</span></th></tr>
+              </thead>
+              <tbody id="verify-body"></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="verify-fetch-btn" type="button"><svg class="ic"><use href="#i-download"/></svg><span>Bestätigte laden</span></button>
+            <button class="btn" id="verify-copy-btn" type="button"><svg class="ic"><use href="#i-copy"/></svg>DOIs kopieren</button>
+            <button class="btn" id="verify-zotero-btn" type="button"><svg class="ic"><use href="#i-book"/></svg>An Zotero senden</button>
+            <button class="btn" id="verify-csv-btn" type="button"><svg class="ic"><use href="#i-file"/></svg>Export CSV</button>
+            <button class="btn" id="verify-xlsx-btn" type="button"><svg class="ic"><use href="#i-file"/></svg>Export XLSX</button>
+            <button class="btn" id="verify-report-btn" type="button" title="Bericht als PDF sichern"><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download -->
+      <section class="view" id="view-download">
+        <header class="view-head">
+          <h1>Download</h1>
+          <p>DOIs oder eine ganze Literaturliste einfügen. Benthic prüft zuerst die Bibliothek, dann Open Access, und zeigt sonst den Weg über deinen Hochschulzugang.</p>
+        </header>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>DOIs einfügen</h2>
+            <span class="hint">getrennt durch <kbd>;</kbd> <kbd>,</kbd> oder Zeilenumbruch</span>
+          </div>
+          <textarea id="doi-input" spellcheck="false" aria-label="DOIs"
+            placeholder="10.1038/s41586-020-2649-2&#10;10.1126/science.1065467&#10;10.1016/j.cell.2019.01.001"></textarea>
+          <div class="actions">
+            <button class="btn primary" id="download-btn" type="button"><svg class="ic"><use href="#i-download"/></svg>Download starten</button>
+            <button class="btn" id="check-oa-btn" type="button">Nur prüfen (mit OA)</button>
+            <button class="btn ghost" id="check-library-btn" type="button">Nur prüfen (Bibliothek)</button>
+            <span class="counter" id="doi-counter">0 DOIs</span>
+            <span class="project-hint" hidden></span>
+          </div>
+
+          <div class="route" aria-label="Ablauf">
+            <div class="route-stage surface">
+              <span class="route-depth">Oberfläche</span>
+              <span class="route-name"><svg class="ic"><use href="#i-library"/></svg>Bibliothek</span>
+            </div>
+            <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
+            <div class="route-stage shallow">
+              <span class="route-depth">Open Access</span>
+              <span class="route-sources" id="cascade"></span>
+            </div>
+            <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
+            <div class="route-stage deep needs-routes" id="route-extra">
+              <span class="route-depth">Zusatzwege</span>
+              <span class="route-name"><svg class="ic"><use href="#i-route"/></svg><span id="route-extra-label"></span></span>
+            </div>
+            <svg class="ic route-arrow needs-routes" aria-hidden="true"><use href="#i-chevron"/></svg>
+            <div class="route-stage legal-deep">
+              <span class="route-depth">Hochschulzugang</span>
+              <span class="route-name"><svg class="ic"><use href="#i-link"/></svg>Proxy-Link</span>
+            </div>
+          </div>
+
+          <div class="quick-toggles">
+            <label class="switch needs-routes"><input type="checkbox" id="quick-routes"><span class="track" aria-hidden="true"></span><span>Zusatzwege nach Open Access</span></label>
+            <label class="check"><input type="checkbox" id="quick-skip"><span>Vorhandene überspringen</span></label>
+            <label class="check"><input type="checkbox" id="quick-prefer"><span>Verlagsversion bevorzugen</span></label>
+            <label class="field">Parallel <input type="number" id="quick-concurrency" min="1" max="8" step="1"></label>
+          </div>
+        </div>
+
+        <div class="card" id="progress-card" hidden>
+          <div class="card-head">
+            <h2>Fortschritt</h2>
+            <span id="progress-status"></span>
+          </div>
+          <div class="progressbar" id="progressbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="progressbar-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-meta">
+            <span class="num" id="progress-count">0 / 0 · 0 %</span>
+            <span class="num" id="progress-eta"></span>
+          </div>
+          <div class="dive" id="dive" aria-hidden="true"></div>
+          <div class="chips" id="progress-stats"></div>
+          <div class="live-now" id="live-now"></div>
+          <details class="log" open>
+            <summary>Protokoll</summary>
+            <div class="event-feed" id="event-feed"></div>
+          </details>
+          <div class="notice warn" id="progress-dir" hidden></div>
+          <div class="actions">
+            <button class="btn" id="cancel-btn" type="button"><svg class="ic"><use href="#i-cancel"/></svg>Abbrechen</button>
+          </div>
+        </div>
+
+        <div class="card" id="results-card" hidden>
+          <div class="card-head">
+            <h2 id="results-title">Ergebnisse</h2>
+            <div class="chips" id="results-stats"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="results">
+              <thead>
+                <tr><th class="c-state">Ergebnis</th><th>Titel und DOI</th><th class="c-src">Quelle</th><th class="c-act"><span class="sr-only">Link</span></th></tr>
+              </thead>
+              <tbody id="results-body"></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="retry-failed-btn" type="button" hidden><svg class="ic"><use href="#i-retry"/></svg><span>Fehlgeschlagene erneut versuchen</span></button>
+            <button class="btn" id="export-csv-btn" type="button"><svg class="ic"><use href="#i-file"/></svg>Export CSV</button>
+            <button class="btn" id="export-xlsx-btn" type="button"><svg class="ic"><use href="#i-file"/></svg>Export XLSX</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Projekte -->
+      <section class="view" id="view-projects">
+        <header class="view-head">
+          <h1>Projekte</h1>
+          <p>Eine Forschungsfrage, ihre Quellen, Prüfungen und Downloads. Neue Prüfungen und Downloads landen im aktiven Projekt, auch die, die Claude startet.</p>
+        </header>
+        <div class="card">
+          <div class="new-project">
+            <input type="text" id="project-name" placeholder="Neues Projekt, z. B. LLMs in der Hochschullehre" autocomplete="off" aria-label="Projektname">
+            <input type="text" id="project-desc" placeholder="Kurzbeschreibung (optional)" autocomplete="off" aria-label="Beschreibung">
+            <button class="btn primary" id="project-create" type="button"><svg class="ic"><use href="#i-plus"/></svg>Anlegen</button>
+          </div>
+        </div>
+        <section class="watch-panel" id="watch-panel" aria-label="Rückzugswache" hidden></section>
+        <div class="project-grid" id="project-grid"></div>
+        <div class="card" id="project-detail" hidden>
+          <div class="card-head">
+            <div class="pd-title">
+              <h2 id="pd-name"></h2>
+              <p class="hint" id="pd-desc"></p>
+            </div>
+            <div class="chips" id="pd-stats"></div>
+          </div>
+          <section class="paper-health" id="pd-health" aria-label="Gesundheit der Literaturliste" hidden></section>
+          <section class="missing-works" id="pd-missing" aria-label="Oft zitiert von deinen Quellen" hidden></section>
+          <div class="table-wrap">
+            <table class="results project">
+              <thead>
+                <tr><th class="c-state">Prüfung</th><th>Quelle</th><th class="c-src">Bibliothek</th><th class="c-act"><span class="sr-only">Entfernen</span></th></tr>
+              </thead>
+              <tbody id="pd-body"></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="pd-fetch" type="button"><svg class="ic"><use href="#i-download"/></svg><span>Fehlende laden</span></button>
+            <span class="joined">
+              <select id="pd-format" aria-label="Format">
+                <option value="bibtex">BibTeX</option>
+                <option value="ris">RIS</option>
+                <option value="text:apa">APA</option>
+                <option value="text:harvard">Harvard</option>
+                <option value="text:chicago">Chicago</option>
+                <option value="text:ieee">IEEE</option>
+                <option value="text:din">DIN 1505</option>
+              </select>
+              <button class="btn" id="pd-export" type="button"><svg class="ic"><use href="#i-quote"/></svg>Literaturverzeichnis</button>
+            </span>
+            <button class="btn" id="pd-zotero" type="button"><svg class="ic"><use href="#i-book"/></svg>An Zotero senden</button>
+            <button class="btn" id="pd-recheck" type="button"><svg class="ic"><use href="#i-verify"/></svg>Alle Quellen neu prüfen</button>
+            <button class="btn" id="pd-watch-now" type="button"><svg class="ic"><use href="#i-shield"/></svg>Rückzüge jetzt prüfen</button>
+            <button class="btn" id="pd-report" type="button" hidden><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
+            <button class="btn" id="pd-activate" type="button">Aktiv setzen</button>
+            <button class="btn ghost danger" id="pd-delete" type="button">Projekt löschen</button>
+          </div>
+          <label class="check pd-watch"><input type="checkbox" id="pd-watch-toggle"><span>Dieses Projekt täglich auf Rückzüge prüfen</span></label>
+          <div class="pd-runs" id="pd-runs" hidden>
+            <h3>Läufe in diesem Projekt</h3>
+            <ul id="pd-runs-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stapelprüfung -->
+      <section class="view" id="view-batch">
+        <header class="view-head">
+          <h1>Stapelprüfung</h1>
+          <p>Einen Ordner mit Abgaben prüfen: PDF, Word, Text oder LaTeX (als .zip oder als Ordner mit der .tex-Datei). Je Arbeit eine Zeile in der Übersicht und ein eigener Bericht.</p>
+        </header>
+        <div class="card">
+          <div class="batch-options">
+            <label class="check"><input type="checkbox" id="batch-recursive" checked><span>Unterordner einbeziehen (ein Ordner je Abgabe)</span></label>
+            <label class="check"><input type="checkbox" id="batch-quotes"><span>Wörtliche Zitate prüfen (lädt dafür die frei verfügbaren PDFs der zitierten Quellen)</span></label>
+            <label class="check"><input type="checkbox" id="batch-project"><span>Ergebnisse in ein neues Projekt übernehmen</span></label>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="batch-pick" type="button"><svg class="ic"><use href="#i-folder"/></svg>Ordner wählen und prüfen</button>
+            <select id="batch-select" aria-label="Frühere Stapel"></select>
+            <span class="hint" id="batch-quota"></span>
+          </div>
+          <p class="hint batch-privacy">Die Arbeiten bleiben auf diesem Mac. Wie bei jeder Prüfung gehen nur die Literaturangaben (DOI, Titel, Autor:innen) an Crossref, OpenAlex, Semantic Scholar und arXiv, nie der Text der Arbeiten. Sag den Studierenden, dass ihre Literaturlisten so geprüft werden.</p>
+        </div>
+        <div class="card" id="batch-card" hidden>
+          <div class="card-head">
+            <div>
+              <h2 id="batch-title"></h2>
+              <p class="hint" id="batch-state"></p>
+            </div>
+            <div class="actions tight">
+              <button class="btn small" id="batch-pdf" type="button"><svg class="ic"><use href="#i-file"/></svg>Sammelbericht (PDF)</button>
+              <button class="btn small" id="batch-csv" type="button">CSV</button>
+              <button class="btn small" id="batch-xlsx" type="button">Excel</button>
+              <button class="btn small ghost" id="batch-rerun" type="button" hidden>Fehlgeschlagene erneut prüfen</button>
+              <button class="btn small ghost danger" id="batch-cancel" type="button" hidden>Abbrechen</button>
+            </div>
+          </div>
+          <div class="progressbar" id="batch-bar"><div class="progressbar-fill" id="batch-fill"></div></div>
+          <div class="batch-totals" id="batch-totals"></div>
+          <div class="batch-filter">
+            <label class="check"><input type="checkbox" id="batch-only-problems"><span>Nur Arbeiten mit Problemen</span></label>
+          </div>
+          <div class="table-wrap">
+            <table class="results batch">
+              <thead>
+                <tr><th data-sort="name">Datei</th><th class="num" data-sort="entries">Einträge</th><th class="num" data-sort="missing">Zitate ohne Eintrag</th><th class="num" data-sort="uncited">Einträge ohne Zitat</th><th class="num" data-sort="not_found">Nicht auffindbar</th><th class="num" data-sort="mismatch">Passt nicht</th><th class="num" data-sort="retracted">Zurückgezogen</th><th class="num" data-sort="quotes_bad">Zitate auffällig</th><th class="num" data-sort="style">Stilhinweise</th><th class="c-act"><span class="sr-only">Aktionen</span></th></tr>
+              </thead>
+              <tbody id="batch-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Über Benthic -->
+      <section class="view" id="view-about">
+        <header class="view-head">
+          <h1>Über Benthic</h1>
+          <p>Wer Benthic entwickelt, wofür es steht und woher seine Daten kommen.</p>
+        </header>
+        <div class="card about-card">
+          <div class="about-dev">
+            <div>
+              <h2>Sinan Isoglu</h2>
+              <p class="about-role">Führungskraft für Umsatzwachstum, Dozent und Doktorand</p>
+              <p>Benthic wird von Sinan Isoglu entwickelt und gepflegt. Er arbeitet an profitablem Umsatzwachstum in DACH und EMEA, lehrt an Hochschulen und forscht als Doktorand an der EM Normandie Business School über die Integration von Vertrieb und Marketing nach grenzüberschreitenden Übernahmen. Studiert hat er Betriebswirtschaft an der FH Münster (B.A.) und an der Quantic School of Business and Technology (MBA).</p>
+              <p class="about-links"><a href="https://isoglu.com/" target="_blank" rel="noopener">isoglu.com</a> · <a href="https://orcid.org/0009-0008-2450-5106" target="_blank" rel="noopener">ORCID</a> · <a href="https://github.com/isoglu/benthic" target="_blank" rel="noopener">GitHub</a> · <a href="https://benthic.isoglu.com/roadmap/" target="_blank" rel="noopener">Roadmap und Wünsche</a> · <a href="https://isoglu.com/contact/" target="_blank" rel="noopener">Kontakt</a></p>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Wofür Benthic steht</h2></div>
+          <ul class="about-list">
+            <li><strong>Kostenlos und quelloffen.</strong> <span>Der Quellcode liegt auf GitHub unter der Lizenz AGPL-3.0.</span></li>
+            <li><strong>Kein Konto, keine Telemetrie.</strong> <span>Benthic zählt nicht mit, was du tust. Bibliothek, Projekte und Berichte bleiben auf deinem Mac.</span></li>
+            <li><strong>Nur frei verfügbare Volltexte.</strong> <span>Benthic umgeht keine Paywalls; für alles andere zeigt es den Weg über deine Hochschulbibliothek.</span></li>
+            <li><strong>Offen über Grenzen.</strong> <span>Urteile sind begründete Hinweise, keine Gutachten. Jede Zeile zeigt, welche Quellen gefragt wurden, und unter Einstellungen › Nutzung und Grenzen steht jede Anfrage.</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Woher die Daten kommen</h2></div>
+          <p class="hint card-lead">Benthic fragt öffentliche Verzeichnisse und dankt ihren Betreibern: Crossref (mit der Datenbank von Retraction Watch), OpenAlex, Semantic Scholar, arXiv, doi.org, Unpaywall, Europe PMC, CORE, Open Library und JUFO (Julkaisufoorumi). Die Listen zu Zeitschriften stammen vom DOAJ (CC BY-SA 4.0 und CC0); die zuschaltbare Prüfung gekaperter Websites nutzt den Hijacked Journal Checker von Retraction Watch.</p>
+          <p class="hint" id="about-version"></p>
+        </div>
+      </section>
+
+      <!-- Bibliothek -->
+      <section class="view" id="view-library">
+        <header class="view-head">
+          <h1>Bibliothek</h1>
+          <p>Was bereits in der Bibliothek ist, lädt Benthic nicht erneut.</p>
+        </header>
+        <div class="card">
+          <div class="card-head">
+            <h2>Index</h2>
+            <div class="chips" id="library-stats"></div>
+          </div>
+          <div class="actions tight">
+            <button class="btn primary" id="library-scan-btn" type="button">Quellen scannen</button>
+            <button class="btn ghost danger" id="library-clear-btn" type="button">Bibliothek leeren</button>
+            <span class="hint" id="library-msg"></span>
+          </div>
+          <div class="entry-list" id="library-entries"></div>
+        </div>
+        <div class="card" id="zotero-card">
+          <div class="card-head">
+            <h2>Zotero</h2>
+            <span class="hint" id="zotero-state"></span>
+          </div>
+          <p class="hint card-lead">Bestätigte Quellen schickst du aus dem Prüfbericht oder einem Projekt in die Sammlung, die in Zotero gerade offen ist. Hier prüft Benthic deine ganze Zotero-Bibliothek auf Rückzüge, Bedenken und Korrekturen. Benthic liest dafür eine Kopie der Datenbank und ändert in Zotero nichts.</p>
+          <div class="actions tight">
+            <button class="btn primary" id="zotero-scan-btn" type="button"><svg class="ic"><use href="#i-shield"/></svg>Zotero-Bibliothek prüfen</button>
+            <span class="hint" id="zotero-msg"></span>
+          </div>
+          <ul class="wp-list" id="zotero-flagged" hidden></ul>
+        </div>
+        <div class="card" id="files-card" hidden>
+          <div class="card-head">
+            <h2>Zuletzt heruntergeladen</h2>
+            <button class="btn ghost small" id="files-refresh-btn" type="button">Aktualisieren</button>
+          </div>
+          <div class="hint path" id="files-dir"></div>
+          <ul class="file-list" id="file-list"></ul>
+        </div>
+      </section>
+
+      <!-- Verlauf -->
+      <section class="view" id="view-history">
+        <header class="view-head">
+          <h1>Verlauf</h1>
+          <p>Die letzten 50 Läufe. Ergebnisse lassen sich erneut anzeigen und exportieren.</p>
+        </header>
+        <div class="card">
+          <div class="card-head">
+            <h2>Läufe</h2>
+            <button class="btn ghost small" id="history-refresh-btn" type="button">Aktualisieren</button>
+          </div>
+          <div class="history-list" id="history-list"></div>
+        </div>
+      </section>
+
+      <!-- Einstellungen -->
+      <section class="view" id="view-settings">
+        <header class="view-head with-action">
+          <div>
+            <h1>Einstellungen</h1>
+            <p>Quellen, Verhalten und Zugang. Gilt für Download und Prüfung.</p>
+          </div>
+          <button class="btn primary" id="settings-save-top" type="button">Speichern</button>
+        </header>
+        <nav class="settings-nav segmented" id="settings-nav" aria-label="Bereiche der Einstellungen">
+          <button type="button" data-section="general">Allgemein</button>
+          <button type="button" data-section="ai">KI-Anbindung</button>
+          <button type="button" data-section="sources">Quellen und Zugang</button>
+          <button type="button" data-section="journals">Zeitschriften und Listen</button>
+          <button type="button" data-section="apps">Aus anderen Apps</button>
+          <button type="button" data-section="usage">Nutzung und Grenzen</button>
+        </nav>
+
+        <div data-section="ai" class="card ai-card" id="ai-card">
+          <div class="card-head"><h2>KI-Anbindung (MCP)</h2><span id="ai-card-status"></span></div>
+          <p class="ai-lead">KI-Assistenten wie Claude, Codex oder Gemini CLI können Benthic als Werkzeug nutzen: Literaturlisten prüfen und bewerten, Quellen über Open Access laden, Artikel lesen und Literaturverzeichnisse erzeugen. Benthic lädt dabei nur frei verfügbare Fassungen.</p>
+          <div class="chips" id="ai-tools"></div>
+          <div class="assistant-pick">
+            <label for="ai-assistant">Dein Assistent</label>
+            <select id="ai-assistant"></select>
+          </div>
+          <div class="assistant-guide" id="ai-guide" aria-live="polite"></div>
+          <div class="ai-feed" id="ai-activity"></div>
+        </div>
+
+        <div data-section="general" class="card" id="update-card">
+          <div class="card-head"><h2>Updates</h2><span class="hint" id="upd-current"></span></div>
+          <div class="actions tight">
+            <button class="btn primary" id="upd-install" type="button" hidden><svg class="ic"><use href="#i-download"/></svg>Jetzt aktualisieren</button>
+            <button class="btn" id="upd-check" type="button"><svg class="ic"><use href="#i-retry"/></svg>Nach Updates suchen</button>
+            <span class="hint" id="upd-status"></span>
+          </div>
+          <details class="advanced" id="licenses">
+            <summary>Lizenzen und Hinweise</summary>
+            <p class="hint">Benthic, entwickelt von Sinan Isoglu, ist freie Software unter der GNU Affero General Public License 3.0 (AGPL-3.0). Mitgelieferte Bibliotheken und ihre Lizenzen:</p>
+            <pre id="licenses-text" class="licenses-text"></pre>
+          </details>
+        </div>
+
+        <div data-section="sources" class="card">
+          <div data-section="sources" class="card-head"><h2>Open-Access-Quellen</h2><span class="hint">in dieser Reihenfolge</span></div>
+          <div class="provider-grid" id="settings-providers"></div>
+        </div>
+
+        <div data-section="usage" class="card" id="usage-card">
+          <div class="card-head"><h2>Nutzung und Grenzen</h2><button class="btn ghost small" id="usage-refresh" type="button">Aktualisieren</button></div>
+          <p class="hint card-lead">Jede Anfrage an einen Dienst zählt Benthic hier mit. Benthic hält die Grenzen der Dienste ein, wartet bei kurzen Pausen und fragt einen Dienst nicht mehr, wenn sein Tageskontingent aufgebraucht ist. Die Arbeiten selbst verlassen den Mac nie; gesendet werden nur DOIs, Titel, Autor:innen und, für den höflichen Pool, deine E-Mail-Adresse.</p>
+          <div class="usage-table" id="usage-table"></div>
+          <details class="usage-log"><summary>Protokoll der letzten Anfragen</summary><ul id="usage-log"></ul></details>
+        </div>
+
+        <div data-section="apps" class="card" id="send-card">
+          <div class="card-head"><h2>Aus anderen Apps senden</h2><span class="hint">Literaturangaben markieren, Benthic prüft</span></div>
+          <ul class="send-ways">
+            <li><strong>Dienste-Menü:</strong> Text in einer beliebigen App markieren, dann Rechtsklick › Dienste › „Check References with Benthic“. Ein- und ausschalten, auch mit eigenem Kürzel: Systemeinstellungen › Tastatur › Tastaturkurzbefehle › Dienste.</li>
+            <li><strong>Browser:</strong> Ziehe diesen Knopf in die Lesezeichenleiste: <a class="bookmarklet" id="bookmarklet" href="#">Mit Benthic prüfen</a>. <span>Auf einer Seite (auch in ChatGPT oder Gemini im Browser) die Angaben markieren und das Lesezeichen anklicken.</span> <button class="btn ghost small" id="bookmarklet-copy" type="button">Code kopieren</button></li>
+            <li><strong>Link:</strong> <code id="send-scheme">benthic://check?text=…</code> öffnet Benthic mit dem Text und startet die Prüfung. Lange Texte gehen über die Zwischenablage: <code id="send-clip">benthic://check?clipboard=1</code>.</li>
+          </ul>
+        </div>
+
+        <div data-section="journals" class="card" id="rankings-card">
+          <div class="card-head"><h2>Zeitschriften und Rankinglisten</h2><span class="hint">für die Gesundheit einer Literaturliste</span></div>
+          <p class="hint card-lead">Zu jeder Quelle zeigt Benthic die Zeitschrift mit Kennzahlen von OpenAlex und der Stufe der finnischen JUFO-Liste. Rankinglisten wie VHB-JOURQUAL, ABDC, AJG oder einen SJR-Export lädst du beim Herausgeber herunter und importierst sie hier als CSV oder Excel. Benthic findet die Zeitschrift über ISSN und Titel. Zum Nachschlagen von Hand: <a href="https://www.journal-rankings.com/" target="_blank" rel="noopener">journal-rankings.com</a> und <a href="https://www.scimagojr.com/" target="_blank" rel="noopener">SCImago</a>.</p>
+          <div class="settings-stack">
+            <label class="check"><input type="checkbox" id="set-jufo"><span>JUFO-Stufen abfragen (Julkaisufoorumi, jufo-rest.csc.fi)</span></label>
+            <label class="check"><input type="checkbox" id="set-lists"><span>Zeitschriften markieren, die DOAJ wegen Verstößen gegen gute Praxis entfernt hat oder die fälschlich angeben, im DOAJ zu stehen (Listen von DOAJ, wöchentlich geladen)</span></label>
+            <label class="check"><input type="checkbox" id="set-hijacked"><span>Gekaperte Zeitschriften-Websites erkennen, wenn eine Angabe auf eine verweist (Retraction Watch Hijacked Journal Checker)</span></label>
+          </div>
+          <p class="hint" id="lists-state"></p>
+          <ul class="ranking-list" id="ranking-list"></ul>
+          <div class="ranking-add">
+            <input type="text" id="ranking-name" placeholder="Name, z. B. VHB-JOURQUAL 4" aria-label="Name der Rankingliste" autocomplete="off">
+            <input type="file" id="ranking-file" accept=".csv,.tsv,.txt,.xlsx,.xlsm" aria-label="Datei der Rankingliste">
+            <button class="btn" id="ranking-add-btn" type="button">Importieren</button>
+          </div>
+        </div>
+
+        <div data-section="general" class="card">
+          <div class="card-head"><h2>Darstellung und Sprache</h2><span class="hint">gilt sofort</span></div>
+          <div class="pref-rows">
+            <div class="pref-row">
+              <span class="pref-label" id="set-theme-label">Erscheinungsbild</span>
+              <div class="segmented" id="set-theme" role="radiogroup" aria-labelledby="set-theme-label">
+                <button type="button" role="radio" data-theme-mode="system" aria-checked="false">Automatisch (System)</button>
+                <button type="button" role="radio" data-theme-mode="light" aria-checked="false">Hell</button>
+                <button type="button" role="radio" data-theme-mode="dark" aria-checked="true">Dunkel</button>
+              </div>
+            </div>
+            <div class="pref-row">
+              <span class="pref-label" id="set-lang-label">Sprache</span>
+              <div class="segmented" id="set-lang" role="radiogroup" aria-labelledby="set-lang-label">
+                <button type="button" role="radio" data-lang="en" lang="en" aria-checked="true">English</button>
+                <button type="button" role="radio" data-lang="de" lang="de" aria-checked="false">Deutsch</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div data-section="general" class="card">
+          <div class="card-head"><h2>Verhalten</h2></div>
+          <div class="settings-stack">
+            <label class="switch block needs-routes">
+              <input type="checkbox" id="set-routes"><span class="track" aria-hidden="true"></span>
+              <span><strong>Zusatzwege nutzen</strong><span class="hint">Wege aus installierten Plugins; nur wenn keine Open-Access-Kopie bekannt ist. KI-Werkzeuge nutzen sie nie.</span></span>
+            </label>
+            <label class="check"><input type="checkbox" id="set-skip"><span>Vorhandene überspringen</span></label>
+            <label class="check"><input type="checkbox" id="set-prefer"><span>Verlagsversion bevorzugen</span></label>
+            <label class="field">Parallele Downloads <input type="number" id="set-concurrency" min="1" max="8" step="1"></label>
+          </div>
+        </div>
+
+        <div data-section="sources" class="card">
+          <div data-section="sources" class="card-head"><h2>Kontakt und Zugang</h2><button class="btn ghost small" id="setup-rerun-btn" type="button">Einrichtung erneut starten</button></div>
+          <div class="form-grid">
+            <label for="set-institution">Hochschule</label>
+            <input type="text" id="set-institution" placeholder="z. B. Universität Musterstadt" autocomplete="off">
+            <label for="set-email">Unpaywall-E-Mail</label>
+            <input type="text" id="set-email" placeholder="name@institution.de" autocomplete="off">
+            <label for="set-core-key">CORE-API-Key</label>
+            <input type="text" id="set-core-key" placeholder="optional, ohne Key mit Rate-Limit" autocomplete="off">
+            <label for="set-openalex-key">OpenAlex-API-Key</label>
+            <input type="text" id="set-openalex-key" placeholder="empfohlen, kostenlos bei openalex.org" autocomplete="off">
+            <label for="set-s2-key">Semantic-Scholar-API-Key</label>
+            <input type="text" id="set-s2-key" placeholder="optional, kostenlos auf Anfrage" autocomplete="off">
+            <label for="set-elsevier-key">Elsevier-API-Key</label>
+            <input type="text" id="set-elsevier-key" placeholder="optional, für ScienceDirect-PDFs" autocomplete="off">
+          </div>
+        </div>
+
+        <div data-section="sources" class="card">
+          <details class="advanced" open>
+            <summary>Erweitert</summary>
+            <div class="form-grid">
+              <label for="set-download-dir">Zielordner</label>
+              <input type="text" id="set-download-dir" placeholder="leer = App-Ordner">
+              <label for="set-proxy">Proxy-Präfix (Uni-Bibliothek)</label>
+              <input type="text" id="set-proxy" placeholder="https://ezproxy.example.edu/login?url=https://doi.org/">
+              <label for="set-requester">Eigener Name (Autor:innen-Anfrage)</label>
+              <input type="text" id="set-requester" placeholder="Name, Institution">
+              <label for="set-update-url">Update-Adresse (Manifest)</label>
+              <input type="text" id="set-update-url" placeholder="leer = beim Bauen hinterlegt" autocomplete="off">
+              <label for="set-sources">Bibliotheks-Quellen (eine pro Zeile)</label>
+              <textarea id="set-sources" class="small-area" placeholder="/pfad/zu/literatur.bib"></textarea>
+            </div>
+          </details>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" id="settings-save-btn" type="button">Einstellungen speichern</button>
+          <span class="hint" id="settings-saved"></span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Befehlspalette (Cmd+K) -->
+  <div class="palette" id="palette" hidden role="dialog" aria-modal="true" aria-label="Befehle und Suche">
+    <div class="palette-card">
+      <div class="palette-input">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input type="text" id="palette-input" placeholder="Befehl, Ansicht, Projekt oder Quelle suchen …" autocomplete="off" spellcheck="false"
+          role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list">
+        <kbd>esc</kbd>
+      </div>
+      <div class="palette-list" id="palette-list" role="listbox"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> wählen</span><span><kbd>↵</kbd> ausführen</span><span><kbd>⌘1</kbd> bis <kbd id="palette-last-key">⌘7</kbd> Ansichten</span></div>
+    </div>
+  </div>
+
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+
+  <!-- Ersteinrichtung -->
+  <div class="setup" id="setup" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div class="setup-card">
+      <ol class="setup-dots" id="setup-dots" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+
+      <section class="setup-step" data-step="0">
+        <img class="setup-mark" src="/static/favicon.svg" width="64" height="64" alt="">
+        <h2 id="setup-title">Wähle deine Sprache</h2>
+        <p class="lead">In dieser Sprache zeigt dir Benthic alles an. Du kannst sie später in den Einstellungen ändern.</p>
+        <div class="choices lang-choices" id="su-lang" role="radiogroup" aria-label="Sprache">
+          <button type="button" class="choice" role="radio" data-lang="en" lang="en" aria-checked="true"><span class="lang-code" aria-hidden="true">EN</span><span class="t"><strong>English</strong><span>Interface in English</span></span></button>
+          <button type="button" class="choice" role="radio" data-lang="de" lang="de" aria-checked="false"><span class="lang-code" aria-hidden="true">DE</span><span class="t"><strong>Deutsch</strong><span>Oberfläche auf Deutsch</span></span></button>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="1">
+        <h2>Willkommen bei Benthic</h2>
+        <p class="lead">LLMs nennen dir in Sekunden dutzende Quellen. Benthic macht daraus eine verlässliche Bibliothek.</p>
+        <ul class="setup-points">
+          <li><svg class="ic"><use href="#i-verify"/></svg><span><strong>Prüfen.</strong> Gibt es die Quelle wirklich, passt sie zur Angabe, ist sie zurückgezogen?</span></li>
+          <li><svg class="ic"><use href="#i-legal"/></svg><span><strong>Laden.</strong> Open Access zuerst, sonst über deinen Hochschulzugang.</span></li>
+          <li><svg class="ic"><use href="#i-library"/></svg><span><strong>Sammeln.</strong> Was du schon hast, lädt Benthic nicht doppelt.</span></li>
+        </ul>
+        <p class="hint">Die Einrichtung dauert etwa eine Minute. Alles lässt sich später in den Einstellungen ändern.</p>
+      </section>
+
+      <section class="setup-step" data-step="2">
+        <h2>Über dich</h2>
+        <p class="lead">Damit Open-Access-Dienste und deine Bibliothek dich erkennen.</p>
+        <div class="setup-form">
+          <label for="su-name">Name <span class="opt">optional</span></label>
+          <input type="text" id="su-name" autocomplete="name" placeholder="Vor- und Nachname">
+          <label for="su-email">E-Mail <span class="opt">empfohlen</span></label>
+          <input type="text" id="su-email" autocomplete="email" placeholder="name@hochschule.de">
+          <p class="help">Unpaywall und Crossref bitten um eine Kontaktadresse. Benthic sendet sie nur an diese Dienste.</p>
+          <label for="su-institution">Hochschule <span class="opt">optional</span></label>
+          <input type="text" id="su-institution" autocomplete="organization" placeholder="z. B. Universität Musterstadt">
+          <label for="su-proxy">Bibliotheks-Proxy <span class="opt">optional</span></label>
+          <div class="inline">
+            <input type="text" id="su-proxy" placeholder="https://ezproxy.hochschule.de/login?url=https://doi.org/">
+            <button class="btn small" id="su-proxy-test" type="button">Testen</button>
+          </div>
+          <p class="help">Frag deine Bibliothek nach dem EZproxy- oder OpenAthens-Link. Damit öffnen sich Artikel hinter einer Paywall über deinen Hochschulzugang.</p>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="3">
+        <h2>Ablage</h2>
+        <p class="lead">Hier speichert Benthic die PDFs.</p>
+        <div class="setup-form">
+          <label for="su-folder">Zielordner</label>
+          <div class="inline">
+            <input type="text" id="su-folder" spellcheck="false">
+            <button class="btn small" id="su-folder-pick" type="button"><svg class="ic"><use href="#i-folder"/></svg>Wählen</button>
+          </div>
+          <p class="help">Der Ordner wird angelegt, falls es ihn noch nicht gibt. Ein Cloud-Ordner (z. B. iCloud oder OneDrive) funktioniert auch.</p>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="4">
+        <h2>Deine Bibliothek</h2>
+        <p class="lead">Benthic merkt sich, was du schon hast, und lädt es nicht doppelt.</p>
+        <div class="choices" id="su-choices" role="radiogroup" aria-label="Bibliothek"></div>
+        <div class="setup-form" id="su-file-row" hidden>
+          <label for="su-file">Datei</label>
+          <div class="inline">
+            <input type="text" id="su-file" spellcheck="false" placeholder="/Pfad/zu/bibliothek.bib">
+            <button class="btn small" id="su-file-pick" type="button"><svg class="ic"><use href="#i-folder"/></svg>Wählen</button>
+          </div>
+          <p class="help">BibTeX, RIS, Markdown, Text oder die Zotero-Datenbank (zotero.sqlite). Zotero darf dabei geöffnet sein.</p>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="5">
+        <div class="setup-done"><svg class="ic"><use href="#i-legal"/></svg></div>
+        <h2>Alles bereit</h2>
+        <p class="lead" id="su-summary">Benthic ist eingerichtet.</p>
+        <ul class="setup-recap" id="su-recap"></ul>
+      </section>
+
+      <p class="setup-error" id="su-error" role="alert"></p>
+      <footer class="setup-foot">
+        <button class="btn ghost" id="su-back" type="button">Zurück</button>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="su-sample" type="button" hidden>Mit Beispiel starten</button>
+        <button class="btn primary" id="su-next" type="button">Weiter</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script src="/i18n.js"></script>
+  <script src="/static/app.js?v=1.0.0"></script>
+</body>
+</html>

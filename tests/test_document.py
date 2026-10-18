@@ -1,0 +1,163 @@
+"""Ganze Arbeiten: Text aus Word, Literaturverzeichnis, Zitate und Abgleich (offline)."""
+
+import io
+import unittest
+import zipfile
+
+from benthic import document
+
+THESIS = """1 Introduction
+
+Language models invent sources (Smith & Jones, 2019). Earlier work found the same pattern
+in student essays (Lee et al., 2021; Müller 2018, S. 12). As Harris et al. (2020) show, array
+libraries changed research software. Some claims rest on Brown (2017).
+
+Table of contents mentions References on page 40 too.
+
+References
+
+Harris, C. R., Millman, K. J., & van der Walt, S. J. (2020). Array programming with
+NumPy. Nature, 585, 357-362. https://doi.org/10.1038/s41586-020-2649-2
+Lee, K., Park, J., & Kim, S. (2021). Citation errors in student essays written with
+chat assistants. Computers & Education, 170, 104210.
+Müller, A. (2018). Quellenarbeit im Studium. Springer.
+Smith, J., & Jones, P. (2019). Invented references in language model output.
+Journal of Imaginary Results, 12(3), 45-67.
+Taylor, R. (2015). A source nobody cites. Oxford University Press.
+
+Appendix A
+
+Interview guide with questions from 2020 and 2021.
+"""
+
+NUMERIC = """Results confirm earlier work [1], [3-4] and contradict [6].
+
+Bibliography
+[1] C. R. Harris et al., "Array programming with NumPy," Nature, vol. 585, pp. 357-362,
+2020, doi: 10.1038/s41586-020-2649-2.
+[2] K. He, X. Zhang, S. Ren, and J. Sun, "Deep residual learning for image recognition,"
+in Proc. CVPR, 2016, pp. 770-778.
+[3] A. Vaswani et al., "Attention is all you need," in Proc. NeurIPS, 2017.
+[4] Y. LeCun, Y. Bengio, and G. Hinton, "Deep learning," Nature, vol. 521, pp. 436-444, 2015.
+"""
+
+
+def docx(paragraphs, footnotes=()):
+    w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
+    notes = "".join(f"<w:footnote><w:p><w:r><w:t>{p}</w:t></w:r></w:p></w:footnote>" for p in footnotes)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", f'<w:document {w}><w:body>{body}</w:body></w:document>')
+        if footnotes:
+            z.writestr("word/footnotes.xml", f'<w:footnotes {w}>{notes}</w:footnotes>')
+    return buf.getvalue()
+
+
+class Dokument(unittest.TestCase):
+    def test_author_year_thesis(self):
+        a = document.analyse(THESIS)
+        self.assertTrue(a["has_bibliography"])
+        self.assertEqual(a["style"], "author-year")
+        self.assertEqual(a["entries"], 5)
+        self.assertIn("10.1038/s41586-020-2649-2", a["refs_text"])
+        self.assertNotIn("Interview guide", a["refs_text"])          # Anhang gehört nicht dazu
+        self.assertIn("Array programming with NumPy. Nature", a["refs_text"])  # Umbruch zusammengefügt
+        missing = [m["label"] for m in a["missing_in_list"]]
+        self.assertEqual(missing, ["Brown (2017)"])
+        uncited = [u["label"] for u in a["uncited"]]
+        self.assertEqual(len(uncited), 1)
+        self.assertIn("nobody cites", uncited[0])
+        claim = next(c for c in a["claims"] if c["surname"] == "Smith")
+        self.assertIn("Language models invent sources", claim["sentence"])
+
+    def test_numeric_thesis(self):
+        a = document.analyse(NUMERIC)
+        self.assertEqual(a["style"], "numeric")
+        self.assertEqual(a["entries"], 4)
+        self.assertEqual([m["label"] for m in a["missing_in_list"]], ["[6]"])
+        self.assertEqual(len(a["uncited"]), 1)
+        self.assertIn("Deep residual", a["uncited"][0]["label"])
+
+    def test_docx_with_footnotes(self):
+        data = docx(["Benthic checks sources.", "References",
+                     "Doe, J. (2020). A study of things. Journal of Things, 1, 1-2.",
+                     "Roe, R. (2021). Another study. Journal of Things, 2, 3-4."],
+                    footnotes=["Vgl. Doe (2020), S. 4."])
+        text = document.extract_text("arbeit.docx", data)
+        a = document.analyse(text)
+        self.assertEqual(a["entries"], 2)
+        self.assertEqual(a["citations"], 1)          # das Zitat steht in der Fußnote
+        self.assertEqual(len(a["uncited"]), 1)
+
+    def test_rejects_unknown_types(self):
+        with self.assertRaises(ValueError):
+            document.extract_text("notes.odt", b"x")
+        with self.assertRaises(ValueError):
+            document.extract_text("broken.docx", b"not a zip")
+
+    def test_without_bibliography(self):
+        a = document.analyse("Just some text (Smith, 2020) without a list.")
+        self.assertFalse(a["has_bibliography"])
+        self.assertEqual(a["entries"], 0)
+
+
+class Route(unittest.TestCase):
+    """/api/document: Upload, Abgleich im Lauf, Fehlermeldungen (die Prüfung selbst ist ersetzt)."""
+
+    def setUp(self):
+        import os
+        import tempfile
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self._old = os.environ.get("BENTHIC_DATA_DIR")
+        os.environ["BENTHIC_DATA_DIR"] = self.tmp.name
+        from benthic import app as appmod, verify
+        self.appmod = appmod
+        fake = lambda ref, email="", on_event=None: {"identifier": ref.get("label"), "verdict": "verified",
+                                                     "status": "verified", "note": "", "score": 100, "flags": []}
+        self.patch = mock.patch.object(verify, "verify_ref", side_effect=fake)
+        self.patch.start()
+        self.client = appmod.app.test_client()
+
+    def tearDown(self):
+        import os
+        self.patch.stop()
+        if self._old is None:
+            os.environ.pop("BENTHIC_DATA_DIR", None)
+        else:
+            os.environ["BENTHIC_DATA_DIR"] = self._old
+        self.tmp.cleanup()
+
+    def wait(self, job_id):
+        import time
+        for _ in range(100):
+            job = self.client.get(f"/api/jobs/{job_id}").get_json()
+            if job["status"] != "running":
+                return job
+            time.sleep(0.05)
+        self.fail("job did not finish")
+
+    def test_upload_starts_a_check_with_the_cross_check(self):
+        data = {"file": (io.BytesIO(THESIS.encode()), "thesis.txt")}
+        r = self.client.post("/api/document", data=data, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        j = r.get_json()
+        self.assertEqual(j["total"], 5)
+        self.assertEqual(j["document"]["name"], "thesis.txt")
+        job = self.wait(j["job_id"])
+        self.assertEqual([m["label"] for m in job["document"]["missing_in_list"]], ["Brown (2017)"])
+        self.assertEqual(sorted(r["order"] for r in job["results"]), [0, 1, 2, 3, 4])  # Eintragsnummern
+
+    def test_errors(self):
+        r = self.client.post("/api/document", data={"file": (io.BytesIO(b"x"), "a.odt")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/api/document", data={"file": (io.BytesIO(b"No references here."), "a.txt")},
+                             content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/api/document", json={"path": "/nonexistent/thesis.pdf"})
+        self.assertEqual(r.status_code, 400)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,22 @@
+{
+  "name": "benthic",
+  "description": "Check reference lists from language models for invented, misattributed and retracted sources, and fetch the real papers through open access, with the Benthic app for macOS.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sinan Isoglu",
+    "url": "https://isoglu.com"
+  },
+  "homepage": "https://benthic.isoglu.com",
+  "repository": "https://github.com/isoglu/benthic",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "references",
+    "citations",
+    "doi",
+    "open-access",
+    "retractions",
+    "research",
+    "mcp"
+  ],
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,34 @@
+name: Idea or feature request
+description: Suggest something Benthic should do. Ideas appear on the roadmap page, where people vote on them.
+title: "Idea: "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. It will show up on the [roadmap page](https://benthic.isoglu.com/roadmap/).
+        Vote with 👍 or 👎 on the issue, and please check the open ideas first so votes stay in one place.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: The task or the problem, in a sentence or two. German or English is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could Benthic help?
+      description: What you imagine Benthic doing. Optional.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Checking references
+        - Rating a reference list
+        - Downloading papers
+        - Projects and bibliographies
+        - AI assistants (MCP)
+        - Windows or Linux
+        - Something else
