@@ -22,9 +22,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.1</string>
+	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1.0.1</string>
+	<string>1.1.0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppTransportSecurity</key>
@@ -36,6 +36,8 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Sinan Isoglu</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Grimpo reads the address and title of the open browser tab when you ask it to bookmark the tab. / Grimpo liest Adresse und Titel des offenen Browser-Tabs, wenn du ihn merken lässt.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Benthic connects to the backend it starts locally on 127.0.0.1.</string>
 	<key>NSPrincipalClass</key>

@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "Benthic",
+  "version": "1.1.0",
+  "description": "Check selected items with Benthic: invented, misattributed and retracted references come back as tags.",
+  "author": "Sinan Isoglu",
+  "homepage_url": "https://benthic.isoglu.com",
+  "icons": {
+    "48": "icon.png",
+    "96": "icon.png"
+  },
+  "applications": {
+    "zotero": {
+      "id": "benthic@isoglu.com",
+      "update_url": "https://benthic.isoglu.com/zotero/updates.json",
+      "strict_min_version": "6.999",
+      "strict_max_version": "8.*"
+    }
+  }
+}

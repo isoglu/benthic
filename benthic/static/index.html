@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.0.1">
-  <link rel="stylesheet" href="/static/style.css?v=1.0.1">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.1.0">
+  <link rel="stylesheet" href="/static/style.css?v=1.1.0">
 </head>
 <body>
+  <a class="skip-link" href="#main">Zum Inhalt springen</a>
   <!-- Icon set: 24 px grid, 1.75 stroke, round caps. One icon per view, state and action. -->
   <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <defs>
@@ -81,6 +82,9 @@
         <button class="nav-item active" data-view="verify" type="button">
           <svg class="ic"><use href="#i-verify"/></svg><span>Prüfen</span>
         </button>
+        <button class="nav-item" data-view="find" type="button">
+          <svg class="ic"><use href="#i-search"/></svg><span>Quellen finden</span>
+        </button>
         <button class="nav-item" data-view="batch" type="button">
           <svg class="ic"><use href="#i-file"/></svg><span>Stapelprüfung</span>
         </button>
@@ -124,7 +128,7 @@
     </aside>
 
     <!-- Main -->
-    <main class="main">
+    <main class="main" id="main" tabindex="-1">
       <div class="update-banner" id="update-banner" hidden role="status">
         <svg class="ic"><use href="#i-download"/></svg>
         <div class="ub-text"><strong id="ub-title"></strong><span id="ub-notes"></span></div>
@@ -205,6 +209,7 @@
             <label class="btn" for="verify-file"><svg class="ic"><use href="#i-upload"/></svg>Datei laden</label>
             <input type="file" id="verify-file" accept=".bib,.ris,.txt,.md,.markdown,.csv,.nbib,.pdf,.docx,.tex,.ltx,.zip" multiple hidden>
             <button class="btn ghost" id="verify-sample" type="button">Beispiel einfügen</button>
+            <button class="btn ghost" id="chat-prompt-btn" type="button" title="Einen Text für ChatGPT, Gemini oder Claude kopieren, der eine saubere Quellenliste anfordert"><svg class="ic"><use href="#i-copy"/></svg>Text für Chatbots</button>
             <button class="btn ghost" id="watch-file-btn" type="button" title="Bei jedem Sichern neu prüfen"><svg class="ic"><use href="#i-clock"/></svg>Datei beobachten</button>
             <span class="counter" id="verify-preview">Noch nichts eingefügt</span>
             <span class="project-hint" hidden></span>
@@ -215,7 +220,7 @@
         <div class="card" id="verify-progress" hidden>
           <div class="card-head">
             <h2>Prüfung</h2>
-            <span id="verify-status"></span>
+            <span id="verify-status" role="status"></span>
           </div>
           <p class="notice warn" id="verify-paused" hidden></p>
           <div class="progressbar" id="verify-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -235,6 +240,7 @@
             <div class="chips" id="verify-stats"></div>
           </div>
           <div class="trust" id="verify-trust" aria-hidden="true"></div>
+          <p class="hint verify-tip" id="verify-tip" hidden></p>
           <nav class="report-tabs segmented" id="report-tabs" aria-label="Teile des Prüfberichts">
             <button type="button" data-tab="sources" class="on">Quellen</button>
             <button type="button" data-tab="document">Abgleich und Zitate</button>
@@ -261,6 +267,26 @@
             <button class="btn" id="verify-xlsx-btn" type="button"><svg class="ic"><use href="#i-file"/></svg>Export XLSX</button>
             <button class="btn" id="verify-report-btn" type="button" title="Bericht als PDF sichern"><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
           </div>
+        </div>
+      </section>
+
+      <!-- Quellen finden: echte Arbeiten zu einer Aussage (finder.py) -->
+      <section class="view" id="view-find">
+        <header class="view-head">
+          <h1>Quellen finden</h1>
+          <p>Schreib eine Aussage aus deiner Arbeit. Benthic sucht echte Arbeiten dazu und zeigt den Satz aus ihrem Abstract, der ihr am nächsten kommt. So musst du keinen Chat nach Quellen fragen, der sie womöglich erfindet. Lies eine Arbeit, bevor du sie zitierst.</p>
+        </header>
+        <div class="card">
+          <label class="sr-only" for="find-claim">Aussage</label>
+          <textarea id="find-claim" rows="3" placeholder="Zum Beispiel: Sprachmodelle erfinden in Literaturlisten häufig Quellen."></textarea>
+          <div class="actions">
+            <button class="btn primary" id="find-btn" type="button"><svg class="ic"><use href="#i-search"/></svg>Echte Quellen suchen</button>
+            <label class="check"><input type="checkbox" id="find-oa"><span>Nur frei lesbare</span></label>
+            <span class="hint" id="find-status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="card" id="find-results" hidden>
+          <ol class="find-list" id="find-list"></ol>
         </div>
       </section>
 
@@ -373,6 +399,8 @@
             <input type="text" id="project-name" placeholder="Neues Projekt, z. B. LLMs in der Hochschullehre" autocomplete="off" aria-label="Projektname">
             <input type="text" id="project-desc" placeholder="Kurzbeschreibung (optional)" autocomplete="off" aria-label="Beschreibung">
             <button class="btn primary" id="project-create" type="button"><svg class="ic"><use href="#i-plus"/></svg>Anlegen</button>
+            <button class="btn" id="project-import" type="button" title="Ein Projekt öffnen, das jemand mit „Als Datei teilen“ gespeichert hat"><svg class="ic"><use href="#i-upload"/></svg>Projektdatei öffnen</button>
+            <input type="file" id="project-import-file" accept=".json,application/json" hidden>
           </div>
         </div>
         <section class="watch-panel" id="watch-panel" aria-label="Rückzugswache" hidden></section>
@@ -413,6 +441,7 @@
             <button class="btn" id="pd-recheck" type="button"><svg class="ic"><use href="#i-verify"/></svg>Alle Quellen neu prüfen</button>
             <button class="btn" id="pd-watch-now" type="button"><svg class="ic"><use href="#i-shield"/></svg>Rückzüge jetzt prüfen</button>
             <button class="btn" id="pd-report" type="button" hidden><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
+            <button class="btn" id="pd-share" type="button"><svg class="ic"><use href="#i-file"/></svg>Als Datei teilen</button>
             <button class="btn" id="pd-activate" type="button">Aktiv setzen</button>
             <button class="btn ghost danger" id="pd-delete" type="button">Projekt löschen</button>
           </div>
@@ -438,6 +467,7 @@
           </div>
           <div class="actions">
             <button class="btn primary" id="batch-pick" type="button"><svg class="ic"><use href="#i-folder"/></svg>Ordner wählen und prüfen</button>
+            <button class="btn" id="batch-pick-zip" type="button" title="Den Download „Alle Abgaben herunterladen“ einer Aufgabe aus Moodle oder ILIAS"><svg class="ic"><use href="#i-upload"/></svg>Export aus Moodle oder ILIAS (.zip)</button>
             <select id="batch-select" aria-label="Frühere Stapel"></select>
             <span class="hint" id="batch-quota"></span>
           </div>
@@ -459,6 +489,7 @@
           </div>
           <div class="progressbar" id="batch-bar"><div class="progressbar-fill" id="batch-fill"></div></div>
           <div class="batch-totals" id="batch-totals"></div>
+          <section class="batch-signals" id="batch-signals" hidden></section>
           <div class="batch-filter">
             <label class="check"><input type="checkbox" id="batch-only-problems"><span>Nur Arbeiten mit Problemen</span></label>
           </div>
@@ -590,6 +621,12 @@
           <div class="ai-feed" id="ai-activity"></div>
         </div>
 
+        <div data-section="general" class="card" id="pet-card" hidden>
+          <div class="card-head"><h2>Grimpo</h2></div>
+          <label class="check"><input type="checkbox" id="pet-toggle"><span>Grimpo auf dem Schreibtisch zeigen</span></label>
+          <p class="hint">Ein kleiner Dumbo-Oktopus aus der Tiefsee, der über allen Fenstern schwebt: Er hält Bildschirmfotos, Links und Textstellen fest, merkt sich den offenen Browser-Tab und begleitet dich Schritt für Schritt durch eine Arbeit. Ein Klick öffnet ihn, ziehen verschiebt ihn, ein Rechtsklick blendet ihn aus.</p>
+        </div>
+
         <div data-section="general" class="card" id="update-card">
           <div class="card-head"><h2>Updates</h2><span class="hint" id="upd-current"></span></div>
           <div class="actions tight">
@@ -700,7 +737,7 @@
             <div class="form-grid">
               <label for="set-download-dir">Zielordner</label>
               <input type="text" id="set-download-dir" placeholder="leer = App-Ordner">
-              <label for="set-proxy">Proxy-Präfix (Uni-Bibliothek)</label>
+              <label for="set-proxy">Proxy oder Link-Resolver (Bibliothek)</label>
               <input type="text" id="set-proxy" placeholder="https://ezproxy.example.edu/login?url=https://doi.org/">
               <label for="set-update-url">Update-Adresse (Manifest)</label>
               <input type="text" id="set-update-url" placeholder="leer = beim Bauen hinterlegt" autocomplete="off">
@@ -774,7 +811,7 @@
             <input type="text" id="su-proxy" placeholder="https://ezproxy.hochschule.de/login?url=https://doi.org/">
             <button class="btn small" id="su-proxy-test" type="button">Testen</button>
           </div>
-          <p class="help">Frag deine Bibliothek nach dem EZproxy- oder OpenAthens-Link. Damit öffnen sich Artikel hinter einer Paywall über deinen Hochschulzugang.</p>
+          <p class="help">Frag deine Bibliothek nach dem EZproxy- oder OpenAthens-Link oder nach der Adresse ihres Link-Resolvers (OpenURL); dort steht {doi}, wo die DOI hingehört. Damit öffnen sich Artikel hinter einer Paywall über deinen Hochschulzugang.</p>
         </div>
       </section>
 
@@ -824,6 +861,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.0.1"></script>
+  <script src="/static/app.js?v=1.1.0"></script>
 </body>
 </html>

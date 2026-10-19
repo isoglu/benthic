@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from . import oa, quota, refs
-from .i18n import current as current_lang, join_list, tr
+from .i18n import each_lang, join_list, note_part, tr, tr_parts
 
 VERDICTS = ("verified", "corrected", "partial", "uncertain", "mismatch", "not_found", "retracted")
 
@@ -34,6 +34,17 @@ VERDICT_LABEL = {
     "mismatch": "Passt nicht",
     "not_found": "Nicht auffindbar",
     "retracted": "Zurückgezogen",
+}
+
+# Was zu tun ist, in einfachen Worten: in der App unter „Was tun?“, im Prüfbericht über jeder Gruppe.
+VERDICT_ADVICE = {
+    "verified": "Nichts zu korrigieren. Lies die Quelle trotzdem: Benthic prüft, ob es sie gibt, nicht, ob sie deine Aussage stützt.",
+    "corrected": "Ersetze die DOI in deiner Angabe durch die richtige. Sonst führt der Link ins Leere oder zu einem anderen Werk.",
+    "partial": "Vergleiche Jahr, Titel und Autor:innen mit dem Original und gleiche deine Angabe an. Solche Abweichungen entstehen oft beim Abschreiben.",
+    "uncertain": "Öffne den ähnlichsten Treffer und vergleiche ihn mit deiner Angabe. Bücher, Praxisberichte und Webseiten stehen oft in keinem Verzeichnis; dann entscheidet der Blick ins Original.",
+    "mismatch": "Die DOI gehört zu einem anderen Werk. Suche das gemeinte Werk und seine DOI; findest du es nicht, ist die Angabe vermutlich erfunden.",
+    "not_found": "Suche das Werk selbst, etwa im Katalog deiner Bibliothek. Findest du es nicht, streiche die Angabe: Eine erfundene Quelle kann in einer Prüfung als Täuschung gelten.",
+    "retracted": "Zitiere die Arbeit nicht als Beleg. Musst du sie erwähnen, nenne den Rückzug ausdrücklich.",
 }
 
 # Schwellen für den Titelvergleich (0 bis 1).
@@ -433,17 +444,15 @@ _FLAG_TEXT = {"de": {"title": "Titel", "year": "Jahr", "authors": "Autor:innen"}
               "en": {"title": "title", "year": "year", "authors": "authors"}}
 
 
-def _diff_note(flags: List[str], via_title: bool = False) -> str:
-    """„Werk gefunden, aber Titel und Jahr weichen von der Angabe ab.“ in der eingestellten Sprache."""
-    words = _FLAG_TEXT.get(current_lang(), _FLAG_TEXT["en"])
-    diffs = join_list([words[f] for f in flags])
+def _diff_note(flags: List[str], via_title: bool = False) -> Dict:
+    """„Werk gefunden, aber Titel und Jahr weichen von der Angabe ab.“, die Aufzählung in jeder Sprache."""
+    diffs = each_lang(lambda lang: join_list([_FLAG_TEXT.get(lang, _FLAG_TEXT["en"])[f] for f in flags], lang))
     plural = len(flags) > 1 or flags == ["authors"]
     if via_title:
-        msg = "Über den Titel gefunden, aber {diffs} weichen ab." if plural else "Über den Titel gefunden, aber {diffs} weicht ab."
-    else:
-        msg = ("Werk gefunden, aber {diffs} weichen von der Angabe ab." if plural
-               else "Werk gefunden, aber {diffs} weicht von der Angabe ab.")
-    return tr(msg, diffs=diffs)
+        return (note_part("Über den Titel gefunden, aber {diffs} weichen ab.", diffs=diffs) if plural
+                else note_part("Über den Titel gefunden, aber {diffs} weicht ab.", diffs=diffs))
+    return (note_part("Werk gefunden, aber {diffs} weichen von der Angabe ab.", diffs=diffs) if plural
+            else note_part("Werk gefunden, aber {diffs} weicht von der Angabe ab.", diffs=diffs))
 
 
 def _claimed(ref: Dict) -> Dict:
@@ -474,6 +483,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         "score": 0,
         "flags": [],
         "note": "",
+        "note_parts": [],  # derselbe Hinweis als Sätze (i18n.note_part), für die englische MCP-Antwort
     }
     emit("verify_start")
     _trace.steps = []
@@ -494,19 +504,21 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
             if not claimed.get("title"):
                 claimed["title"] = hit.get("title")
 
-    def finish(verdict: str, note: str, found: Optional[Dict] = None, score: int = 0, flags=None) -> Dict:
+    def finish(verdict: str, note=None, found: Optional[Dict] = None, score: int = 0, flags=None) -> Dict:
+        # note: ein Satz aus note_part; ein fertiger Text (graue Literatur) gilt als fester Satz.
+        parts = [note if isinstance(note, dict) else note_part(str(note))] if note else []
         if found and found.get("retracted"):
-            verdict, note = "retracted", tr("Zurückgezogen.") + (" " + note if note else "")
+            verdict, parts = "retracted", [note_part("Zurückgezogen.")] + parts
         failed = quota.problems()
         if verdict == "not_found" and failed:
-            names = join_list([f["name"] for f in failed])
+            names = each_lang(lambda lang: join_list([f["name"] for f in failed], lang))
             if any(f["service"] == "crossref" for f in failed):
                 # Die wichtigste Quelle hat nicht geantwortet: kein Urteil "erfunden" auf dieser Grundlage
                 verdict = "uncertain"
-                note = tr("Nicht gefunden, aber {names} hat nicht geantwortet. Bitte später erneut prüfen.", names=names)
+                parts = [note_part("Nicht gefunden, aber {names} hat nicht geantwortet. Bitte später erneut prüfen.", names=names)]
             else:
-                note = (note + " " + tr("{names} war nicht verfügbar; geprüft mit den übrigen Quellen.", names=names)).strip()
-        result.update(verdict=verdict, note=note.strip(), found=found, score=score, flags=flags or [])
+                parts.append(note_part("{names} war nicht verfügbar; geprüft mit den übrigen Quellen.", names=names))
+        result.update(verdict=verdict, note=tr_parts(parts), note_parts=parts, found=found, score=score, flags=flags or [])
         result["trace"] = list(getattr(_trace, "steps", []) or [])
         result["sources_failed"] = failed
         if found and found.get("doi"):
@@ -526,9 +538,9 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
                 best, bscore, bsim = search(claimed, email)
                 if best and bsim >= TITLE_FOUND and best.get("doi") and best["doi"].lower() != str(doi).lower():
                     return finish("corrected",
-                                  tr("Die angegebene DOI gehört zu „{title}“. Das genannte Werk hat die DOI {doi}.",
-                                     title=actual["title"], doi=best["doi"]), best, bscore)
-                return finish("mismatch", tr("Die DOI existiert, gehört aber zu „{title}“.", title=actual["title"]),
+                                  note_part("Die angegebene DOI gehört zu „{title}“. Das genannte Werk hat die DOI {doi}.",
+                                            title=actual["title"], doi=best["doi"]), best, bscore)
+                return finish("mismatch", note_part("Die DOI existiert, gehört aber zu „{title}“.", title=actual["title"]),
                               actual, score, flags)
             if flags:
                 return finish("partial", _diff_note(flags), actual, score, flags)
@@ -537,18 +549,18 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         exists = doi_exists(str(doi))
         if exists:
             if claimed.get("title"):
-                return finish("uncertain", tr("Die DOI ist registriert, die Angaben lassen sich aber nicht abgleichen."))
-            return finish("verified", tr("DOI registriert (ohne abrufbare Metadaten)."), {"doi": doi, "title": ""}, 100)
+                return finish("uncertain", note_part("Die DOI ist registriert, die Angaben lassen sich aber nicht abgleichen."))
+            return finish("verified", note_part("DOI registriert (ohne abrufbare Metadaten)."), {"doi": doi, "title": ""}, 100)
         if exists is None and not claimed.get("title"):
-            return finish("uncertain", tr("Der DOI-Dienst hat nicht geantwortet. Später erneut prüfen."))
+            return finish("uncertain", note_part("Der DOI-Dienst hat nicht geantwortet. Später erneut prüfen."))
         # DOI existiert nicht: vielleicht stimmt der Titel trotzdem.
         if claimed.get("title") or claimed.get("query"):
             emit("search")
             best, bscore, bsim = search(claimed, email)
             if best and bsim >= TITLE_FOUND:
-                return finish("corrected", tr("Die angegebene DOI existiert nicht. Das Werk hat die DOI {doi}.", doi=best["doi"]),
+                return finish("corrected", note_part("Die angegebene DOI existiert nicht. Das Werk hat die DOI {doi}.", doi=best["doi"]),
                               best, bscore)
-        return finish("not_found", tr("Die DOI existiert nicht und kein passendes Werk wurde gefunden. Vermutlich erfunden."))
+        return finish("not_found", note_part("Die DOI existiert nicht und kein passendes Werk wurde gefunden. Vermutlich erfunden."))
 
     # Keine Kennung: über den Titel bzw. die ganze Angabe suchen.
     emit("search")
@@ -559,17 +571,21 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         if flags:
             return finish("partial", _diff_note(flags, via_title=True), best, bscore, flags)
         via = best.get("source") if best.get("source") in ("Semantic Scholar", "Open Library") else None
-        return finish("verified", tr("Über den Titel gefunden ({source}).", source=via) if via else tr("Über den Titel gefunden."),
-                      best, bscore)
+        return finish("verified", note_part("Über den Titel gefunden ({source}).", source=via) if via
+                      else note_part("Über den Titel gefunden."), best, bscore)
     if best and bsim >= TITLE_MAYBE:
         result["resolved_by"] = "title"
-        return finish("uncertain", tr("Ähnlichster Treffer: „{title}“ ({year}). Bitte prüfen.",
-                                      title=best["title"], year=best.get("year") or tr("o. J.")),
+        return finish("uncertain", note_part("Ähnlichster Treffer: „{title}“ ({year}). Bitte prüfen.", title=best["title"],
+                                             year=best.get("year") or each_lang(lambda lang: tr("o. J.", lang))),
                       best, bscore)
+    web = _web_source(str(ref.get("raw") or ""), str(claimed.get("title") or ""))
+    if web:
+        result["web"] = web.pop("web")
+        return finish(web["verdict"], web["note"])
     grey = _grey_literature(str(ref.get("raw") or ""))
     if grey:
         return finish(*grey)
-    return finish("not_found", tr("Kein passendes Werk gefunden. Vermutlich erfunden oder sehr ungenau angegeben."))
+    return finish("not_found", note_part("Kein passendes Werk gefunden. Vermutlich erfunden oder sehr ungenau angegeben."))
 
 
 # Graue Literatur: echte Quellen, die Crossref, OpenAlex und arXiv nicht verzeichnen. Ohne Fund lautet das
@@ -583,31 +599,103 @@ _MAGAZINES = re.compile(r"McKinsey|Harvard Business Review|MIT Sloan Management 
                         re.IGNORECASE)
 
 
-def _url_reachable(url: str) -> Optional[bool]:
-    """True: die Seite gibt es (auch wenn sie Programme aussperrt); False: Adresse falsch; None: unklar."""
+def _fetch_page(url: str) -> Tuple[Optional[bool], str]:
+    """(erreichbar, Seitentitel). True: die Seite gibt es (auch wenn sie Programme aussperrt); False: Adresse falsch;
+    None: unklar. Gelesen werden höchstens 300 kB, genug für den Kopf einer Seite."""
     import requests
     try:
         resp = requests.get(url.rstrip(".,;"), timeout=10.0, allow_redirects=True, stream=True,
                             headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
-        resp.close()
     except requests.exceptions.ConnectionError:
-        return False  # Domain gibt es nicht oder nimmt keine Verbindung an
+        return False, ""  # Domain gibt es nicht oder nimmt keine Verbindung an
     except requests.exceptions.RequestException:
-        return None
+        return None, ""
+    title = ""
+    try:
+        if resp.status_code < 400 and "html" in str(resp.headers.get("Content-Type") or "").lower():
+            head = b""
+            for chunk in resp.iter_content(16384):
+                head += chunk
+                if len(head) > 300_000 or b"</head>" in head.lower():
+                    break
+            title = _page_title(head.decode(resp.encoding or "utf-8", "replace"))
+    except requests.exceptions.RequestException:
+        pass
+    finally:
+        resp.close()
     if resp.status_code in (404, 410):
-        return False
-    return resp.status_code < 400 or resp.status_code in (401, 403, 429)  # gesperrt heißt: es gibt die Seite
+        return False, ""
+    return resp.status_code < 400 or resp.status_code in (401, 403, 429), title  # gesperrt heißt: es gibt die Seite
+
+
+def _url_reachable(url: str) -> Optional[bool]:
+    return _fetch_page(url)[0]
+
+
+_META_TITLE = re.compile(r'<meta[^>]+(?:property|name)=["\'](?:citation_title|og:title|dc\.title|twitter:title)["\'][^>]*>', re.I)
+_CONTENT = re.compile(r'content=["\']([^"\']+)["\']', re.I)
+_TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def _page_title(page: str) -> str:
+    """Titel einer Webseite: erst Metadaten für Zitate (citation_title, og:title), sonst <title>."""
+    import html as _html
+    for m in _META_TITLE.finditer(page):
+        c = _CONTENT.search(m.group(0))
+        if c and c.group(1).strip():
+            return _html.unescape(c.group(1)).strip()[:300]
+    m = _TITLE_TAG.search(page)
+    return re.sub(r"\s+", " ", _html.unescape(m.group(1))).strip()[:300] if m else ""
+
+
+def wayback(url: str) -> Optional[Dict[str, str]]:
+    """Nächster Schnappschuss im Internet Archive (archive.org/wayback/available): Adresse und Datum, sonst None."""
+    def fetch():
+        j = oa._json(oa._api_get("https://archive.org/wayback/available", params={"url": url}, timeout=12.0))
+        if j is None:
+            return _FAILED
+        snap = ((j.get("archived_snapshots") or {}).get("closest") or {})
+        if not snap.get("available") or not snap.get("url"):
+            return None
+        ts = str(snap.get("timestamp") or "")
+        return {"url": str(snap["url"]).replace("http://", "https://", 1),
+                "date": f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else ""}
+    hit = _cached("wb:" + url, fetch)
+    return hit if isinstance(hit, dict) else None
+
+
+def _web_source(raw: str, title: str) -> Optional[Dict]:
+    """Webseiten und graue Literatur mit Link: Ist die Seite erreichbar, passt ihr Titel zur Angabe, gibt es einen
+    Schnappschuss im Internet Archive? Ein toter Link mit Schnappschuss ist eine echte, umgezogene Quelle, nicht
+    erfunden. ``web`` hält Link, Seitentitel, Schnappschuss und Abrufdatum für die Angabe fest."""
+    url = next((u.rstrip(".,;") for u in _URL.findall(raw) if "doi.org" not in u.lower()), None)
+    if not url:
+        return None
+    reachable, page_title = _fetch_page(url)
+    snap = wayback(url) if reachable is not None else None
+    web = {"url": url, "reachable": reachable, "page_title": page_title, "accessed": time.strftime("%Y-%m-%d"),
+           "archive_url": (snap or {}).get("url", ""), "archive_date": (snap or {}).get("date", "")}
+    # Seitentitel tragen oft den Namen der Website („… | OECD“, „… - Wikipedia“): jeden Teil einzeln vergleichen.
+    parts = [page_title] + [p.strip() for p in re.split(r"\s+[|\u2013\u2014-]\s+|\s+::\s+", page_title) if p.strip()]
+    sim = max((title_similarity(title, p) for p in parts), default=0.0) if title and page_title else 0.0
+    if reachable and sim >= TITLE_FOUND:
+        return {"verdict": "verified", "web": web,
+                "note": tr("Webquelle: Die Seite ist erreichbar, und ihr Titel passt zur Angabe. Inhalt bitte selbst lesen.")}
+    if reachable:
+        note = (tr("Webquelle: Der Link ist erreichbar, die Seite heißt aber „{page}“. Bitte prüfen, ob es die gemeinte Seite ist.", page=page_title)
+                if page_title and title and sim < TITLE_MAYBE else
+                tr("Webseite oder graue Literatur: nicht in den wissenschaftlichen Verzeichnissen, der Link ist aber erreichbar. Inhalt bitte selbst prüfen."))
+        return {"verdict": "uncertain", "note": note, "web": web}
+    if snap:
+        return {"verdict": "uncertain", "web": web,
+                "note": tr("Der Link ist nicht mehr erreichbar, die Seite ist aber im Internet Archive gesichert ({date}). Zitiere besser den Schnappschuss.", date=snap.get("date") or "")}
+    if reachable is False:
+        return {"verdict": "not_found", "web": web,
+                "note": tr("Nicht in den Verzeichnissen, und der angegebene Link ist nicht erreichbar.")}
+    return None
 
 
 def _grey_literature(raw: str) -> Optional[tuple]:
-    url = next((u for u in _URL.findall(raw) if "doi.org" not in u.lower()), None)
-    if url:
-        reachable = _url_reachable(url)
-        if reachable:
-            return ("uncertain", tr("Webseite oder graue Literatur: nicht in den wissenschaftlichen Verzeichnissen, "
-                                    "der Link ist aber erreichbar. Inhalt bitte selbst prüfen."))
-        if reachable is False:
-            return ("not_found", tr("Nicht in den Verzeichnissen, und der angegebene Link ist nicht erreichbar."))
     if _CHAPTER.search(raw):
         return ("uncertain", tr("Buchkapitel: oft nicht in Crossref oder OpenAlex verzeichnet. Bitte im Katalog "
                                 "einer Bibliothek prüfen."))

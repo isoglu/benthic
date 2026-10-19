@@ -14,6 +14,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
 from . import crossref, library, oa, routes
 from .i18n import tr
@@ -305,8 +306,12 @@ class BenthicDownloader:
         return result
 
     def _proxy_url(self, identifier: str) -> Optional[str]:
+        """Link über die Hochschule: ein Proxy-Präfix (EZproxy, OpenAthens) bekommt die DOI angehängt; eine Adresse
+        mit ``{doi}`` (etwa der OpenURL-Link-Resolver der Bibliothek) bekommt sie an dieser Stelle, kodiert."""
         if not self.proxy_prefix:
             return None
+        if "{doi}" in self.proxy_prefix:
+            return self.proxy_prefix.replace("{doi}", quote(identifier, safe=""))
         return f"{self.proxy_prefix}{identifier}"
 
     def _save(self, content: bytes, identifier: str, meta: Optional[Dict]) -> Optional[str]:

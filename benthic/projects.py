@@ -213,3 +213,36 @@ def detail(pid: str) -> Optional[Dict]:
                       "title": it.get("title") or entry.get("title")})
     return ({k: p.get(k) for k in ("id", "name", "description", "created_at", "updated_at")} | _counts(p)
             | {"items": items, "watch": p.get("watch", True)})
+
+
+# --------------------------------------------------------------------------
+# Weitergeben: ein Projekt als Datei, ohne Konto und ohne Server
+# --------------------------------------------------------------------------
+BUNDLE_FORMAT = "benthic-project"
+_SHARED = ("doi", "title", "year", "verdict", "score", "note")
+
+
+def bundle(pid: str) -> Optional[Dict]:
+    """Name, Beschreibung und Quellen mit Urteil; keine PDFs, Dateinamen oder Pfade dieses Macs."""
+    p = find(pid)
+    if not p:
+        return None
+    items = [{k: it[k] for k in _SHARED if it.get(k) not in (None, "")}
+             for it in sorted(p.get("items", {}).values(), key=lambda x: x.get("added_at", 0))]
+    return {"format": BUNDLE_FORMAT, "version": 1, "name": p["name"], "description": p.get("description", ""),
+            "exported_at": int(time.time()), "items": items}
+
+
+def unbundle(data: Dict) -> Dict:
+    """Legt aus einer geteilten Datei ein neues Projekt an; bei gleichem Namen mit Nummer dahinter."""
+    if not isinstance(data, dict) or data.get("format") != BUNDLE_FORMAT or not isinstance(data.get("items"), list):
+        raise ValueError(tr("Das ist keine Projektdatei von Benthic."))
+    base = str(data.get("name") or "").strip()[:120] or tr("Geteiltes Projekt")
+    names = {p["name"].lower() for p in _read()["projects"].values()}
+    name, n = base, 2
+    while name.lower() in names:
+        name, n = f"{base} ({n})", n + 1
+    proj = create(name, str(data.get("description") or "")[:2000])
+    items = [{k: it.get(k) for k in _SHARED} for it in data["items"][:5000] if isinstance(it, dict)]
+    added = add_items(proj["id"], items, source="import")
+    return {"id": proj["id"], "name": name, "added": added}

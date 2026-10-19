@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import itertools
+import json
 import logging
 import os
 import re
@@ -15,7 +16,7 @@ from typing import Dict, List, Optional
 
 from flask import Flask, Response, has_request_context, jsonify, request, send_file, send_from_directory
 
-from . import __app_name__, __version__, batch, biblio, config, connect, document, export, history, i18n, journals, latex, library, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
+from . import __app_name__, __version__, batch, biblio, clips, config, connect, document, export, finder, guide, history, i18n, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
 from .i18n import tr
 from .fetcher import BenthicDownloader
 
@@ -93,9 +94,12 @@ def _flag_hijacked(res: Dict, ref) -> Dict:
     if hits and isinstance(res, dict):
         h = hits[0]
         res["hijacked"] = hits
-        res["note"] = (str(res.get("note") or "") + " " + tr(
+        part = i18n.note_part(
             "Die angegebene Website {site} ist eine gekaperte Kopie von „{original}“ (Retraction Watch Hijacked Journal Checker).",
-            site=h["site"], original=h["original"] or h["title"])).strip()
+            site=h["site"], original=h["original"] or h["title"])
+        before = res.get("note_parts") or ([i18n.note_part(str(res["note"]))] if res.get("note") else [])
+        res["note_parts"] = list(before) + [part]
+        res["note"] = (str(res.get("note") or "") + " " + i18n.tr_part(part)).strip()
     return res
 
 
@@ -303,6 +307,48 @@ def index():
     resp = Response(i18n.translate_html(page), mimetype="text/html")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+@app.route("/pet")
+def pet_page():
+    """Grimpo, der Begleiter auf dem Schreibtisch (static/pet.html), in der Sprache der Oberfläche."""
+    page = (Path(app.static_folder) / "pet.html").read_text(encoding="utf-8")
+    resp = Response(i18n.translate_html(page), mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/api/clips", methods=["GET", "POST"])
+def clip_list():
+    """Fundstücke von Grimpo: Links, Textstellen, Bildschirmfotos (clips.py)."""
+    if request.method == "GET":
+        return jsonify({"clips": clips.load()[:int(request.args.get("limit") or 50)], "folder": str(clips.folder())})
+    data = request.get_json(silent=True) or {}
+    try:
+        item = clips.add(str(data.get("kind") or ""), url=str(data.get("url") or ""), title=str(data.get("title") or ""),
+                         text=str(data.get("text") or ""), path=str(data.get("path") or ""), project=projects.active())
+    except ValueError as exc:
+        return jsonify({"error": {"url": tr("Das ist kein Link."), "path": tr("Das Bild liegt nicht im Ordner für Fundstücke.")}
+                        .get(str(exc), tr("Unbekannte Art von Fundstück."))}), 400
+    return jsonify(item)
+
+
+@app.route("/api/clips/<clip_id>", methods=["DELETE"])
+def clip_delete(clip_id: str):
+    return jsonify({"removed": clips.remove(clip_id)})
+
+
+@app.route("/api/guide", methods=["GET", "POST"])
+def guide_state():
+    """Der Weg durch eine Arbeit (guide.py), je aktivem Projekt; POST hakt eine Aufgabe ab oder wieder auf."""
+    project = projects.active()
+    if request.method == "GET":
+        return jsonify(guide.state(project))
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(guide.mark(project, str(data.get("task") or ""), bool(data.get("done"))))
+    except ValueError:
+        return jsonify({"error": tr("Unbekannte Aufgabe")}), 400
 
 
 @app.route("/i18n.js")
@@ -688,7 +734,9 @@ def batches():
                                    project=bool(data.get("project"))))
     except ValueError as exc:
         msg = {"folder": tr("Ordner nicht gefunden: {path}", path=folder),
-               "empty": tr("In diesem Ordner liegen keine Arbeiten (PDF, Word, LaTeX, Text).")}.get(str(exc), str(exc))
+               "empty": tr("In diesem Ordner liegen keine Arbeiten (PDF, Word, LaTeX, Text)."),
+               "zip": tr("Das .zip ließ sich nicht entpacken."),
+               "size": tr("Das .zip ist entpackt größer als 1,5 GB.")}.get(str(exc), str(exc))
         return jsonify({"error": msg}), 400
 
 
@@ -817,6 +865,67 @@ def find_missing_works():
     return jsonify(result)
 
 
+@app.route("/api/alternatives", methods=["POST"])
+def find_alternatives():
+    """Echte Arbeiten zum Thema einer Angabe, die Benthic nicht fand (Vorschläge zum Lesen, related.alternatives)."""
+    data = request.get_json(silent=True) or {}
+    query = str(data.get("title") or data.get("query") or "").strip()
+    if len(query) < 8:
+        return jsonify({"error": tr("Zu wenig Text für eine Suche.")}), 400
+    return jsonify({"suggestions": related.alternatives(query, config.load_settings().get("unpaywall_email", ""))})
+
+
+@app.route("/api/find-sources", methods=["POST"])
+def find_sources():
+    """Echte Arbeiten zu einer Aussage, mit der passendsten Stelle aus dem Abstract (finder.py)."""
+    data = request.get_json(silent=True) or {}
+    claim = str(data.get("claim") or "").strip()[:1000]
+    out = finder.find(claim, str(data.get("query") or "").strip()[:1000] or None, bool(data.get("open_access_only")),
+                      config.load_settings().get("unpaywall_email", ""))
+    if out.get("error") == "short":
+        return jsonify({"error": tr("Schreib die Aussage in einem ganzen Satz.")}), 400
+    if out.get("error"):
+        return jsonify({"error": tr("OpenAlex hat nicht geantwortet. Später erneut versuchen.")}), 502
+    return jsonify(out)
+
+
+@app.route("/api/request-copy")
+def request_copy():
+    """Bitte um eine Kopie bei den Autor:innen, wenn es keine freie Fassung gibt (oa.copy_request)."""
+    doi = library.normalize_doi(request.args.get("doi", ""))
+    if not doi:
+        return jsonify({"error": tr("Keine gültige DOI")}), 400
+    out = oa.copy_request(doi, config.load_settings().get("unpaywall_email", ""))
+    if not out:
+        return jsonify({"error": tr("Zu dieser DOI ließen sich keine Angaben laden. Später erneut versuchen.")}), 502
+    return jsonify(out)
+
+
+@app.route("/api/jobs/<job_id>/corrected")
+def corrected_list(job_id: str):
+    """Das Verzeichnis in einem Zitierstil, gebaut aus den echten Angaben aller gefundenen Quellen; was Benthic
+    nicht belegen konnte, steht getrennt daneben, damit nichts Erfundenes unbemerkt mitwandert."""
+    job = _job_record(job_id)
+    if not job or not job.get("results"):
+        return jsonify({"error": tr("Unbekannter Lauf")}), 404
+    results = sorted(job["results"], key=lambda r: r.get("order", 0))
+    fixed, open_items = [], []
+    for r in results:
+        doi = r.get("doi") or (r.get("found") or {}).get("doi")
+        entry = {"n": int(r.get("order", 0)) + 1, "verdict": r.get("verdict"),
+                 "text": str(r.get("input") or (r.get("claimed") or {}).get("title") or r.get("identifier") or "")[:400]}
+        if doi and r.get("verdict") in projects.REAL:
+            fixed.append((doi, entry))
+        else:
+            open_items.append(entry)
+    lang = "de-DE" if i18n.current() == "de" else "en-GB"
+    text, missing = biblio.export([d for d, _ in fixed], "text", request.args.get("style") or "apa", locale=lang)
+    gone = {m.lower() for m in missing}
+    open_items += [e for d, e in fixed if d.lower() in gone]
+    open_items.sort(key=lambda e: e["n"])
+    return jsonify({"text": text, "fixed": len(fixed) - len(gone), "open": open_items})
+
+
 @app.route("/api/quotes", methods=["POST"])
 def check_quotes():
     """Wörtliche Zitate einer geprüften Arbeit mit den geladenen Volltexten abgleichen."""
@@ -837,6 +946,18 @@ def check_quotes():
         counts[q["status"]] = counts.get(q["status"], 0) + 1
     return jsonify({"quotes": checked, "counts": counts,
                     "missing_pdfs": sorted({q["doi"] for q in checked if q["status"] == "no_pdf" and q.get("doi")})})
+
+
+@app.route("/api/overlap", methods=["POST"])
+def check_overlap():
+    """Übernahmen ohne Anführungszeichen: zitierende Sätze gegen die geladenen Volltexte ihrer Quellen (overlap.py)."""
+    job_id = str((request.get_json(silent=True) or {}).get("job_id") or "")
+    job = _job_record(job_id)
+    if not job or not (job.get("document") or {}).get("claims"):
+        return jsonify({"error": tr("Zu diesem Lauf gibt es keine Zitate im Text.")}), 404
+    result = overlap.check_document(job["document"], job.get("results") or [])
+    _job_store(job_id, "overlap_check", result)
+    return jsonify({**result, "counts": overlap.summary(result)})
 
 
 @app.route("/api/support", methods=["POST"])
@@ -1205,6 +1326,32 @@ def project_bibliography(pid: str):
     name = re.sub(r"[^A-Za-z0-9_-]+", "-", proj["name"]).strip("-") or "projekt"
     return Response(text, mimetype="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename={name}.{ext}"})
+
+
+@app.route("/api/projects/<pid>/bundle")
+def project_bundle(pid: str):
+    """Ein Projekt als Datei zum Weitergeben (Betreuung, Lerngruppe): Quellen mit Urteil, ohne PDFs und Pfade."""
+    out = projects.bundle(pid)
+    if not out:
+        return jsonify({"error": tr("Projekt nicht gefunden")}), 404
+    name = re.sub(r"[^A-Za-z0-9_-]+", "-", out["name"]).strip("-") or "projekt"
+    return Response(json.dumps(out, ensure_ascii=False, indent=1), mimetype="application/json; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename={name}.benthic.json"})
+
+
+@app.route("/api/projects/import", methods=["POST"])
+def project_import():
+    """Ein geteiltes Projekt (Datei aus /api/projects/<pid>/bundle) als neues Projekt anlegen."""
+    upload = request.files.get("file")
+    try:
+        raw = upload.read(5_000_000) if upload else request.get_data(cache=False)[:5_000_000]
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        return jsonify({"error": tr("Das ist keine Projektdatei von Benthic.")}), 400
+    try:
+        return jsonify(projects.unbundle(data))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.route("/api/update")

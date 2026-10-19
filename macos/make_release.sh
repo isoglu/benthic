@@ -11,7 +11,8 @@
 # Ergebnis: dist/release.json. DMG und Manifest
 # gehören zusammen in diesen Ordner; build_app.sh hinterlegt in der App die
 # passende Manifest-Adresse. Dazu kommt dist/Benthic.mcpb für das GitHub-Release
-# (MCP-Registry, Smithery; siehe scripts/make_mcpb.py).
+# (MCP-Registry, Smithery; siehe scripts/make_mcpb.py) und dist/benthic-zotero-<Version>.xpi,
+# das Zotero-Plug-in; dist/zotero-updates.json gehört nach benthic.isoglu.com/zotero/updates.json.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -64,4 +65,5 @@ with open(out, "w", encoding="utf-8") as f:
 print(json.dumps(manifest, indent=2, ensure_ascii=False))
 PY
 python3 scripts/make_mcpb.py
-echo "Fertig: $OUT (zusammen mit $DMG nach $BASE hochladen), dist/Benthic.mcpb an Release v$VERSION hängen"
+python3 scripts/make_zotero_plugin.py
+echo "Fertig: $OUT (zusammen mit $DMG nach $BASE hochladen), dist/Benthic.mcpb und dist/benthic-zotero-$VERSION.xpi an Release v$VERSION hängen, dist/zotero-updates.json als zotero/updates.json auf die Website"

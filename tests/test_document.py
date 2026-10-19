@@ -71,6 +71,16 @@ class Dokument(unittest.TestCase):
         claim = next(c for c in a["claims"] if c["surname"] == "Smith")
         self.assertIn("Language models invent sources", claim["sentence"])
 
+    def test_year_differs_between_text_and_list(self):
+        a = document.analyse(THESIS.replace("(Smith & Jones, 2019)", "(Smith & Jones, 2020)"))
+        years = a["year_mismatch"]
+        self.assertEqual(len(years), 1)
+        self.assertEqual((years[0]["cited_year"], years[0]["list_year"]), ("2020", "2019"))
+        self.assertIn("Invented references", years[0]["list_label"] + a["refs_text"])
+        self.assertEqual([m["label"] for m in a["missing_in_list"]], ["Brown (2017)"])  # nicht zusätzlich als fehlend
+        self.assertTrue(all("Smith" not in u["label"] for u in a["uncited"]))      # und nicht als nie zitiert
+        self.assertEqual(document.analyse(THESIS)["year_mismatch"], [])
+
     def test_numeric_thesis(self):
         a = document.analyse(NUMERIC)
         self.assertEqual(a["style"], "numeric")
