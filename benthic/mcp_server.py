@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -25,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
-from .i18n import catalog, tr
+from .i18n import catalog, tr, tr_part
 
 PORT = int(os.environ.get("BENTHIC_PORT", "8327"))
 BASE = f"http://127.0.0.1:{PORT}"
@@ -36,6 +37,9 @@ _client = "mcp"
 _out_lock = threading.Lock()
 _backend: Optional[subprocess.Popen] = None
 _backend_lock = threading.Lock()
+_INIT = Path(__file__).with_name("__init__.py")
+_VERSION_RE = re.compile(r"""^__version__\s*=\s*["']([^"']+)["']""", re.M)
+_noticed: set = set()
 
 INSTRUCTIONS = (
     "Benthic checks and fetches academic sources. Typical workflow: (1) call verify_references on any "
@@ -79,20 +83,25 @@ def _http(method: str, path: str, body: Optional[Dict] = None, timeout: float = 
             return exc.code, {"error": raw.decode("utf-8", "replace")[:300]}
 
 
-def _healthy() -> bool:
+def _health() -> Optional[Dict]:
+    """Antwort von GET /api/health (mit der Version des Backends) oder None, wenn keines läuft."""
     try:
         status, data = _http("GET", "/api/health", timeout=2)
-        return status == 200 and isinstance(data, dict) and data.get("ok")
     except (urllib.error.URLError, OSError, ValueError):
-        return False
+        return None
+    return data if status == 200 and isinstance(data, dict) and data.get("ok") else None
 
 
-def ensure_backend() -> None:
-    """Nutzt ein laufendes Benthic-Backend oder startet eines (es endet mit diesem Prozess)."""
+def ensure_backend() -> Dict:
+    """Nutzt ein laufendes Benthic-Backend oder startet eines (es endet mit diesem Prozess).
+
+    Gibt die Antwort von /api/health zurück, damit _call_tool die Versionen vergleichen kann.
+    """
     global _backend
     with _backend_lock:
-        if _healthy():
-            return
+        health = _health()
+        if health:
+            return health
         if _backend is None or _backend.poll() is not None:
             env = dict(os.environ)
             env.setdefault("BENTHIC_DATA_DIR", str(DEFAULT_DATA))
@@ -107,10 +116,47 @@ def ensure_backend() -> None:
                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL)
         for _ in range(60):
-            if _healthy():
-                return
+            health = _health()
+            if health:
+                return health
             time.sleep(0.25)
     raise RuntimeError("The Benthic backend did not start. Is Benthic installed?")
+
+
+def _disk_version() -> Optional[str]:
+    """Version der Dateien neben diesem Modul; nach einem Update von Benthic.app nicht mehr __version__."""
+    try:
+        match = _VERSION_RE.search(_INIT.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return match.group(1) if match else None
+
+
+def _version_notice(backend: Optional[str]) -> Optional[str]:
+    """Eine Zeile für das LLM, wenn dieser Prozess und das installierte Benthic auseinanderlaufen.
+
+    Der MCP-Prozess lebt so lange wie der Client. Nach einem Update der App bedient er weiter
+    den alten Code, das Backend kommt aber aus den neuen Dateien, und die Antworten mischen
+    beide Stände (19.10.2026: MCP 1.0.0 vor Backend 1.0.1 gab deutsche Stilhinweise aus).
+    Sich selbst neu zu starten (os.execv) wäre bei stdio nicht sicher: Zeilen, die sys.stdin
+    schon gepuffert hat, und laufende Werkzeug-Threads gingen verloren, und der Client behält
+    Werkzeugliste und Anweisungen aus dem ersten initialize (listChanged: false). Darum nur
+    ein Hinweis; der Neustart des Clients lädt alles sauber.
+    """
+    disk = _disk_version()
+    if disk and disk != __version__:
+        notice = (f"Note for the user: Benthic was updated to {disk}, but this connection still runs {__version__}. "
+                  "Quit and reopen the app you are chatting in (for example Claude Desktop) to load the new tools; "
+                  "until then answers may mix both versions.")
+    elif backend and backend != __version__:
+        notice = (f"Note for the user: the Benthic app runs version {backend}, but this connection runs {__version__}, "
+                  "so answers may mix both versions. Quit and reopen Benthic and the app you are chatting in.")
+    else:
+        return None
+    if notice not in _noticed:
+        _noticed.add(notice)
+        log(f"Versionen passen nicht zusammen: MCP {__version__}, Dateien {disk or '?'}, Backend {backend or '?'}")
+    return notice
 
 
 def _activity(tool: str, summary: str) -> None:
@@ -156,7 +202,7 @@ def _fmt_verify(job: Dict) -> str:
             bits.append(f"doi:{r['doi']}")
         line = " ".join(bits)
         if r.get("note"):
-            line += f"\n   Note: {_en(r['note'])}"
+            line += f"\n   Note: {_en(r.get('note_parts') or r['note'])}"
         pub = r.get("published_version")
         if pub:
             line += (f"\n   Published since: doi:{pub['doi']} ({pub.get('venue') or pub.get('type')}, {pub.get('year')}). "
@@ -183,13 +229,16 @@ def _fmt_verify(job: Dict) -> str:
 def _en(note) -> str:
     """Ein Hinweis aus einem Lauf auf Englisch, wie der Rest dieser Ausgabe.
 
-    Stilhinweise tragen Vorlage und Werte (style._note); andere Texte wurden beim Prüfen in der
-    Sprache der Oberfläche geschrieben und werden übersetzt, wenn sie ein fester Satz sind.
+    Prüfhinweise (note_parts, eine Liste aus i18n.note_part) und Stilhinweise (style._note) tragen
+    Vorlage und Werte. Andere Texte und ältere Läufe ohne note_parts wurden beim Prüfen in der Sprache
+    der Oberfläche geschrieben und werden übersetzt, wenn sie ein fester Satz sind.
     """
+    if isinstance(note, list):
+        return " ".join(t for t in (_en(p) for p in note) if t)
     if isinstance(note, dict):
         if note.get("msg"):
             try:
-                return tr(note["msg"], lang="en", **(note.get("values") or {}))
+                return tr_part(note, "en")
             except (KeyError, IndexError, ValueError):
                 pass
         note = note.get("text") or ""
@@ -258,7 +307,11 @@ def _fmt_document(job: Dict) -> str:
                     "so they were not cross-checked against the list.")
     else:
         missing, uncited = d.get("missing_in_list") or [], d.get("uncited") or []
-        if not missing and not uncited:
+        years = d.get("year_mismatch") or []
+        if years:
+            head.append("Same author, different year in the text and in the list (probably a typo in one of them): "
+                        + "; ".join(f"{y['label']} in the text, {y['list_year']} in the list" for y in years[:25]))
+        if not missing and not uncited and not years:
             head.append("Every citation is in the reference list, and every entry is cited.")
         if missing:
             head.append("Cited in the text but missing from the reference list: "
@@ -377,6 +430,11 @@ def t_check_folder(a: Dict) -> str:
                     f"{r.get('uncited')} entries never cited; {r.get('not_found')} not found, {r.get('mismatch')} "
                     f"mismatched, {r.get('retracted')} retracted; {r.get('style')} style notes"
                     + (f" (details: get_job {r['job_id']})" if r.get("job_id") else ""))
+    shared = b.get("shared_phantoms") or []
+    if shared:
+        rows.append("Invented or misattributed references that appear in several submissions (a hint at a shared "
+                    "chatbot answer or copied lists, not proof):")
+        rows += [f"- \"{g['title']}\" in {len(g['files'])} submissions: {', '.join(g['files'])}" for g in shared[:20]]
     return head + ("\n" + "\n".join(rows) if rows else "")
 
 
@@ -604,6 +662,99 @@ def t_export_bibliography(a: Dict) -> str:
     return (data.get("text") or "(empty)") + miss
 
 
+def t_find_sources(a: Dict) -> str:
+    claim = str(a.get("claim") or "").strip()
+    if len(claim.split()) < 3:
+        raise ValueError("give the claim as a sentence")
+    _activity("find_sources", tr("sucht echte Quellen zu einer Aussage"))
+    status, r = _http("POST", "/api/find-sources", {"claim": claim, "open_access_only": bool(a.get("open_access_only"))},
+                      timeout=60.0)
+    if status != 200:
+        raise ValueError((r or {}).get("error") or "search failed")
+    if not r.get("suggestions"):
+        return "OpenAlex found no paper for this claim. Try other words, or English terms."
+    lines = ["Real papers from OpenAlex for the claim (retracted ones excluded), each with the abstract sentence "
+             "closest to it. They are candidates to read: recommend one only after its text shows it supports the "
+             "claim, and never cite one the user has not read."]
+    for w in r["suggestions"]:
+        who = ", ".join(w.get("authors") or []) + (" et al." if (w.get("author_count") or 0) > 3 else "")
+        oa = f" Open access: {w['oa_url']}" if w.get("oa_url") else ""
+        lines.append(f"- {who} ({w.get('year')}). {w.get('title')}. {w.get('venue') or ''} doi:{w.get('doi')}.{oa}")
+        if w.get("passage"):
+            lines.append(f"  Abstract: \"{w['passage']['text']}\"")
+    return "\n".join(lines)
+
+
+def t_check_overlap(a: Dict) -> str:
+    job_id = str(a.get("job_id") or "")
+    if not job_id:
+        raise ValueError("give the job_id of a check_document run")
+    _activity("check_overlap", tr("sucht Übernahmen ohne Anführungszeichen"))
+    status, r = _http("POST", "/api/overlap", {"job_id": job_id}, timeout=300.0)
+    if status != 200:
+        raise ValueError((r or {}).get("error") or "failed")
+    kinds = {"verbatim": "word for word", "close": "almost word for word", "partial": "a long identical run of words"}
+    lines = [f"Compared {r.get('checked', 0)} citing sentences with the downloaded full texts of their sources "
+             "(text in quotation marks excluded). Findings are passages to read side by side, not a verdict on intent."]
+    for f in r.get("findings") or []:
+        lines.append(f"- {kinds[f['kind']]} from {f.get('label')} (doi:{f.get('doi')}, p. {f.get('page') or '?'}): "
+                     f"\"{f['sentence']}\"" + (f"\n  Source: \"{f['excerpt']}\"" if f.get("excerpt") else ""))
+    if not r.get("findings"):
+        lines.append("No sentence takes over the wording of its source without quotation marks.")
+    if r.get("missing_pdfs"):
+        lines.append(f"Not checked, PDF not in the library ({len(r['missing_pdfs'])}): " + ", ".join(r["missing_pdfs"][:20])
+                     + ". fetch_papers can download open-access copies.")
+    return "\n".join(lines)
+
+
+def t_suggest_alternatives(a: Dict) -> str:
+    query = str(a.get("reference") or a.get("title") or "").strip()
+    if len(query) < 8:
+        raise ValueError("give the reference (or at least its title)")
+    _activity("suggest_alternatives", tr("sucht echte Arbeiten zum Thema"))
+    status, r = _http("POST", "/api/alternatives", {"title": query}, timeout=60.0)
+    if status != 200:
+        raise ValueError((r or {}).get("error") or "search failed")
+    if not r.get("suggestions"):
+        return "No real paper close to this reference was found in OpenAlex or Crossref."
+    lines = ["Real papers closest to the reference (OpenAlex, Crossref; retracted ones left out). These are reading "
+             "suggestions on the same topic, not the work that was cited: only recommend one after checking that it "
+             "supports the user's statement."]
+    for w in r["suggestions"]:
+        who = (w.get("authors") or [""])[0] + (" et al." if len(w.get("authors") or []) > 1 else "")
+        oa = " (open access)" if w.get("is_oa") else ""
+        lines.append(f"- {who} ({w.get('year') or 'n.d.'}). {w.get('title')}. {w.get('venue') or ''} doi:{w.get('doi')}{oa}")
+    return "\n".join(lines)
+
+
+def t_corrected_bibliography(a: Dict) -> str:
+    job_id = urllib.parse.quote(str(a.get("job_id") or ""), safe="")
+    if not job_id:
+        raise ValueError("give the job_id of a verify_references or check_document run")
+    q = urllib.parse.urlencode({"style": a.get("style", "apa")})
+    status, r = _http("GET", f"/api/jobs/{job_id}/corrected?{q}", timeout=120.0)
+    if status != 200:
+        raise ValueError((r or {}).get("error") or "failed")
+    out = [f"Corrected reference list ({r.get('fixed', 0)} entries rebuilt from the real metadata):", "", r.get("text") or "(empty)"]
+    if r.get("open"):
+        out += ["", "Left out because Benthic could not confirm them; the user must check or remove these:"]
+        out += [f"- {e['n']}. [{e.get('verdict')}] {e.get('text')}" for e in r["open"]]
+    return "\n".join(out)
+
+
+def t_request_copy(a: Dict) -> str:
+    doi = str(a.get("doi") or "").strip()
+    if not doi:
+        raise ValueError("give a DOI")
+    status, r = _http("GET", "/api/request-copy?" + urllib.parse.urlencode({"doi": doi}), timeout=30.0)
+    if status != 200:
+        raise ValueError((r or {}).get("error") or "failed")
+    lang = "de" if str(a.get("language") or "en").lower().startswith("de") else "en"
+    people = ", ".join(c["name"] + (f" ({c['orcid']})" if c.get("orcid") else "") for c in r.get("contacts") or []) or "unknown"
+    return (f"Contact: {people}. The e-mail address is usually on the publisher's page: {r.get('landing_url')}\n\n"
+            f"Subject: {r['subject'][lang]}\n\n{r['body'][lang]}[name]")
+
+
 _S = {"type": "string"}
 _PROJECT = {"type": "string", "description": "Project name or id. Optional; defaults to the active project in Benthic."}
 _WAIT = {"type": "integer", "minimum": 1, "maximum": 110,
@@ -649,7 +800,8 @@ TOOLS: List[Dict] = [
                     ".zip or project folder) like check_document, one after another, and return one summary line "
                     "per submission. Long batches keep running; call again with the batch_id to see progress.",
      "inputSchema": {"type": "object", "properties": {
-         "folder": {"type": "string", "description": "Absolute path or ~/… path of the folder."},
+         "folder": {"type": "string", "description": "Absolute path or ~/… path of the folder, or of an assignment's "
+                                                        ".zip export from Moodle or ILIAS."},
          "batch_id": _S, "wait_seconds": {"type": "integer", "minimum": 5, "maximum": 600}}},
      "annotations": {"readOnlyHint": False, "openWorldHint": True}, "handler": t_check_folder},
     {"name": "find_support", "title": "Find supporting passages",
@@ -729,6 +881,44 @@ TOOLS: List[Dict] = [
          "project": _S, "format": {"type": "string", "enum": ["bibtex", "ris", "text"]},
          "style": _S, "only_verified": {"type": "boolean"}}, "required": ["project"]},
      "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_export_bibliography},
+    {"name": "find_sources", "title": "Find real sources for a claim",
+     "description": "Instead of naming sources from memory (which invents references): search OpenAlex for real "
+                    "papers on a claim, retracted ones excluded, optionally open access only, each with the abstract "
+                    "sentence closest to the claim. Use English wording for the claim where possible.",
+     "inputSchema": {"type": "object", "properties": {
+         "claim": {"type": "string", "description": "The statement that needs a source, as a sentence."},
+         "open_access_only": {"type": "boolean"}}, "required": ["claim"]},
+     "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_find_sources},
+    {"name": "check_overlap", "title": "Find wording taken over without quotation marks",
+     "description": "For a check_document run (job_id): compare every sentence that cites a source with that "
+                    "source's downloaded full text, outside quotation marks, and list passages taken over word for "
+                    "word, almost word for word, or as a long identical run of words, with page and source passage. "
+                    "Needs the PDFs in the library (fetch_papers). Present findings as passages to compare, not as "
+                    "proof of plagiarism.",
+     "inputSchema": {"type": "object", "properties": {"job_id": _S}, "required": ["job_id"]},
+     "annotations": {"readOnlyHint": True}, "handler": t_check_overlap},
+    {"name": "suggest_alternatives", "title": "Suggest real papers for an invented reference",
+     "description": "For a reference that Benthic marked Not found or Mismatch: the real papers closest to its title "
+                    "(OpenAlex, Crossref, without retracted ones). Reading suggestions on the same topic, not a "
+                    "replacement to cite unread.",
+     "inputSchema": {"type": "object", "properties": {
+         "reference": {"type": "string", "description": "The reference as cited, or its title."}}, "required": ["reference"]},
+     "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_suggest_alternatives},
+    {"name": "corrected_bibliography", "title": "Corrected reference list",
+     "description": "The reference list of a check (job_id from verify_references or check_document) rebuilt from "
+                    "the real metadata in a citation style, ready to paste. Retracted, invented and unconfirmed "
+                    "entries are listed separately, never included.",
+     "inputSchema": {"type": "object", "properties": {
+         "job_id": _S, "style": {"type": "string", "enum": ["apa", "harvard", "chicago", "ieee", "vancouver", "din"]}},
+         "required": ["job_id"]},
+     "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_corrected_bibliography},
+    {"name": "request_copy", "title": "Draft a request for a copy",
+     "description": "When a paper has no open-access copy: a polite request to its corresponding author (English or "
+                    "German), with the author's ORCID and the publisher's page, where the e-mail address usually is. "
+                    "The user sends it; never send it yourself.",
+     "inputSchema": {"type": "object", "properties": {
+         "doi": _S, "language": {"type": "string", "enum": ["en", "de"]}}, "required": ["doi"]},
+     "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_request_copy},
     {"name": "assess_references", "title": "Assess reference list",
      "description": "Health of a reference list: are the sources real, how old are they (median age, share from "
                     "the last 5 years), where were they published (journal or preprint, journal metrics from "
@@ -768,13 +958,17 @@ def _call_tool(mid: Any, params: Dict) -> None:
     if not handler:
         _error(mid, -32602, f"Unknown tool: {name}")
         return
+    health: Dict = {}
     try:
-        ensure_backend()
-        text = handler(params.get("arguments") or {})
-        _result(mid, {"content": [{"type": "text", "text": text}], "isError": False})
+        health = ensure_backend()
+        text, failed = handler(params.get("arguments") or {}), False
     except Exception as exc:  # Werkzeugfehler gehen als Ergebnis zurück, damit das LLM reagieren kann
         log(f"{name}: {exc}")
-        _result(mid, {"content": [{"type": "text", "text": f"Error: {exc}"}], "isError": True})
+        text, failed = f"Error: {exc}", True
+    notice = _version_notice(str(health.get("version") or "") or None)
+    if notice:
+        text = f"{notice}\n\n{text}"
+    _result(mid, {"content": [{"type": "text", "text": text}], "isError": failed})
 
 
 def handle(msg: Dict) -> None:

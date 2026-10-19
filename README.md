@@ -34,12 +34,24 @@ talks to the scholarly services listed below.
   references and identifiers (DOI, arXiv, PMID) and checks each one: does it
   exist, does it match the citation (title, year, authors), is the DOI wrong or
   missing (Benthic finds the right one), and was the paper retracted.
+- **What now?** Every flagged source says in plain words what to do about it,
+  in the app and in the PDF report. For a reference that does not exist, Benthic
+  suggests real papers closest to its title, as reading suggestions: cite only
+  what you have read.
 - **Whole theses.** Drop a PDF or Word file. Benthic reads the bibliography,
   checks every entry and compares the list with the citations in the text: works
-  cited but missing from the list, and entries never cited.
+  cited but missing from the list, entries never cited, and citations whose year
+  differs from the list (Smith 2019 in the text, Smith 2020 in the list).
+- **Web sources and grey literature.** Websites in the list are opened: a page
+  that is reachable and carries the cited title counts as confirmed, a dead link
+  gets its nearest copy in the Internet Archive. Book chapters and business or
+  consulting sources, which the scholarly indexes rarely list, are marked
+  uncertain with a note on where to check them.
 - **Citation style.** Which style the list follows (APA 7, Harvard, Chicago,
   IEEE, Vancouver, DIN 1505), which entries break it and which fields are
-  missing, with a correct version of each entry in the style you choose.
+  missing, with a correct version of each entry in the style you choose, or
+  the whole corrected list in one go: every confirmed source rebuilt from the
+  real data, with retracted and unconfirmed entries kept apart.
 - **LaTeX projects.** A `.tex` file with its `.bib` files (or the whole project
   as a `.zip` or folder): `\cite` keys missing from the `.bib`, `.bib` entries
   never cited, and every cited entry verified.
@@ -47,27 +59,44 @@ talks to the scholarly services listed below.
   in the downloaded full text of its source: found, wording differs (with the
   source's wording) or not found, and whether the cited page is right, also
   for journal page numbers.
+- **Find sources for a claim.** Type a statement and Benthic searches OpenAlex
+  for real, unretracted papers with a DOI whose abstracts come closest to it,
+  with the matching passage, open access only if you like. A statement in German
+  is translated on the Mac first.
+- **Wording without quotation marks.** Every sentence of a thesis is compared
+  with the downloaded full texts of the sources it cites: wording taken over
+  verbatim, closely or in part without quotation marks, with the source passage
+  next to it. Only the thesis's own sources are compared; this is not a
+  plagiarism check against the web.
 - **Find the passage.** For a confirmed source, Benthic searches the
   downloaded full text for the passages closest to the sentence that cites it,
   with page numbers. It ranks by wording; whether a passage supports the claim
   is for you (or your assistant) to judge as you read. When the sentence and the
   source are in different languages, the app translates the sentence on the Mac
-  first (Apple Translation, macOS 15 or later).
+  first (Apple Translation, macOS 15 or later). On Macs with Apple
+  Intelligence (macOS 26), an on-device model adds a hint whether a passage
+  supports the sentence; nothing leaves the Mac, and the judgement stays yours.
 - **Preprint to published version.** Confirmed arXiv, bioRxiv, SSRN and other
   preprints that have since appeared in a journal or proceedings are flagged,
   with the published reference to copy.
 - **Key papers you may be missing.** Works that your confirmed sources cite
   again and again but that are not in your list (OpenAlex, or Crossref's open
   reference lists).
-- **PDF report.** One report per check (verdicts, cross-check, quotations,
-  published versions, style notes, key papers) to save as a paginated PDF.
+- **PDF report.** One designed report per check, saved as a PDF: a cover, an
+  overview with key figures and a source map, contents with page numbers, what
+  to do for each group of flagged sources, then every source (verdicts,
+  cross-check, quotations, published versions, style notes, key papers).
 - **Watch a file.** Benthic rechecks a Word, PDF or LaTeX file whenever you
   save it, if its references or citations changed, and reports new problems.
 - **Batch check for lecturers.** A folder of submissions (with subfolders,
   optional quotation checks and a project per batch), every file listed with
   its state and time remaining, totals, a problems filter, the problems of each
   file, a report per submission and a collective PDF report, export as CSV or
-  Excel. The submissions stay on the Mac; only the references are looked up.
+  Excel. Takes the "download all submissions" ZIP of a Moodle or ILIAS
+  assignment as it is. For the course as a whole it shows how many submissions
+  share each kind of problem, without names, and invented references that turn
+  up in several submissions. The submissions stay on the Mac; only the
+  references are looked up.
 - **Checks per project.** Check a project's sources again, run the retraction
   watch for one project, switch it off per project, and see each project's runs.
 - **Usage and limits.** Every request to every service is counted; Benthic
@@ -83,6 +112,9 @@ talks to the scholarly services listed below.
 - **Zotero both ways.** Send confirmed sources to the collection open in Zotero
   (through Zotero's local connector) and check your whole Zotero library for
   retracted papers (read from a copy of its database; Zotero is never changed).
+- **Zotero plug-in.** Select items in Zotero 7 or 8, right-click, **Check with
+  Benthic**: each item gets a tag such as "Benthic: Verified" or "Benthic:
+  Retracted". The plug-in talks only to the Benthic app on the same Mac.
 - **Questionable journals.** Journals that DOAJ removed for not adhering to best
   practice, or that falsely claim to be in DOAJ, are flagged in the list health
   (DOAJ lists, CC BY-SA 4.0 and CC0, loaded weekly). An optional check, off by
@@ -94,13 +126,18 @@ talks to the scholarly services listed below.
 - **Open-access downloads.** Library first, then arXiv, OpenAlex, Unpaywall, Europe
   PMC, Semantic Scholar, CORE, publisher APIs (Elsevier with your own key) and
   Crossref. If a free copy is known but cannot be fetched automatically, Benthic
-  says so and links to it. Otherwise, it offers your library proxy link.
+  says so and links to it. Otherwise, it offers your library proxy link (EZproxy
+  or OpenAthens, or your library's OpenURL link resolver with `{doi}` in the
+  address) and a polite request to the authors for a copy, with the publisher's
+  page and their ORCID profiles.
 - **Learning library.** A growing DOI index with import from Zotero (read from
   a copy, Zotero may stay open), BibTeX, RIS, Markdown or text. Known DOIs are
   skipped automatically.
 - **Projects.** Sources per research question with verdict and PDF status,
   "fetch missing" in one click, and bibliographies as BibTeX, RIS or formatted
-  (APA, Harvard, Chicago, IEEE, DIN 1505).
+  (APA, Harvard, Chicago, IEEE, DIN 1505). Share a project as a file with a
+  supervisor or study group (sources and verdicts, no PDFs); they open it in
+  their own Benthic, without an account.
 - **Overview.** Key figures, the funnel from "cited" to "in your library",
   where PDFs came from, verdicts and flagged sources, per project and period.
 - **Live dive.** During a run every source sinks as deep as it needs to, from
@@ -111,7 +148,13 @@ talks to the scholarly services listed below.
   from OpenAlex, the Finnish JUFO level, ranks from ranking lists you import
   yourself, such as VHB-JOURQUAL, ABDC, AJG or an SJR export) and how many PDFs
   you already have. Benthic ships no ranking lists; their publishers' terms apply.
-- **MCP server.** Nineteen tools for AI assistants: Claude Desktop, ChatGPT with
+- **Grimpo, a desk companion.** A small dumbo octopus that floats above all
+  windows, outside the app. It takes a screenshot of an area and reads its text
+  and DOIs on the Mac, keeps links, text and the open browser tab as finds, and
+  walks you through a paper in nine steps, from topic to submission, with a
+  checklist per project. Its right-click menu hides it; it comes back under
+  Window or in the settings.
+- **MCP server.** Twenty-four tools for AI assistants: Claude Desktop, ChatGPT with
   Codex, Antigravity, Claude Code, Codex CLI, Gemini CLI, Grok Build, Cursor,
   LM Studio and VS Code. Most connect in one click from the settings, or with one
   command from the assistant itself. Runs an assistant starts appear live in the app.
@@ -229,6 +272,9 @@ Spotlight; their files come from `scripts/make_plugins.py`.
 | `create_project`, `list_projects`, `project_status` | Manage projects |
 | `export_bibliography` | Bibliography as BibTeX, RIS or APA, Harvard, IEEE, DIN and more |
 | `assess_references` | Health of a reference list: authenticity, age, venues, journal metrics |
+| `find_sources` | Real papers for a claim, with the closest passage |
+| `check_overlap` | Wording taken from the sources without quotation marks |
+| `suggest_alternatives`, `corrected_bibliography` | Real papers for an invented entry, the corrected list |
 | `get_job` | Collect the results of a job that is still running |
 
 If the app is not running, the MCP server starts the backend itself and stops
@@ -262,6 +308,14 @@ at most once a week; nothing about you is sent. Zotero is reached only on
 127.0.0.1. OpenAlex gives every network a small free daily budget; with your
 own free API key (Settings › Contact and access) large lists run without that
 limit.
+
+**Find sources** sends the statement you type (in English, translated on the Mac
+if needed) to OpenAlex. For web sources Benthic opens the cited page and, if it
+is gone, asks the Internet Archive (archive.org) for a copy. When you drop a link
+on Grimpo, it opens the page once to read its DOI. Grimpo's screenshots and their
+text recognition stay on the Mac; reading the open browser tab needs your
+permission the first time (macOS asks). The on-device model hints and the
+Zotero plug-in do not use the network.
 
 ## Build from source
 
@@ -325,7 +379,10 @@ Official releases are signed ad hoc and not notarised. A release is:
 Before that, a new version number goes into `benthic/__init__.py`,
 `macos/Info.plist` and a new section at the top of both changelogs, and
 `python3 scripts/make_plugins.py` carries it into the plugin files. A unit test
-checks that all of them agree.
+checks that all of them agree. `make_release.sh` also builds the Zotero plug-in
+(`scripts/make_zotero_plugin.py`): `dist/benthic-zotero-<version>.xpi` goes
+with the GitHub release, `dist/zotero-updates.json` to
+`benthic.isoglu.com/zotero/updates.json`, where Zotero looks for updates.
 
 With an Apple Developer ID, `./macos/sign_and_notarize.sh` signs the app with
 the hardened runtime, notarises app and DMG and staples the tickets. It needs:
@@ -358,6 +415,10 @@ benthic/batch.py          batch check of a folder of submissions
 benthic/quota.py          request counting, limits and the request log
 benthic/style.py          citation style check
 benthic/support.py        passages in a full text that come closest to a claim
+benthic/finder.py         real papers for a claim (OpenAlex)
+benthic/overlap.py        wording taken from the sources without quotation marks
+benthic/clips.py          Grimpo's finds: screenshots, links, text
+benthic/guide.py          the nine steps through a paper
 benthic/watch.py          retraction watch for project sources
 benthic/zotero.py         Zotero: send through the connector, scan the library
 benthic/questionable.py   DOAJ lists and hijacked journal websites
@@ -366,7 +427,8 @@ benthic/routes.py         extension point for plugin routes
 benthic/mcp_server.py     MCP server (standard library only)
 benthic/connect.py        setup for AI assistants, one-click configuration entries
 benthic/i18n.py           English and German (catalogue in benthic/locales/en.json)
-benthic/static/           interface (HTML, CSS tokens, JavaScript)
+benthic/static/           interface (HTML, CSS tokens, JavaScript), Grimpo in pet.html
+zotero/                 Zotero plug-in (built by scripts/make_zotero_plugin.py)
 skills/, .claude-plugin/,   plugins for Claude Code, Codex, VS Code and Gemini CLI
 .codex-plugin/, .agents/
 macos/                  Swift shell, build, DMG, signing and design assets

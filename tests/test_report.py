@@ -39,12 +39,33 @@ class Bericht(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         page = r.get_data(as_text=True)
         for text in ("thesis.docx", "Brown, 2021", "NumPy is the primary array programming library", "APA 7",
-                     "The issue is missing (7825).", "doi:10.1016/S0140-6736(97)11096-0"):
+                     "The issue is missing (7825).", "10.1016/S0140-6736(97)11096-0"):
             self.assertIn(text, page)
         self.assertNotIn("<script>\"", page)
         self.assertIn("&lt;script&gt;", page)          # Titel werden escaped
         self.assertNotIn("print()", page)
         self.assertIn("print()", self.client.get("/report/9907?print=1").get_data(as_text=True))
+
+    def test_document_structure(self):
+        page = self.client.get("/report/9907").get_data(as_text=True)
+        self.assertIn('class="page cover"', page)            # Deckblatt
+        for anchor in ("sec-overview", "sec-contents", "sec-attention", "sec-document", "sec-quotes", "sec-style",
+                       "sec-all", "sec-about"):
+            self.assertIn(f'id="{anchor}"', page)
+        self.assertIn('data-pageof="sec-all"', page)           # Inhaltsverzeichnis mit Seitenzahlen
+        self.assertIn('<template id="page-tpl">', page)       # Kopf und Fuß jeder Innenseite
+        self.assertNotIn("stop-opacity", page)                # druckt WebKit deckend (report._print_safe)
+        self.assertNotIn("<mask", page)
+
+    def test_batch_page(self):
+        from benthic import report
+        b = {"id": "b1", "name": "Seminar", "folder": "/tmp/x", "finished_at": 1792300000,
+             "totals": {"checked": 2, "flagged_files": 1, "retracted_files": 1, "errors": 0},
+             "rows": [{"name": "a.pdf", "entries": 10, "retracted": 1, "problems": {"retracted": ["Wakefield 1998"]}},
+                      {"name": "b.docx", "state": "error", "error": "no-bibliography"}]}
+        page = report.render_batch(b)
+        for text in ("a.pdf", "b.docx", "Wakefield 1998", 'class="page cover"', 'id="sec-about"'):
+            self.assertIn(text, page)
 
     def test_unknown(self):
         self.assertEqual(self.client.get("/report/999").status_code, 404)

@@ -504,10 +504,35 @@ def analyse(text: str) -> Dict:
             entry = keys.get((_fold(c["surname"].split()[-1]), c["year"]))
         c["entry"] = entry
         if entry is None:
-            m = missing.setdefault(c["label"], {"label": c["label"], "count": 0, "sentence": c["sentence"]})
+            m = missing.setdefault(c["label"], {"label": c["label"], "count": 0, "sentence": c["sentence"],
+                                                "surname": _fold(c["surname"].split()[-1]) if c.get("surname") else "",
+                                                "year": str(c.get("year") or "")})
             m["count"] += 1
         else:
             cited_entries.add(entry)
+    # Gleicher Name, anderes Jahr: im Text (Smith, 2019), im Verzeichnis Smith 2018. Das ist dieselbe Quelle mit
+    # einem Tippfehler im Jahr, nicht ein fehlender und ein nie zitierter Eintrag.
+    year_mismatch = []
+    if not numeric:
+        open_by_name: Dict[str, List[Dict]] = {}
+        for r in parsed:
+            if r["entry"] not in cited_entries:
+                open_by_name.setdefault(_entry_key(r)[0], []).append(r)
+        for label, m in list(missing.items()):
+            cands = open_by_name.get(m.get("surname") or "") or []
+            if len(cands) != 1 or not cands[0].get("year") or not m.get("year"):
+                continue
+            r = cands[0]
+            if str(r["year"])[:4] == m["year"][:4]:
+                continue
+            year_mismatch.append({"label": label, "cited_year": m["year"], "list_year": str(r["year"]), "entry": r["entry"],
+                                  "list_label": refs.label(r) or r["raw"][:90], "count": m["count"], "sentence": m["sentence"]})
+            del missing[label]
+            cited_entries.add(r["entry"])
+            open_by_name[m["surname"]] = []
+    for m in missing.values():
+        m.pop("surname", None)
+        m.pop("year", None)
     uncited = [{"entry": r["entry"], "label": refs.label(r) or r["raw"][:90]} for r in parsed if r["entry"] not in cited_entries]
     counted = [c for c in citations if (c["kind"] == "number") == numeric and "entry" in c]
     # Hochgestellte Zahlen (Nature, Science) liest kein PDF-Text als Zitat; dann lieber nichts
@@ -520,6 +545,7 @@ def analyse(text: str) -> Dict:
         "citations": len(counted),
         "cross_check": readable,
         "missing_in_list": sorted(missing.values(), key=lambda m: -m["count"])[:200] if readable else [],
+        "year_mismatch": year_mismatch[:200] if readable else [],
         "uncited": uncited[:200] if readable else [],
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": find_quotes(_normalised(body), citations),

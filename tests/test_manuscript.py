@@ -65,10 +65,34 @@ class GraueLiteratur(unittest.TestCase):
         self.assertIsNone(verify._grey_literature("Smith, J. (2020). An invented article. Journal of Things, 3."))
 
     def test_links(self):
-        with mock.patch.object(verify, "_url_reachable", return_value=True):
-            self.assertEqual(verify._grey_literature("Report (2025). https://example.org/report")[0], "uncertain")
-        with mock.patch.object(verify, "_url_reachable", return_value=False):
-            self.assertEqual(verify._grey_literature("Report (2025). https://example.org/report")[0], "not_found")
+        raw = "OECD (2025). Education at a Glance 2025. https://www.oecd.org/eag-2025.html."
+        snap = {"url": "https://web.archive.org/web/20250910/https://www.oecd.org/eag-2025.html", "date": "2025-09-10"}
+        with mock.patch.object(verify, "_fetch_page", return_value=(True, "Education at a Glance 2025 | OECD")), \
+                mock.patch.object(verify, "wayback", return_value=snap):
+            r = verify._web_source(raw, "Education at a Glance 2025")
+        self.assertEqual(r["verdict"], "verified")                      # Seite da, Titel passt
+        self.assertEqual(r["web"]["url"], "https://www.oecd.org/eag-2025.html")  # ohne Satzzeichen am Ende
+        self.assertEqual(r["web"]["archive_date"], "2025-09-10")
+        self.assertTrue(r["web"]["accessed"])
+        with mock.patch.object(verify, "_fetch_page", return_value=(True, "Cookie settings")), \
+                mock.patch.object(verify, "wayback", return_value=None):
+            r = verify._web_source(raw, "Education at a Glance 2025")
+        self.assertEqual(r["verdict"], "uncertain")
+        self.assertIn("Cookie settings", r["note"])                     # nennt den echten Seitentitel
+        with mock.patch.object(verify, "_fetch_page", return_value=(False, "")), \
+                mock.patch.object(verify, "wayback", return_value=snap):
+            r = verify._web_source(raw, "Education at a Glance 2025")
+        self.assertEqual(r["verdict"], "uncertain")                     # umgezogen, nicht erfunden
+        self.assertIn("Internet Archive", r["note"])
+        with mock.patch.object(verify, "_fetch_page", return_value=(False, "")), \
+                mock.patch.object(verify, "wayback", return_value=None):
+            self.assertEqual(verify._web_source(raw, "")["verdict"], "not_found")
+        self.assertIsNone(verify._web_source("Smith (2020). No link here.", "x"))
+
+    def test_page_title(self):
+        page = '<html><head><title>Home | Site</title><meta property="og:title" content="The &amp; Report"></head>'
+        self.assertEqual(verify._page_title(page), "The & Report")
+        self.assertEqual(verify._page_title("<title>\n  Plain  title </title>"), "Plain title")
 
 
 if __name__ == "__main__":

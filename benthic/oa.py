@@ -180,6 +180,44 @@ def resolve_metadata(doi: str, email: str = "") -> Optional[Dict]:
     return crossref.lookup(doi)
 
 
+def copy_request(doi: str, email: str = "") -> Optional[Dict]:
+    """Bitte um eine Kopie, wenn es keine freie Fassung gibt: Betreff und Text (Englisch und Deutsch) sowie Wege
+    zur Kontaktperson (Verlagsseite, ORCID). Viele Autor:innen schicken ihre Arbeit auf Nachfrage; die E-Mail-Adresse
+    steht in offenen Daten selten, meist aber auf der Verlagsseite."""
+    work = openalex_work(doi, email) or {}
+    meta = metadata_from_work(work) if work else (crossref.lookup(doi) or {})
+    title = str(meta.get("title") or "").strip()
+    if not title:
+        return None
+    authorships = work.get("authorships") or []
+    corresponding = [a for a in authorships if a.get("is_corresponding")]
+    people = corresponding or (authorships[:1] + (authorships[-1:] if len(authorships) > 1 else []))
+    contacts = []
+    for a in people:
+        author = a.get("author") or {}
+        name = str(author.get("display_name") or "").strip()
+        if name.isupper():  # manche Namen stehen bei OpenAlex in Großbuchstaben
+            name = name.title()
+        if name and all(c["name"] != name for c in contacts):
+            contacts.append({"name": name, "orcid": author.get("orcid") or ""})
+    name = contacts[0]["name"] if contacts else str(meta.get("contact") or "").strip()
+    venue = str(((work.get("primary_location") or {}).get("source") or {}).get("display_name") or "")
+    year = str(meta.get("year") or "")
+    where = ", ".join(x for x in (venue, year) if x)
+    ref = f"\u201c{title}\u201d" + (f" ({where})" if where else "") + f", https://doi.org/{doi}"
+    bodies = {
+        "en": (f"Dear {name or 'author'},\n\nI am a student and would like to read your work {ref}. "
+               "I have no access to it through a library. Would you be able to send me a copy for my own study?\n\n"
+               "Thank you very much,\n"),
+        "de": (f"Guten Tag{(' ' + name) if name else ''},\n\nich studiere und würde gern Ihre Arbeit {ref} lesen. "
+               "Über eine Bibliothek habe ich keinen Zugang. Könnten Sie mir für mein eigenes Studium eine Kopie schicken?\n\n"
+               "Vielen Dank und freundliche Grüße\n"),
+    }
+    subjects = {"en": f"Request for a copy: {title}", "de": f"Bitte um eine Kopie: {title}"}
+    return {"doi": doi, "title": title, "contacts": contacts, "landing_url": f"https://doi.org/{doi}",
+            "subject": subjects, "body": bodies}
+
+
 # --------------------------------------------------------------------------
 # Quellen: jede liefert (Kandidaten, Landingpages)
 # --------------------------------------------------------------------------

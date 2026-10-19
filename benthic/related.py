@@ -9,6 +9,7 @@ ist aber ein schneller Blick, ob ein Grundlagentext fehlt.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Dict, Iterable, List, Optional
 
@@ -119,3 +120,29 @@ def missing_works(dois: Iterable[str], email: str = "", top: int = 12) -> Dict:
         if len(out) >= top:
             break
     return {"sources": n, "of": len(own), "source": source, "least": least, "suggestions": out}
+
+
+def alternatives(query: str, email: str = "", top: int = 4) -> List[Dict]:
+    """Echte Arbeiten zum Thema einer Angabe, die es so nicht gibt (Nicht auffindbar, Passt nicht).
+
+    Benthic sucht mit dem angegebenen Titel (sonst dem ganzen Eintrag) bei OpenAlex und Crossref und nimmt die
+    nächsten Treffer mit DOI, ohne zurückgezogene. Das sind Vorschläge zum Lesen, kein Ersatz, den man ungelesen
+    zitiert; die App sagt das dazu.
+    """
+    from . import verify  # verify importiert related nicht; so bleibt die Reihenfolge der Importe frei
+
+    q = re.sub(r"https?://\S+|\b10\.\d{4,9}/\S+", " ", str(query or ""))  # DOIs und Links gehören zu anderen Werken
+    q = re.sub(r"^\s*(?:\[\d+\]|\(\d+\)|\d+[.)])\s+", "", re.sub(r"\s+", " ", q)).strip()
+    if len(q) < 8:
+        return []
+    out: List[Dict] = []
+    seen = set()
+    for hit in verify._search_openalex(q, email) + verify._search_crossref(q, email):
+        doi = str(hit.get("doi") or "").lower()
+        if not doi or doi in seen or not hit.get("title") or hit.get("retracted"):
+            continue
+        seen.add(doi)
+        out.append({k: hit.get(k) for k in ("doi", "title", "authors", "year", "venue", "type", "is_oa", "cited_by")})
+        if len(out) >= top:
+            break
+    return out

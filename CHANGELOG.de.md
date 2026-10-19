@@ -6,6 +6,60 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.0
+
+Benthic hilft jetzt, mit seinen Ergebnissen weiterzuarbeiten, prüft mehr an
+einer Abschlussarbeit und bringt zwei Begleiter mit: Grimpo auf deinem
+Schreibtisch und ein Plug-in für Zotero. Drei Funktionen fragen neue Dienste an,
+und nur mit dem, was sie brauchen: „Quellen finden“ schickt die eingetippte
+Aussage an OpenAlex, ein toter Weblink wird im Internet Archive nachgeschlagen,
+und ein Link, den du auf Grimpo ablegst, wird einmal geöffnet, um seine DOI zu
+lesen.
+
+- **Was tun, bei jedem Befund.** Jede auffällige Quelle sagt in klaren Worten,
+  was zu tun ist, in der App und im Bericht. Für Angaben, die es nicht gibt,
+  schlägt Benthic echte Arbeiten zum Thema vor (OpenAlex und Crossref, nie
+  zurückgezogene), zum Lesen, nicht als Ersatz, den man ungelesen zitiert.
+- **Ein korrigiertes Verzeichnis und ein Weg zum Volltext.** Der Reiter
+  Zitierstil baut das ganze Literaturverzeichnis aus den echten Metadaten neu
+  und hält zurückgezogene und unbestätigte Einträge getrennt. Gibt es von einem
+  Artikel keine freie Fassung, entwirft Benthic eine höfliche Bitte an die
+  korrespondierende Autorin oder den korrespondierenden Autor, und die
+  Bibliothekseinstellung nimmt auch einen OpenURL-Linkresolver an.
+- **Quellen finden.** Tippe eine Aussage ein, und Benthic sucht echte, nicht
+  zurückgezogene Arbeiten mit DOI, die sie abdecken, mit der passendsten
+  Stelle. Auf Macs mit Apple Intelligence kann das Modell auf dem Gerät
+  einschätzen, ob eine Stelle die Aussage stützt.
+- **Mehr Prüfungen für Abschlussarbeiten.** Zitate, deren Jahr vom Verzeichnis
+  abweicht, werden gemeldet. Zitierte Webseiten werden geöffnet: Eine
+  erreichbare Seite mit dem zitierten Titel gilt als bestätigt, und ein toter
+  Link bekommt die nächstgelegene Kopie aus dem Internet Archive. Eine neue
+  Prüfung vergleicht die Arbeit mit den Volltexten ihrer eigenen Quellen und
+  listet Wortlaut, der ohne Anführungszeichen übernommen wurde; eine
+  Plagiatsprüfung gegen das Web ist sie nicht.
+- **Für Lehrende.** Die Stapelprüfung nimmt die ZIP-Datei „Alle Abgaben
+  herunterladen“ einer Aufgabe aus Moodle oder ILIAS und zeigt ohne Namen, wie
+  viele Abgaben dasselbe Problem haben und welche erfundenen Angaben in
+  mehreren auftauchen.
+- **Grimpo.** Ein kleiner Dumbo-Oktopus in einem schwebenden Fenster sammelt
+  Bildschirmfotos (Text und DOIs erkennt dein Mac), Links, Text und den offenen
+  Browser-Tab und führt dich je Projekt in neun Schritten durch eine Arbeit.
+- **Zotero-Plug-in.** In Zotero 7 und 8 versieht „Mit Benthic prüfen“ die
+  ausgewählten Einträge mit ihrem Urteil als Schlagwort. Es spricht nur mit
+  Benthic auf deinem Mac und liegt als Datei auf der Release-Seite.
+- **Ein gestalteter PDF-Bericht.** Ein Titelblatt, eine Übersicht mit Zahlen
+  und dem, was du zuerst ansehen solltest, Inhalt und Legende der Urteile,
+  dann kompakte Listen. App und Browser drucken dieselben Seiten.
+- **Projekte als Datei.** „Als Datei teilen“ sichert ein Projekt für die
+  Betreuung oder eine Lerngruppe, und „Projektdatei öffnen“ öffnet es in einem
+  anderen Benthic, ohne Konto.
+- **Mehr für KI-Assistenten.** Fünf neue Werkzeuge, 24 insgesamt. Hinweise in
+  der Antwort eines Werkzeugs sind auf Englisch, auch wenn die App auf Deutsch
+  läuft, und eine Antwort sagt Bescheid, wenn die Verbindung nach einem Update
+  noch ein älteres Benthic nutzt.
+- **Leichter mit Tastatur und Screenreader.** Ein Sprunglink, ein laufender
+  Status während einer Prüfung und Pfeiltasten in Auswahlgruppen.
+
 ## 1.0.1
 
 Korrekturen und klarere Einstellungen. Eine Berichtigung zu 1.0.0: Projekte

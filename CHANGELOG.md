@@ -5,6 +5,54 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.0
+
+Benthic now helps you act on what it finds, checks more of a thesis, and brings
+two companions: Grimpo on your desk and a plug-in for Zotero. Three features
+reach new services, and only with what they need: "Find sources" sends the
+claim you type to OpenAlex, a dead web link is looked up at the Internet
+Archive, and a link you drop on Grimpo is opened once to read its DOI.
+
+- **What now, for every finding.** Each flagged source says in plain words what
+  to do, in the app and in the report. For references that do not exist,
+  Benthic suggests real papers on the topic (OpenAlex and Crossref, never
+  retracted ones) as reading, not as replacements to cite unread.
+- **A corrected list and a way to the full text.** The Citation style tab
+  rebuilds the whole reference list from the real metadata and keeps retracted
+  and unconfirmed entries apart. When a paper has no free version, Benthic
+  drafts a polite request to the corresponding author, and the library setting
+  also accepts an OpenURL link resolver.
+- **Find sources.** Type a claim and Benthic looks for real, unretracted papers
+  with a DOI that cover it, with the closest passage. On Macs with Apple
+  Intelligence, the on-device model can add a hint whether a passage supports
+  the claim.
+- **More checks for a thesis.** Citations whose year differs from the list are
+  flagged. Cited web pages are opened: a reachable page with the cited title
+  counts as confirmed, and a dead link gets its nearest Internet Archive copy.
+  A new check compares the thesis with the full texts of its own sources and
+  lists wording taken over without quotation marks; it is not a web plagiarism
+  check.
+- **For lecturers.** Batch check takes the "Download all submissions" ZIP of a
+  Moodle or ILIAS assignment and shows, without names, how many submissions
+  share each problem and which invented references turn up in several of them.
+- **Grimpo.** A small dumbo octopus in a floating window keeps screenshots
+  (text and DOIs are recognised on your Mac), links, text and the open browser
+  tab, and guides you through a paper in nine steps for each project.
+- **Zotero plug-in.** In Zotero 7 and 8, "Check with Benthic" tags the selected
+  items with their verdict. It talks only to Benthic on your Mac and comes as
+  a file on the release page.
+- **A designed PDF report.** A cover, an overview with figures and what to look
+  at first, contents and the verdict legend, then compact listings. The app and
+  the browser print the same pages.
+- **Projects as a file.** "Share as a file" saves a project for a supervisor
+  or a study group, and "Open project file" opens it in another Benthic,
+  without an account.
+- **More for AI assistants.** Five new tools, 24 in all. Notes in a tool's
+  answer are in English even when the app runs in German, and an answer says
+  so when the connection still runs an older Benthic after an update.
+- **Easier with a keyboard and a screen reader.** A skip link, live status
+  while a check runs and arrow keys in option groups.
+
 ## 1.0.1
 
 Fixes and clearer settings. A correction to the 1.0.0 notes: projects export

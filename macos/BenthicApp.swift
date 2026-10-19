@@ -9,6 +9,8 @@ import UserNotifications
 import UniformTypeIdentifiers
 import SwiftUI
 import Translation  // schwach gelinkt (build_app.sh): erst ab macOS 15 vorhanden
+import FoundationModels  // schwach gelinkt (build_app.sh): erst ab macOS 26 vorhanden, mit Apple Intelligence
+import Vision
 
 /// Port und Datenordner: Standardwerte, eigene Builds setzen sie in der Info.plist
 /// (build_app.sh --port / --data-folder), damit mehrere Builds nebeneinander laufen.
@@ -173,6 +175,72 @@ final class TranslateBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// Stützt ein Abschnitt aus einer Quelle eine Aussage? Ein Hinweis des Sprachmodells auf diesem Mac (Apple Foundation
+/// Models, ab macOS 26 mit eingeschalteter Apple Intelligence), nichts verlässt den Mac. Kein Urteil: Die Seite zeigt
+/// den Abschnitt daneben, entscheiden muss, wer liest. Ohne Modell meldet die Brücke „unavailable“, und die Seite
+/// blendet die Funktion aus. Die Seite ruft
+/// window.webkit.messageHandlers.benthicJudge.postMessage({id, claim, passage}) oder ({id, probe: true});
+/// die Antwort kommt über window.benthicJudged({id, verdict, reason}) oder ({id, available}) oder ({id, error}).
+/// Strukturierte Ausgabe über DynamicGenerationSchema: Das Makro @Generable braucht Xcode, gebaut wird ohne.
+final class JudgeBridge: NSObject, WKScriptMessageHandler {
+    weak var webView: WKWebView?
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let id = body["id"] as? String else { return }
+        guard #available(macOS 26.0, *) else {
+            reply(["id": id, "error": "unsupported"])
+            return
+        }
+        Task { await self.handle(id: id, body: body) }
+    }
+
+    @available(macOS 26.0, *)
+    private func handle(id: String, body: [String: Any]) async {
+        if case .unavailable(let reason) = SystemLanguageModel.default.availability {
+            reply(["id": id, "error": "unavailable", "reason": String(describing: reason)])
+            return
+        }
+        if body["probe"] as? Bool == true {
+            reply(["id": id, "available": true])
+            return
+        }
+        guard let claim = body["claim"] as? String, let passage = body["passage"] as? String else { return }
+        do {
+            let verdict = DynamicGenerationSchema(name: "Verdict", description: "How far the passage supports the sentence",
+                                                  anyOf: ["supports", "partly", "no", "unclear"])
+            let root = DynamicGenerationSchema(name: "Judgement", description: "Support of a sentence by a passage", properties: [
+                DynamicGenerationSchema.Property(name: "verdict", description: "supports, partly, no or unclear", schema: verdict),
+                DynamicGenerationSchema.Property(name: "reason", description: "One short sentence in the language of the sentence",
+                                                 schema: DynamicGenerationSchema(type: String.self)),
+            ])
+            let schema = try GenerationSchema(root: root, dependencies: [])
+            let session = LanguageModelSession(instructions: """
+                You check academic writing. You get a sentence from a student's paper and a passage from the source \
+                it cites. Say whether the passage supports the sentence: "supports" if it states the same claim, \
+                "partly" if it supports only part of it or a weaker version, "no" if it does not support it or says \
+                something else, "unclear" if the passage is too short or off topic to tell. Judge only from the \
+                passage, never from your own knowledge. Give one short reason.
+                """)
+            let prompt = "Sentence: \(claim.prefix(600))\n\nPassage: \(passage.prefix(2400))"
+            let response = try await session.respond(to: prompt, schema: schema)
+            let v = try response.content.value(String.self, forProperty: "verdict")
+            let r = try response.content.value(String.self, forProperty: "reason")
+            reply(["id": id, "verdict": v, "reason": r])
+        } catch {
+            reply(["id": id, "error": "failed"])
+        }
+    }
+
+    private func reply(_ obj: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let json = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript("window.benthicJudged && window.benthicJudged(\(json))", completionHandler: nil)
+        }
+    }
+}
+
 @available(macOS 15.0, *)
 final class TranslatorModel: ObservableObject {
     struct Job {
@@ -227,7 +295,209 @@ struct TranslatorView: View {
     }
 }
 
-/// Prüfbericht als PDF: die Seite /report/<id> des Backends, über macOS gedruckt (A4, mit Seitenumbrüchen).
+// MARK: - Grimpo, der Begleiter auf dem Schreibtisch
+
+/// Ein Panel, das Tastatur annehmen darf, ohne die App nach vorn zu holen (randlose Panels können sonst nicht key werden).
+final class PetPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+/// Grimpo (static/pet.html) schwebt durchsichtig über allen Fenstern, auf jedem Schreibtisch. Zugeklappt ist das Fenster
+/// so groß wie Grimpo, damit es nichts darunter verdeckt; aufgeklappt wächst es nach links oben, Grimpo bleibt stehen.
+/// Die Seite ruft window.webkit.messageHandlers.benthicPet.postMessage({action, ...}):
+///   expand {expanded}, move {dx, dy}, screenshot {id}, frontTab {id}, open {view, text}, menu, hide;
+/// Antworten mit id kommen über window.benthicPetReply({id, ...}). Das Hauptfenster nutzt denselben Namen für
+///   show, hide und state (Einstellungen).
+final class PetController: NSObject, WKScriptMessageHandler, NSMenuDelegate {
+    static let visibleKey = "BenthicPetVisible"
+    static let originKey = "BenthicPetOrigin"
+    private let collapsed = NSSize(width: 112, height: 112)
+    private let expanded = NSSize(width: 380, height: 520)
+    private var panel: PetPanel?
+    private var webView: WKWebView?
+    /// Hauptfenster nach vorn holen und eine Ansicht zeigen (gesetzt von AppDelegate).
+    var openApp: ((String, String) -> Void)?
+    /// Benachrichtigt das Menü über Änderungen der Sichtbarkeit.
+    var onChange: (() -> Void)?
+
+    var isVisible: Bool { panel?.isVisible ?? false }
+
+    /// Beim Start: sichtbar, außer man hat Grimpo ausgeblendet.
+    func restore() {
+        if UserDefaults.standard.object(forKey: Self.visibleKey) as? Bool ?? true { show() }
+    }
+
+    func show() {
+        if panel == nil { build() }
+        panel?.orderFrontRegardless()
+        UserDefaults.standard.set(true, forKey: Self.visibleKey)
+        onChange?()
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+        UserDefaults.standard.set(false, forKey: Self.visibleKey)
+        onChange?()
+    }
+
+    @objc func toggle(_ sender: Any?) { isVisible ? hide() : show() }
+
+    private func build() {
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        var origin = NSPoint(x: screen.maxX - collapsed.width - 24, y: screen.minY + 24)
+        if let saved = UserDefaults.standard.string(forKey: Self.originKey) {
+            let p = NSPointFromString(saved)
+            if NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(p) }) { origin = p }
+        }
+        let p = PetPanel(contentRect: NSRect(origin: origin, size: collapsed),
+                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isFloatingPanel = true
+        p.level = .floating
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = false
+        p.hidesOnDeactivate = false
+        p.becomesKeyOnlyIfNeeded = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.title = "Grimpo"
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "benthicPet")
+        let wv = WKWebView(frame: NSRect(origin: .zero, size: collapsed), configuration: config)
+        wv.setValue(false, forKey: "drawsBackground")  // durchsichtig: nur Grimpo und sein Feld sind zu sehen
+        wv.autoresizingMask = [.width, .height]
+        p.contentView = wv
+        wv.load(URLRequest(url: URL(string: "\(backendHost)/pet")!))
+        panel = p
+        webView = wv
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+        let id = body["id"] as? String ?? ""
+        switch action {
+        case "show": show()
+        case "hide": hide()
+        case "state":
+            message.webView?.evaluateJavaScript("window.benthicPetState && window.benthicPetState(\(isVisible))", completionHandler: nil)
+        case "expand": resize(to: (body["expanded"] as? Bool ?? false) ? expanded : collapsed)
+        case "move": move(dx: body["dx"] as? Double ?? 0, dy: body["dy"] as? Double ?? 0)
+        case "screenshot": screenshot(id)
+        case "frontTab": frontTab(id)
+        case "open": openApp?(body["view"] as? String ?? "verify", body["text"] as? String ?? "")
+        case "menu": showMenu()
+        default: break
+        }
+    }
+
+    private func resize(to size: NSSize) {
+        guard let p = panel else { return }
+        var frame = NSRect(x: p.frame.maxX - size.width, y: p.frame.minY, width: size.width, height: size.height)
+        if let visible = (p.screen ?? NSScreen.main)?.visibleFrame {  // aufgeklappt ganz auf dem Bildschirm
+            frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+            frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+        }
+        p.setFrame(frame, display: true)
+    }
+
+    private func move(dx: Double, dy: Double) {
+        guard let p = panel else { return }
+        let origin = NSPoint(x: p.frame.minX + dx, y: p.frame.minY - dy)  // Bildschirm-y wächst in AppKit nach oben
+        p.setFrameOrigin(origin)
+        let anchor = NSPoint(x: p.frame.maxX - collapsed.width, y: p.frame.minY)
+        UserDefaults.standard.set(NSStringFromPoint(anchor), forKey: Self.originKey)
+    }
+
+    private func reply(_ obj: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: obj), let json = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript("window.benthicPetReply && window.benthicPetReply(\(json))", completionHandler: nil)
+        }
+    }
+
+    /// Bildschirmfoto eines Bereichs (macOS-eigene Auswahl), dann Texterkennung auf dem Mac (Vision).
+    private func screenshot(_ id: String) {
+        let folder = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/\(dataFolderName)/clips")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let file = folder.appendingPathComponent("grimpo-\(stamp).png")
+        panel?.orderOut(nil)  // Grimpo nicht mitfotografieren
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            proc.arguments = ["-i", "-x", file.path]
+            try? proc.run()
+            proc.waitUntilExit()
+            DispatchQueue.main.async { self?.panel?.orderFrontRegardless() }
+            guard FileManager.default.fileExists(atPath: file.path) else {
+                self?.reply(["id": id, "error": "cancelled"])
+                return
+            }
+            let text = Self.recognize(file)
+            self?.reply(["id": id, "path": file.path, "text": text])
+        }
+    }
+
+    private static func recognize(_ file: URL) -> String {
+        guard let image = NSImage(contentsOf: file), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return "" }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.recognitionLanguages = ["de-DE", "en-US"]
+        try? VNImageRequestHandler(cgImage: cg).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+
+    /// Adresse und Titel des vordersten Browser-Tabs (Safari, Chrome, Arc, Edge, Brave), per AppleScript.
+    private func frontTab(_ id: String) {
+        let browsers = ["com.apple.Safari": "safari", "com.google.Chrome": "chromium", "company.thebrowser.Browser": "chromium",
+                        "com.microsoft.edgemac": "chromium", "com.brave.Browser": "chromium"]
+        let running = NSWorkspace.shared.runningApplications
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        guard let bid = browsers[front] != nil ? front
+                : running.first(where: { browsers[$0.bundleIdentifier ?? ""] != nil && $0.isActive == false })?.bundleIdentifier,
+              let kind = browsers[bid] else {
+            reply(["id": id, "error": "nobrowser"])
+            return
+        }
+        let script = kind == "safari"
+            ? "tell application id \"\(bid)\" to return {URL, name} of current tab of front window"
+            : "tell application id \"\(bid)\" to return {URL, title} of active tab of front window"
+        var error: NSDictionary?
+        let result = NSAppleScript(source: script)?.executeAndReturnError(&error)
+        if let error, (error[NSAppleScript.errorNumber] as? Int) == -1743 {
+            reply(["id": id, "error": "permission"])
+            return
+        }
+        guard let result, result.numberOfItems >= 2,
+              let url = result.atIndex(1)?.stringValue, let title = result.atIndex(2)?.stringValue else {
+            reply(["id": id, "error": "notab"])
+            return
+        }
+        reply(["id": id, "url": url, "title": title])
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        let open = NSMenuItem(title: L("Benthic öffnen", "Open Benthic"), action: #selector(openMain(_:)), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+        menu.addItem(NSMenuItem.separator())
+        let hideItem = NSMenuItem(title: L("Grimpo ausblenden", "Hide Grimpo"), action: #selector(hideFromMenu(_:)), keyEquivalent: "")
+        hideItem.target = self
+        menu.addItem(hideItem)
+        if let wv = webView {
+            menu.popUp(positioning: nil, at: wv.convert(NSPoint(x: wv.bounds.maxX - 75, y: 120), to: wv), in: wv)
+        }
+    }
+
+    @objc private func openMain(_ sender: Any?) { openApp?("verify", "") }
+    @objc private func hideFromMenu(_ sender: Any?) { hide() }
+}
+
+/// Prüfbericht als PDF: die Seite /report/<id> des Backends, über macOS gedruckt (A4, ohne Ränder: Die Seite
+/// verteilt sich selbst auf A4-Blätter mit Deckblatt, Kopf- und Fußzeilen, siehe report.py).
 /// Die Seite ruft window.webkit.messageHandlers.benthicReport.postMessage({url, name}).
 final class ReportBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     weak var window: NSWindow?
@@ -251,7 +521,9 @@ final class ReportBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         // Eigenes, unsichtbares Fenster: WebKit druckt nur Ansichten, die in einem Fenster liegen.
         let frame = NSRect(x: -4000, y: -4000, width: 794, height: 1123)
         let w = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        let view = WKWebView(frame: NSRect(origin: .zero, size: frame.size))
+        let config = WKWebViewConfiguration()
+        if #available(macOS 13.3, *) { config.preferences.shouldPrintBackgrounds = true }  // Deckblatt und Flächen
+        let view = WKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: config)
         view.navigationDelegate = self
         w.contentView = view
         printWindow = w
@@ -263,13 +535,14 @@ final class ReportBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         guard let dest = destination, let host = printWindow else { return }
         let info = NSPrintInfo.shared.copy() as! NSPrintInfo
         info.paperSize = NSSize(width: 595.28, height: 841.89)
-        info.topMargin = 40
-        info.bottomMargin = 40
-        info.leftMargin = 36
-        info.rightMargin = 36
+        info.topMargin = 0
+        info.bottomMargin = 0
+        info.leftMargin = 0
+        info.rightMargin = 0
         info.horizontalPagination = .fit
         info.verticalPagination = .automatic
         info.isVerticallyCentered = false
+        info.isHorizontallyCentered = false
         info.jobDisposition = .save
         info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = dest
         let op = webView.printOperation(with: info)
@@ -462,6 +735,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private let appearanceBridge = AppearanceBridge()
     private let languageBridge = LanguageBridge()
     private let translateBridge = TranslateBridge()
+    private let judgeBridge = JudgeBridge()
+    private let pet = PetController()
     private let reportBridge = ReportBridge()
     private let revealBridge = RevealBridge()
     private let updateBridge = UpdateBridge()
@@ -556,6 +831,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         config.userContentController.add(appearanceBridge, name: "benthicTheme")
         config.userContentController.add(languageBridge, name: "benthicLang")
         config.userContentController.add(translateBridge, name: "benthicTranslate")
+        config.userContentController.add(judgeBridge, name: "benthicJudge")
+        config.userContentController.add(pet, name: "benthicPet")
         config.userContentController.add(reportBridge, name: "benthicReport")
         config.userContentController.add(revealBridge, name: "benthicReveal")
         config.userContentController.add(updateBridge, name: "benthicUpdate")
@@ -569,6 +846,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView = WKWebView(frame: rect, configuration: config)
         pickerBridge.webView = webView
         translateBridge.webView = webView
+        judgeBridge.webView = webView
+        pet.openApp = { [weak self] view, text in self?.showView(view, text: text) }
+        pet.onChange = { [weak self] in self?.buildMenu() }
         updateBridge.webView = webView
         reportBridge.window = window
         webView.navigationDelegate = self
@@ -632,6 +912,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let windowMenu = NSMenu(title: L("Fenster", "Window"))
         windowMenu.addItem(withTitle: L("Im Dock ablegen", "Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: L("Zoomen", "Zoom"), action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        let petItem = NSMenuItem(title: L("Grimpo auf dem Schreibtisch", "Grimpo on the Desktop"),
+                                 action: #selector(PetController.toggle(_:)), keyEquivalent: "")
+        petItem.target = pet
+        petItem.state = pet.isVisible ? .on : .off
+        windowMenu.addItem(petItem)
         windowMenuItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
 
@@ -775,6 +1061,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         waitForBackendAndLoad()
     }
 
+    /// Für Grimpo: Hauptfenster nach vorn, eine Ansicht zeigen, bei „Prüfen“ den Text (etwa DOIs) einsetzen.
+    private func showView(_ view: String, text: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        let quote: (String) -> String = { value in
+            guard let data = try? JSONSerialization.data(withJSONObject: [value]), let json = String(data: data, encoding: .utf8) else { return "\"\"" }
+            return String(json.dropFirst().dropLast())
+        }
+        var js = "window.showView && showView(\(quote(view)));"
+        if !text.isEmpty {
+            js += "var t = document.getElementById('verify-input'); if (t) { t.value = \(quote(text)); if (window.runPreview) runPreview(); }"
+        }
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
     private func waitForBackendAndLoad() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let healthURL = URL(string: "\(backendHost)/api/health")!
@@ -785,6 +1086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                         guard let self = self, !self.hasLoaded else { return }
                         self.hasLoaded = true
                         self.webView.load(URLRequest(url: URL(string: "\(backendHost)/")!))
+                        self.pet.restore()  // Grimpo braucht das Backend für seine Seite
                     }
                     return
                 }

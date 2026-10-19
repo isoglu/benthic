@@ -2,7 +2,7 @@
 # Prüft, dass nichts Privates oder Fremdes im öffentlichen Baum oder in einem
 # gebauten Bundle landet: verbotene Begriffe, persönliche Pfade und Adressen,
 # auch in Bild-Metadaten (PNG-Textblöcke, EXIF, Spotlight, erweiterte Attribute)
-# und in den Quellpfaden vorkompilierter .pyc-Dateien. Zip-Archive (.mcpb, .zip
+# und in den Quellpfaden vorkompilierter .pyc-Dateien. Zip-Archive (.mcpb, .xpi, .zip
 # oder Zip-Signatur) werden ausgepackt geprüft, jedes Mitglied mit denselben
 # Regeln; Fundstelle dann archiv!mitglied:zeile.
 #
@@ -52,7 +52,7 @@ PATH_RE = re.compile("|".join(re.escape(t) for t in PATHS), re.I)
 SKIP_DIRS = {".git", ".venv", "venv", "dist", "build", ".swiftcache", ".swifttmp", ".uv-cache",
              "__pycache__", "downloads", "node_modules", ".pytest_cache"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".tif", ".tiff", ".icns", ".pdf", ".heic"}
-ZIP_EXT = {".mcpb", ".zip"}
+ZIP_EXT = {".mcpb", ".zip", ".xpi"}
 ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06")  # lokaler Kopf, leeres Archiv
 ZIP_DEPTH = 4  # Zip im Zip im Zip …; tiefer wird nicht geprüft, sondern gemeldet
 findings = []

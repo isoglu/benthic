@@ -44,5 +44,27 @@ class Version(unittest.TestCase):
         self.assertEqual(set(re.findall(r"\?v=([0-9.]+)", html)), {__version__})
 
 
+    def test_zotero_plugin(self):
+        """Zotero-Plug-in: gleiche Version, Zotero 7 und 8, alle Einstiegspunkte (scripts/make_zotero_plugin.py)."""
+        import json
+        import subprocess
+        import sys
+        run = subprocess.run([sys.executable, str(ROOT / "scripts" / "make_zotero_plugin.py"), "--check"],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        m = json.loads((ROOT / "zotero" / "manifest.json").read_text(encoding="utf-8"))
+        z = m["applications"]["zotero"]
+        self.assertEqual((m["manifest_version"], m["version"], z["id"]), (2, __version__, "benthic@isoglu.com"))
+        self.assertEqual(z["update_url"], "https://benthic.isoglu.com/zotero/updates.json")
+        self.assertTrue(z["strict_min_version"].startswith("6.999"))
+        for icon in m["icons"].values():
+            self.assertTrue((ROOT / "zotero" / icon).is_file())
+        js = (ROOT / "zotero" / "bootstrap.js").read_text(encoding="utf-8")
+        for fn in ("startup", "shutdown", "install", "uninstall", "onMainWindowLoad", "onMainWindowUnload"):
+            self.assertRegex(js, rf"(?m)^function {fn}\(", fn)
+        self.assertIn("127.0.0.1:8327", js)
+        self.assertNotIn("\u2014", js)
+
+
 if __name__ == "__main__":
     unittest.main()

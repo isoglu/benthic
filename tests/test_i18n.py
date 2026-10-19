@@ -28,11 +28,13 @@ def placeholders(text):
 
 
 def python_msgids():
-    """Erste Argumente aller tr()-Aufrufe mit festem Text (auch a if c else b)."""
+    """Erste Argumente aller tr()- und note_part()-Aufrufe mit festem Text (auch a if c else b)."""
     out = []
     for f in sorted(PKG.glob("*.py")):
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) in ("tr", "_tr") and node.args:
+            func = getattr(node, "func", None)
+            name = getattr(func, "id", None) or getattr(func, "attr", None)  # tr(…) oder i18n.note_part(…)
+            if isinstance(node, ast.Call) and name in ("tr", "_tr", "note_part") and node.args:
                 arg = node.args[0]
                 cands = [arg.body, arg.orelse] if isinstance(arg, ast.IfExp) else [arg]
                 out += [(f.name, c.value) for c in cands if isinstance(c, ast.Constant) and isinstance(c.value, str)]

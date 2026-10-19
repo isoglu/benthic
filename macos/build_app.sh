@@ -57,6 +57,7 @@ build_slice() {  # $1 = arm64 | x86_64, $2 = Ausgabe
   TMPDIR="$PWD/.swifttmp" swiftc -O macos/BenthicApp.swift -o "$2" \
     -target "$1-apple-macos$MIN_OS" -framework Cocoa -framework WebKit \
     -Xfrontend -disable-autolink-framework -Xfrontend Translation -Xlinker -weak_framework -Xlinker Translation \
+    -Xfrontend -disable-autolink-framework -Xfrontend FoundationModels -Xlinker -weak_framework -Xlinker FoundationModels \
     -module-cache-path "$PWD/.swiftcache" -file-compilation-dir .
 }
 if [ "$ARCH_MODE" = "universal" ]; then

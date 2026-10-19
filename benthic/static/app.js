@@ -140,7 +140,16 @@ async function checkHealth() {
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
+// Grimpo (PetController in der App): sichtbar oder nicht. Im Browser gibt es ihn nicht.
+const petBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.benthicPet;
+window.benthicPetState = (visible) => { $("#pet-toggle").checked = !!visible; };
+if (petBridge) {
+  $("#pet-card").hidden = false;
+  $("#pet-toggle").addEventListener("change", (e) => petBridge.postMessage({ action: e.target.checked ? "show" : "hide" }));
+}
+
 async function loadSettings() {
+  if (petBridge) petBridge.postMessage({ action: "state" });
   try {
     const r = await fetch("/api/settings");
     settings = await r.json();
@@ -989,9 +998,84 @@ function resultRow(res) {
     a.appendChild(icon("i-blocked"));
     act.appendChild(a);
   }
+  if ((key === "absent" || key === "fail") && /^10\.\d{4,9}\//.test(res.identifier || "")) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn ghost icon";
+    b.title = T("Kopie bei den Autor:innen erbitten");
+    b.setAttribute("aria-label", T("Kopie bei den Autor:innen erbitten"));
+    b.appendChild(icon("i-user"));
+    b.onclick = () => toggleCopyRequest(tr, b, res.identifier);
+    act.prepend(b);
+  }
 
   tr.append(st, main, src, act);
   return tr;
+}
+
+// Keine freie Fassung: eine höfliche Bitte an die Autor:innen, zum Kopieren oder als E-Mail-Entwurf.
+async function toggleCopyRequest(tr, btn, doi) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("copy-row")) { next.remove(); btn.classList.remove("on"); return; }
+  btn.disabled = true;
+  let j = {};
+  try { j = await (await fetch("/api/request-copy?" + new URLSearchParams({ doi }))).json(); }
+  catch (e) { j = { error: T("Keine Verbindung") }; }
+  btn.disabled = false;
+  if (j.error) { toast(T("Keine Angaben geladen"), j.error); return; }
+  btn.classList.add("on");
+  const row = document.createElement("tr");
+  row.className = "copy-row";
+  const td = document.createElement("td");
+  td.colSpan = tr.children.length;
+  const box = document.createElement("div");
+  box.className = "copy-req";
+  const lead = document.createElement("p");
+  lead.className = "hint";
+  lead.textContent = T("Viele Autor:innen schicken ihre Arbeit gern, wenn man fragt. Die E-Mail-Adresse steht meist auf der Verlagsseite.");
+  let lang = LANG === "de" ? "de" : "en";
+  const ta = document.createElement("textarea");
+  ta.rows = 7;
+  const fill = () => { ta.value = `${j.subject[lang]}\n\n${j.body[lang]}`; };
+  fill();
+  const bar = document.createElement("div");
+  bar.className = "copy-actions";
+  const mail = document.createElement("a");
+  mail.className = "btn small primary";
+  mail.textContent = T("Als E-Mail öffnen");
+  const setMail = () => { mail.href = `mailto:?subject=${encodeURIComponent(j.subject[lang])}&body=${encodeURIComponent(j.body[lang])}`; };
+  setMail();
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "btn small";
+  copy.textContent = T("Kopieren");
+  copy.onclick = () => copyValue(ta.value);
+  const sw = document.createElement("button");
+  sw.type = "button";
+  sw.className = "btn small ghost";
+  const label = () => { sw.textContent = lang === "de" ? "English" : "Deutsch"; };
+  label();
+  sw.onclick = () => { lang = lang === "de" ? "en" : "de"; fill(); setMail(); label(); };
+  const page = document.createElement("a");
+  page.className = "btn small ghost";
+  page.href = j.landing_url;
+  page.target = "_blank";
+  page.rel = "noopener";
+  page.textContent = T("Verlagsseite");
+  bar.append(mail, copy, sw, page);
+  (j.contacts || []).filter((c) => c.orcid).forEach((c) => {
+    const o = document.createElement("a");
+    o.className = "btn small ghost";
+    o.href = c.orcid;
+    o.target = "_blank";
+    o.rel = "noopener";
+    o.textContent = T("ORCID von {name}", { name: c.name });
+    bar.appendChild(o);
+  });
+  box.append(lead, ta, bar);
+  td.appendChild(box);
+  row.appendChild(td);
+  tr.after(row);
 }
 
 function noteFor(res, key) {
@@ -1093,6 +1177,7 @@ async function viewHistory(jobId) {
     verifyJobId = jobId;
     verifyStyle = j.style || null;
     verifyQuotes = j.quote_check || null;
+    verifyOverlap = j.overlap_check || null;
     verifyMissing = j.missing_works || null;
     renderDocument(j.document || null);  // zuerst: die Zeilen holen sich daraus ihre Zitatstellen
     renderVerify(j.results || [], T("Prüfbericht #{id}", { id: jobId }), false);
@@ -1436,9 +1521,9 @@ async function loadBatchQuota() {
     : (oa.remaining !== null && oa.remaining !== undefined ? T("OpenAlex heute noch: {n} Anfragen (etwa zwei je Literaturangabe).", { n: fmtNum(oa.remaining) }) : "");
 }
 
-async function startBatch() {
-  let folder = await pickPath("folder");
-  if (!folder && !nativePick) folder = window.prompt(T("Pfad des Ordners mit den Abgaben:"), "");
+async function startBatch(e, zip) {
+  let folder = await pickPath(zip ? "file" : "folder", zip ? ["zip"] : []);
+  if (!folder && !nativePick) folder = window.prompt(zip ? T("Pfad der .zip-Datei aus Moodle oder ILIAS:") : T("Pfad des Ordners mit den Abgaben:"), "");
   if (!folder) return;
   const body = { folder, recursive: $("#batch-recursive").checked, quotes: $("#batch-quotes").checked, project: $("#batch-project").checked };
   const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1446,6 +1531,54 @@ async function startBatch() {
   if (!r.ok) { toast(T("Stapel nicht gestartet"), j.error || ""); return; }
   toast(T("Stapelprüfung gestartet"), TN(j.total, "{n} Arbeit", "{n} Arbeiten"));
   loadBatches(j.id);
+}
+
+// Für den Kurs: dieselben erfundenen Quellen in mehreren Abgaben, und wie viele Abgaben welches Problem haben.
+function renderBatchSignals(b) {
+  const box = $("#batch-signals");
+  box.innerHTML = "";
+  const shared = b.shared_phantoms || [];
+  const cs = b.class_summary || { files: 0, with: {} };
+  box.hidden = !cs.files;
+  if (!cs.files) return;
+  const h = document.createElement("h3");
+  h.textContent = T("Für den Kurs");
+  const ul = document.createElement("ul");
+  ul.className = "cs-list";
+  const labels = { not_found: T("mit erfundenen Quellen"), mismatch: T("mit falsch zugeordneten DOIs"), retracted: T("mit zurückgezogenen Quellen"),
+    missing: T("mit Zitaten ohne Eintrag"), quotes_bad: T("mit auffälligen wörtlichen Zitaten"), style: T("mit Stilhinweisen") };
+  Object.entries(labels).forEach(([k, label]) => {
+    const n = (cs.with || {})[k] || 0;
+    const li = document.createElement("li");
+    li.className = n ? "" : "zero";
+    li.innerHTML = `<b>${fmtNum(n)}</b> ${esc(T("von {total}", { total: fmtNum(cs.files) }))} ${esc(label)}`;
+    ul.appendChild(li);
+  });
+  box.append(h, ul);
+  const p = document.createElement("p");
+  p.className = "hint";
+  p.textContent = T("Ohne Namen, für die Lehre: Was viele betrifft, lohnt eine Erklärung im Kurs.");
+  box.appendChild(p);
+  if (shared.length) {
+    const h2 = document.createElement("h3");
+    h2.textContent = T("Dieselbe erfundene Quelle in mehreren Abgaben");
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = T("Ein Hinweis auf dieselbe Chat-Antwort oder abgeschriebene Listen, kein Beweis. Nachprüfbar ist nur: Diese Quelle gibt es so nicht.");
+    const ol = document.createElement("ol");
+    ol.className = "shared-list";
+    shared.forEach((g) => {
+      const li = document.createElement("li");
+      const t = document.createElement("strong");
+      t.textContent = g.title;
+      const f = document.createElement("p");
+      f.className = "hint";
+      f.textContent = TN(g.files.length, "In {n} Abgabe: {files}", "In {n} Abgaben: {files}", { files: g.files.join(", ") });
+      li.append(t, f);
+      ol.appendChild(li);
+    });
+    box.append(h2, note, ol);
+  }
 }
 
 function fmtDuration(sec) {
@@ -1486,6 +1619,7 @@ async function showBatch(id) {
     d.innerHTML = `<b>${fmtNum(n || 0)}</b><span>${esc(label)}</span>`;
     tot.appendChild(d);
   });
+  renderBatchSignals(b);
   renderBatchRows();
   if (running) batchTimer = setTimeout(() => showBatch(id), 2000);
   else if (b.status === "done" && b.finished_at && Date.now() / 1000 - b.finished_at < 10 && !batchNotified.has(id)) {
@@ -1717,7 +1851,7 @@ function updateReportTabs() {
     list: !$("#verify-health").hidden || !$("#verify-missing").hidden,
   };
   const doc = verifyDoc || {};
-  const docCount = (doc.missing_in_list || []).length + (doc.uncited || []).length +
+  const docCount = (doc.missing_in_list || []).length + (doc.uncited || []).length + (doc.year_mismatch || []).length +
     (verifyQuotes || []).filter((q) => ["not_found", "close"].includes(q.status)).length;
   const styleCount = verifyStyle && verifyStyle.applicable ? Object.values(verifyStyle.entries || {}).filter((v) => v && v.length).length : 0;
   const labels = { sources: T("Quellen"), document: T("Abgleich und Zitate"), style: T("Zitierstil"), list: T("Liste") };
@@ -1802,6 +1936,54 @@ function renderStyle(report) {
     report.list.forEach((i) => { const li = document.createElement("li"); li.textContent = i.text; ul.appendChild(li); });
     box.appendChild(ul);
   }
+  if (verifyJobId) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn small";
+    b.append(icon("i-fix"), document.createTextNode(T("Korrigiertes Verzeichnis ({style})", { style: name })));
+    b.onclick = () => correctedList(b, report.style);
+    box.appendChild(b);
+  }
+}
+
+// Das ganze Verzeichnis im gewählten Stil, aus den echten Angaben; was offen bleibt, steht getrennt darunter.
+async function correctedList(btn, style) {
+  btn.disabled = true;
+  let j = {};
+  try { j = await (await fetch(`/api/jobs/${encodeURIComponent(verifyJobId)}/corrected?style=${encodeURIComponent(style)}`)).json(); }
+  catch (e) { j = { error: T("Keine Verbindung") }; }
+  btn.disabled = false;
+  if (j.error) { toast(T("Kein Verzeichnis geladen"), j.error); return; }
+  const out = document.createElement("div");
+  out.className = "corrected";
+  const head = document.createElement("div");
+  head.className = "corrected-head";
+  const sum = document.createElement("span");
+  sum.textContent = TN(j.fixed, "{n} Angabe aus den echten Daten neu gesetzt.", "{n} Angaben aus den echten Daten neu gesetzt.");
+  const c = document.createElement("button");
+  c.type = "button";
+  c.className = "btn small";
+  c.textContent = T("Kopieren");
+  c.onclick = () => copyValue(j.text);
+  head.append(sum, c);
+  const pre = document.createElement("pre");
+  pre.textContent = j.text || "";
+  out.append(head, pre);
+  if ((j.open || []).length) {
+    const h = document.createElement("p");
+    h.className = "hint";
+    h.textContent = TN(j.open.length, "Nicht übernommen, weil Benthic sie nicht belegen konnte ({n}). Prüfe sie selbst, bevor sie ins Verzeichnis kommen:",
+      "Nicht übernommen, weil Benthic sie nicht belegen konnte ({n}). Prüfe sie selbst, bevor sie ins Verzeichnis kommen:");
+    const ul = document.createElement("ul");
+    ul.className = "open-list";
+    j.open.forEach((e) => {
+      const li = document.createElement("li");
+      li.append(chip(e.verdict || "uncertain"), document.createTextNode(` ${e.n}. ${midTrunc(e.text, 140)}`));
+      ul.appendChild(li);
+    });
+    out.append(h, ul);
+  }
+  btn.replaceWith(out);
 }
 
 async function restyle(key) {
@@ -1932,6 +2114,8 @@ function renderDocument(doc) {
   }
   const missing = doc.missing_in_list || [];
   const uncited = doc.uncited || [];
+  const years = doc.year_mismatch || [];
+  if (years.length) box.appendChild(yearMismatch(years));
   if (!missing.length && !uncited.length) {
     const p = document.createElement("p");
     p.className = "dc-ok";
@@ -1989,6 +2173,31 @@ function renderDocument(doc) {
   );
   box.appendChild(cols);
   box.appendChild(quotesSection(doc));
+  box.appendChild(overlapSection(doc));
+}
+
+// Gleicher Name, anderes Jahr im Text und im Verzeichnis (document.analyse: year_mismatch).
+function yearMismatch(items) {
+  const sec = document.createElement("div");
+  sec.className = "dc-col warn dc-years";
+  const t = document.createElement("h4");
+  t.append(document.createTextNode(T("Jahr im Text und im Verzeichnis verschieden") + " "));
+  const n = document.createElement("b");
+  n.textContent = items.length;
+  t.appendChild(n);
+  const ul = document.createElement("ul");
+  items.slice(0, 30).forEach((y) => {
+    const li = document.createElement("li");
+    const b = document.createElement("strong");
+    b.textContent = T("Im Text {cited}, im Verzeichnis {listed}", { cited: y.label, listed: y.list_year });
+    const p = document.createElement("p");
+    p.className = "dc-sentence";
+    p.textContent = y.list_label;
+    li.append(b, p);
+    ul.appendChild(li);
+  });
+  sec.append(t, ul);
+  return sec;
 }
 
 // ---------------------------------------------------------------------------
@@ -2057,6 +2266,94 @@ function quotesSection(doc) {
   };
   run.onclick = runCheck;
   render(verifyQuotes);
+  return wrap;
+}
+
+// Übernahmen ohne Anführungszeichen (overlap.py): zitierende Sätze gegen die Volltexte ihrer Quellen.
+let verifyOverlap = null;
+const OVERLAP_KIND = {
+  verbatim: () => T("Wortgleich aus der Quelle"),
+  close: () => T("Fast wortgleich aus der Quelle"),
+  partial: () => T("Lange wortgleiche Passage"),
+};
+
+function overlapSection(doc) {
+  const wrap = document.createElement("div");
+  wrap.className = "dc-quotes dc-overlap";
+  if (!(doc.claims || []).length) return wrap;
+  const head = document.createElement("div");
+  head.className = "dq-head";
+  const h = document.createElement("h4");
+  h.textContent = T("Übernahmen ohne Anführungszeichen");
+  const run = document.createElement("button");
+  run.type = "button";
+  run.className = "btn small";
+  run.append(icon("i-search"), document.createTextNode(T("Mit den Volltexten abgleichen")));
+  const note = document.createElement("span");
+  note.className = "hint";
+  head.append(h, run, note);
+  const ul = document.createElement("ul");
+  ul.className = "dq-list";
+  wrap.append(head, ul);
+  const render = (res) => {
+    ul.innerHTML = "";
+    note.textContent = "";
+    if (!res) {
+      note.textContent = T("Benthic vergleicht jeden Satz, der eine Quelle zitiert, mit ihrem Volltext, ohne die Teile in Anführungszeichen.");
+      return;
+    }
+    if (!(res.findings || []).length) {
+      const li = document.createElement("li");
+      li.className = "dc-ok";
+      li.append(icon("i-legal"), document.createTextNode(TN(res.checked, "{n} Satz geprüft: Keiner übernimmt Wortlaut ohne Anführungszeichen.", "{n} Sätze geprüft: Keiner übernimmt Wortlaut ohne Anführungszeichen.")));
+      ul.appendChild(li);
+    }
+    (res.findings || []).slice(0, 60).forEach((f) => {
+      const li = document.createElement("li");
+      const top = document.createElement("div");
+      top.className = "wp-top";
+      const tag = document.createElement("span");
+      tag.className = "chip " + (f.kind === "partial" ? "warn" : "fail");
+      tag.textContent = OVERLAP_KIND[f.kind]();
+      const src = document.createElement("span");
+      src.className = "hint";
+      src.textContent = `${f.label || ""}${f.page ? " · " + T("S. {page}", { page: f.page }) : ""}`;
+      top.append(tag, src);
+      const mine = document.createElement("p");
+      mine.className = "dc-sentence";
+      mine.textContent = f.sentence;
+      li.append(top, mine);
+      if (f.excerpt) {
+        const theirs = document.createElement("blockquote");
+        theirs.className = "ov-source";
+        theirs.textContent = f.excerpt;
+        li.appendChild(theirs);
+      }
+      ul.appendChild(li);
+    });
+    if ((res.missing_pdfs || []).length) note.appendChild(fetchQuoteSources(res.missing_pdfs, runCheck));
+    const tip = document.createElement("p");
+    tip.className = "hint ov-tip";
+    tip.textContent = T("Setze übernommenen Wortlaut in Anführungszeichen oder formuliere ihn neu. Fachbegriffe und feste Formeln sind kein Problem; entscheiden musst du beim Lesen.");
+    if ((res.findings || []).length) wrap.appendChild(tip);
+  };
+  const runCheck = async () => {
+    run.disabled = true;
+    note.textContent = T("Gleicht ab …");
+    let r = null;
+    let j = {};
+    try {
+      r = await fetch("/api/overlap", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: verifyJobId }) });
+      j = await r.json();
+    } catch (e) { /* unten */ }
+    run.disabled = false;
+    if (!r || !r.ok) { note.textContent = j.error || T("Abgleich fehlgeschlagen"); return; }
+    verifyOverlap = j;
+    render(j);
+  };
+  run.onclick = runCheck;
+  render(verifyOverlap);
   return wrap;
 }
 
@@ -2134,6 +2431,7 @@ function pollVerify(jobId) {
   verifyJobId = jobId;
   verifyStyle = null;
   verifyQuotes = null;
+  verifyOverlap = null;
   verifyMissing = null;
   $("#verify-missing").hidden = true;
   renderStyle(null);
@@ -2237,6 +2535,9 @@ function renderVerify(results, title, animate) {
   const stats = $("#verify-stats");
   stats.innerHTML = "";
   VERDICT_ORDER.forEach((v) => { if (c[v]) stats.appendChild(chip(v, `${c[v]} ${STATES[v].label}`)); });
+  const tip = $("#verify-tip");
+  tip.hidden = !c.verified;
+  tip.textContent = c.verified ? `${STATES.verified.label}: ${VERIFIED_TIP()}` : "";
 
   // Vertrauensbalken: Anteil je Urteil.
   const trust = $("#verify-trust");
@@ -2332,6 +2633,8 @@ function verifyRow(res) {
     n.textContent = res.note;
     main.appendChild(n);
   }
+  if (res.web) main.appendChild(webLine(res.web));
+  if (ADVICE[res.verdict]) main.appendChild(adviceBox(res));
   if (res.published_version) main.appendChild(publishedLine(res.published_version));
   const trace = traceLine(res);
   if (trace) main.appendChild(trace);
@@ -2373,6 +2676,106 @@ function verifyRow(res) {
   }
   tr.append(st, main, sc, act);
   return tr;
+}
+
+// ---------------------------------------------------------------------------
+// Was tun? Je Urteil ein Satz in einfachen Worten (dieselben Sätze wie verify.VERDICT_ADVICE im Bericht);
+// bei erfundenen Angaben dazu echte Arbeiten zum Thema (related.alternatives), zum Lesen, nicht zum Abschreiben.
+// ---------------------------------------------------------------------------
+const ADVICE = {
+  corrected: () => T("Ersetze die DOI in deiner Angabe durch die richtige. Sonst führt der Link ins Leere oder zu einem anderen Werk."),
+  partial: () => T("Vergleiche Jahr, Titel und Autor:innen mit dem Original und gleiche deine Angabe an. Solche Abweichungen entstehen oft beim Abschreiben."),
+  uncertain: () => T("Öffne den ähnlichsten Treffer und vergleiche ihn mit deiner Angabe. Bücher, Praxisberichte und Webseiten stehen oft in keinem Verzeichnis; dann entscheidet der Blick ins Original."),
+  mismatch: () => T("Die DOI gehört zu einem anderen Werk. Suche das gemeinte Werk und seine DOI; findest du es nicht, ist die Angabe vermutlich erfunden."),
+  not_found: () => T("Suche das Werk selbst, etwa im Katalog deiner Bibliothek. Findest du es nicht, streiche die Angabe: Eine erfundene Quelle kann in einer Prüfung als Täuschung gelten."),
+  retracted: () => T("Zitiere die Arbeit nicht als Beleg. Musst du sie erwähnen, nenne den Rückzug ausdrücklich."),
+};
+const VERIFIED_TIP = () => T("Nichts zu korrigieren. Lies die Quelle trotzdem: Benthic prüft, ob es sie gibt, nicht, ob sie deine Aussage stützt.");
+
+// Webquellen: Link, Seitentitel, Schnappschuss im Internet Archive und Abrufdatum für die Angabe.
+function webLine(web) {
+  const box = document.createElement("div");
+  box.className = "web-line";
+  const link = (href, text) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = text;
+    return a;
+  };
+  if (web.page_title) {
+    const t = document.createElement("span");
+    t.textContent = T("Seite: {title}", { title: web.page_title });
+    box.appendChild(t);
+  }
+  if (web.archive_url) box.appendChild(link(web.archive_url, T("Im Internet Archive ({date})", { date: web.archive_date || "" })));
+  else if (web.reachable && web.url) box.appendChild(link("https://web.archive.org/save/" + web.url, T("Jetzt im Internet Archive sichern")));
+  if (web.accessed) {
+    const d = document.createElement("span");
+    d.textContent = T("Abgerufen am {date}", { date: new Date(web.accessed + "T12:00:00").toLocaleDateString(LOCALE, { day: "numeric", month: "long", year: "numeric" }) });
+    box.appendChild(d);
+  }
+  return box;
+}
+
+function adviceBox(res) {
+  const box = document.createElement("details");
+  box.className = "advice";
+  const sum = document.createElement("summary");
+  sum.textContent = T("Was tun?");
+  const p = document.createElement("p");
+  p.textContent = ADVICE[res.verdict]();
+  box.append(sum, p);
+  if (res.verdict === "not_found" || res.verdict === "mismatch") {
+    const query = (res.claimed || {}).title || res.input || res.identifier || "";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn ghost small";
+    b.append(icon("i-search"), document.createTextNode(T("Echte Arbeiten zum Thema")));
+    b.onclick = () => showAlternatives(b, query);
+    box.appendChild(b);
+  }
+  return box;
+}
+
+async function showAlternatives(btn, query) {
+  btn.disabled = true;
+  let j = {};
+  try {
+    const r = await fetch("/api/alternatives", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: query }) });
+    j = await r.json();
+  } catch (e) { j = { error: T("Keine Verbindung") }; }
+  btn.disabled = false;
+  const list = (j.suggestions || []);
+  const out = document.createElement("div");
+  out.className = "alts";
+  const lead = document.createElement("p");
+  lead.className = "hint";
+  lead.textContent = list.length
+    ? T("Echte Arbeiten, die dem Titel am nächsten kommen. Vorschläge zum Lesen: Zitiere nur, was du gelesen hast und was deine Aussage stützt.")
+    : (j.error || T("Keine passenden Arbeiten gefunden."));
+  out.appendChild(lead);
+  if (list.length) {
+    const ol = document.createElement("ol");
+    list.forEach((w) => {
+      const li = document.createElement("li");
+      const t = document.createElement("a");
+      t.href = "https://doi.org/" + w.doi;
+      t.target = "_blank";
+      t.rel = "noopener";
+      t.textContent = w.title;
+      const m = document.createElement("span");
+      m.className = "m";
+      const who = (w.authors || []).length ? w.authors[0] + (w.authors.length > 1 ? T(" u. a.") : "") : "";
+      m.textContent = [who, w.venue, w.year, w.is_oa ? T("frei lesbar") : ""].filter(Boolean).join(" · ");
+      li.append(t, m);
+      ol.appendChild(li);
+    });
+    out.appendChild(ol);
+  }
+  btn.replaceWith(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -2515,6 +2918,7 @@ function supportRow(span, doi, sentences) {
       c.onclick = () => copyValue(`${p.text} (${T("S. {page}", { page: p.page })})`);
       h.appendChild(c);
       q.append(h, t);
+      if (judgeAvailable) q.appendChild(judgeButton(claim, p.text));
       out.appendChild(q);
     });
   }
@@ -2522,6 +2926,65 @@ function supportRow(span, doi, sentences) {
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); });
   if (ta.value) setTimeout(() => run(), 0);
   return row;
+}
+
+// Hinweis des Sprachmodells auf diesem Mac (JudgeBridge, Apple Foundation Models ab macOS 26 mit Apple Intelligence):
+// stützt der Abschnitt die Aussage? Ohne Modell bleibt die Funktion unsichtbar. Ein Hinweis, kein Urteil.
+const judgeWaiters = {};
+let judgeSeq = 0;
+let judgeAvailable = false;
+window.benthicJudged = (msg) => {
+  const done = judgeWaiters[msg.id];
+  delete judgeWaiters[msg.id];
+  if (done) done(msg);
+};
+function askJudge(payload) {
+  const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.benthicJudge;
+  if (!bridge) return Promise.resolve({ error: "unsupported" });
+  const id = "j" + (++judgeSeq);
+  return new Promise((done) => {
+    judgeWaiters[id] = done;
+    bridge.postMessage({ id, ...payload });
+    setTimeout(() => { if (judgeWaiters[id]) { delete judgeWaiters[id]; done({ error: "timeout" }); } }, 90000);
+  });
+}
+askJudge({ probe: true }).then((r) => { judgeAvailable = !!r.available; });
+const JUDGE_LABEL = {
+  supports: () => T("Stützt die Aussage"),
+  partly: () => T("Stützt sie teilweise"),
+  no: () => T("Stützt sie nicht"),
+  unclear: () => T("Nicht eindeutig"),
+};
+
+function judgeButton(claim, passage) {
+  const wrap = document.createElement("div");
+  wrap.className = "judge";
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn small ghost";
+  b.textContent = T("Auf dem Mac einschätzen");
+  b.title = T("Das Sprachmodell von macOS liest Aussage und Abschnitt; nichts verlässt den Mac.");
+  b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = T("Liest …");
+    const r = await askJudge({ claim, passage });
+    if (r.error || !JUDGE_LABEL[r.verdict]) {
+      b.textContent = T("Keine Einschätzung möglich");
+      return;
+    }
+    const chip = document.createElement("span");
+    chip.className = "chip " + (r.verdict === "supports" ? "legal" : (r.verdict === "no" ? "fail" : "warn"));
+    chip.textContent = JUDGE_LABEL[r.verdict]();
+    const why = document.createElement("span");
+    why.className = "judge-reason";
+    why.textContent = r.reason || "";
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = T("Hinweis eines Sprachmodells auf diesem Mac. Es kann irren: Lies die Stelle selbst.");
+    wrap.replaceChildren(chip, why, note);
+  };
+  wrap.appendChild(b);
+  return wrap;
 }
 
 // Übersetzung auf dem Mac (TranslateBridge in der App, ab macOS 15)
@@ -3081,7 +3544,7 @@ function renderWatch(st) {
   if (box.hidden) return;
   const head = document.createElement("div");
   head.className = "wp-head";
-  const h = document.createElement("h3");
+  const h = document.createElement("h2");  // folgt auf die Seitenüberschrift h1
   h.textContent = T("Rückzugswache");
   const meta = document.createElement("span");
   meta.className = "hint";
@@ -4782,12 +5245,114 @@ $("#mode-badge").onclick = () => showView("settings");
 $("#setup-rerun-btn").onclick = () => openSetup(true);
 $("#verify-btn").onclick = startVerify;
 $("#verify-sample").onclick = () => { $("#verify-input").value = SAMPLE; runPreview(); };
+
+// Tastatur: in Gruppen mit role="radiogroup" (Zeitraum, Darstellung, Sprache, Zitierstil) wechseln die Pfeiltasten
+// die Auswahl, wie bei Optionsfeldern üblich.
+document.addEventListener("keydown", (e) => {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+  const group = e.target.closest && e.target.closest('[role="radiogroup"]');
+  if (!group) return;
+  const items = [...group.querySelectorAll('[role="radio"], button, input[type="radio"]')]
+    .filter((el) => !el.disabled && el.offsetParent !== null);
+  const i = items.indexOf(e.target.closest('[role="radio"], button, input[type="radio"]'));
+  if (i < 0 || items.length < 2) return;
+  e.preventDefault();
+  const next = items[(i + (e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1) + items.length) % items.length];
+  next.focus();
+  next.click();
+});
+
+// Quellen finden (finder.py): eine Aussage, echte Arbeiten mit dem passendsten Satz aus dem Abstract.
+const GERMAN_HINT = /\b(und|der|die|das|nicht|ist|sind|werden|wird|eine?n?|mit|für|auf|bei|zu)\b/gi;
+async function findSources() {
+  const claim = $("#find-claim").value.trim();
+  const status = $("#find-status");
+  if (claim.split(/\s+/).length < 3) { status.textContent = T("Schreib die Aussage in einem ganzen Satz."); return; }
+  $("#find-btn").disabled = true;
+  status.textContent = T("Sucht …");
+  let query = null;
+  if ((claim.match(GERMAN_HINT) || []).length >= 2) {  // deutsche Aussage: englisch sucht OpenAlex besser
+    const t = await translateText(claim, "de", "en");
+    if (t && t.text) query = t.text;
+  }
+  let j = {};
+  try {
+    const r = await fetch("/api/find-sources", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim, query, open_access_only: $("#find-oa").checked }) });
+    j = await r.json();
+  } catch (e) { j = { error: T("Keine Verbindung") }; }
+  $("#find-btn").disabled = false;
+  if (j.error) { status.textContent = j.error; return; }
+  const list = j.suggestions || [];
+  status.textContent = list.length ? (query ? T("Gesucht auf Englisch: {q}", { q: query }) : "") : T("Keine passenden Arbeiten gefunden.");
+  const ol = $("#find-list");
+  ol.innerHTML = "";
+  $("#find-results").hidden = !list.length;
+  list.forEach((w) => {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.className = "fl-title";
+    a.href = "https://doi.org/" + w.doi;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = w.title;
+    const meta = document.createElement("div");
+    meta.className = "fl-meta";
+    const who = (w.authors || []).join(", ") + ((w.author_count || 0) > 3 ? T(" u. a.") : "");
+    meta.textContent = [who, w.venue, w.year, w.cited_by ? T("{n}× zitiert", { n: fmtNum(w.cited_by) }) : ""].filter(Boolean).join(" · ");
+    li.append(a, meta);
+    if (w.passage && w.passage.text) {
+      const q = document.createElement("blockquote");
+      q.className = "fl-passage";
+      q.textContent = w.passage.text;
+      li.appendChild(q);
+      if (judgeAvailable) li.appendChild(judgeButton(claim, w.passage.text));
+    }
+    const bar = document.createElement("div");
+    bar.className = "fl-actions";
+    if (w.is_oa && w.oa_url) {
+      const read = document.createElement("a");
+      read.className = "btn small";
+      read.href = w.oa_url;
+      read.target = "_blank";
+      read.rel = "noopener";
+      read.textContent = T("Frei lesen");
+      bar.appendChild(read);
+    }
+    if (activeProject) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "btn small ghost";
+      add.append(icon("i-plus"), document.createTextNode(T("Ins Projekt")));
+      add.onclick = async () => {
+        add.disabled = true;
+        await fetch(`/api/projects/${encodeURIComponent(activeProject)}/items`, { method: "POST",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dois: [w.doi] }) });
+        add.lastChild.textContent = T("Hinzugefügt");
+      };
+      bar.appendChild(add);
+    }
+    const doi = document.createElement("span");
+    doi.className = "mono hint";
+    doi.textContent = w.doi;
+    bar.appendChild(doi);
+    li.appendChild(bar);
+    ol.appendChild(li);
+  });
+}
+$("#find-btn").onclick = findSources;
+$("#find-claim").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) findSources(); });
+// Derselbe Text wie connect.CHAT_PROMPT: für Chats im Browser, die Benthic nicht als Werkzeug starten können.
+$("#chat-prompt-btn").onclick = () => {
+  copyValue(T("Liste alle Quellen deiner letzten Antwort einzeln auf, eine pro Zeile: Autor:innen, Jahr, Titel, Zeitschrift oder Verlag und die DOI, falls bekannt. Erfinde keine DOI; lass sie weg, wenn du sie nicht sicher weißt."));
+};
 $("#watch-file-btn").onclick = chooseWatchFile;
 document.querySelectorAll("#settings-nav button").forEach((b) => { b.onclick = () => showSettingsSection(b.dataset.section); });
 document.querySelectorAll("#report-tabs button").forEach((b) => { b.onclick = () => showReportTab(b.dataset.tab); });
 new MutationObserver(updateReportTabs).observe($("#verify-results"), { attributes: true, subtree: true, attributeFilter: ["hidden"] });
 $("#usage-refresh").onclick = loadUsage;
 $("#batch-pick").onclick = startBatch;
+$("#batch-pick-zip").onclick = (e) => startBatch(e, true);
 $("#batch-select").addEventListener("change", (e) => showBatch(e.target.value));
 $("#batch-cancel").onclick = () => batchId && fetch(`/api/batch/${encodeURIComponent(batchId)}/cancel`, { method: "POST" });
 $("#batch-csv").onclick = () => { if (batchId) location.href = `/api/batch/${encodeURIComponent(batchId)}/export?format=csv`; };
@@ -4843,6 +5408,35 @@ $("#project-select").addEventListener("change", (e) => {
 $("#project-create").onclick = createProject;
 $("#project-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createProject(); });
 $("#pd-delete").onclick = deleteProject;
+$("#pd-share").onclick = async () => {
+  const id = $("#project-detail").dataset.id;
+  if (!id) return;
+  const r = await fetch(`/api/projects/${encodeURIComponent(id)}/bundle`);
+  if (!r.ok) return;
+  const name = (r.headers.get("Content-Disposition") || "").split("filename=")[1] || "projekt.benthic.json";
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast(T("Projekt als Datei gespeichert"), T("Wer die Datei bekommt, öffnet sie unter Projekte mit „Projektdatei öffnen“. PDFs sind nicht dabei."));
+};
+$("#project-import").onclick = () => $("#project-import-file").click();
+$("#project-import-file").onchange = async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("file", f);
+  const j = await (await fetch("/api/projects/import", { method: "POST", body: fd })).json().catch(() => ({ error: T("Keine Verbindung") }));
+  if (j.error) { toast(T("Projekt nicht geöffnet"), j.error); return; }
+  toast(T("Projekt geöffnet"), TN(j.added, "„{name}“ mit {n} Quelle", "„{name}“ mit {n} Quellen", { name: j.name }));
+  await loadProjects();
+  showProject(j.id, true);
+};
 $("#pd-export").onclick = exportBibliography;
 $("#pd-recheck").onclick = recheckProject;
 $("#pd-watch-now").onclick = watchProjectNow;
@@ -4901,7 +5495,8 @@ $("#su-sample").onclick = () => { setup.sample = true; setupNext(); };
 $("#su-proxy-test").onclick = () => {
   const p = $("#su-proxy").value.trim();
   if (!/^https?:\/\//.test(p)) return setupFail(T("Bitte zuerst einen Proxy-Link eintragen."), "proxy");
-  window.open(p + "10.1038/s41586-020-2649-2", "_blank");
+  const doi = "10.1038/s41586-020-2649-2";  // mit {doi} ein Link-Resolver (OpenURL), sonst ein Proxy-Präfix
+  window.open(p.includes("{doi}") ? p.replace("{doi}", encodeURIComponent(doi)) : p + doi, "_blank");
 };
 $("#su-folder-pick").onclick = async () => {
   const path = await pickPath("folder", [], $("#su-folder").value.trim());

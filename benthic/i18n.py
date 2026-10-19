@@ -124,3 +124,33 @@ def join_list(items, lang: Optional[str] = None) -> str:
     if len(items) < 2:
         return "".join(items)
     return ", ".join(items[:-1]) + tr(" und ", lang) + items[-1]
+
+
+# --------------------------------------------------------------------------
+# Hinweise, die sich später in einer anderen Sprache ausgeben lassen
+# --------------------------------------------------------------------------
+# Ein Prüfhinweis wird in der Sprache der Oberfläche geschrieben, der MCP-Server antwortet aber immer
+# auf Englisch. Deshalb behält ein Ergebnis neben dem Text seine Sätze als Vorlage mit Werten.
+
+def note_part(msg: str, **values) -> Dict:
+    """Ein Satz eines Hinweises: deutsche Vorlage und Werte. Hängt ein Wert selbst von der Sprache
+    ab (Aufzählung mit „und“, „o. J.“), steht er als {"de": …, "en": …} darin (each_lang)."""
+    return {"msg": msg, "values": values}
+
+
+def each_lang(make) -> Dict[str, str]:
+    """Ein Wert in jeder Sprache der Oberfläche, z. B. each_lang(lambda lang: join_list(namen, lang))."""
+    return {lang: make(lang) for lang in LANGUAGES}
+
+
+def tr_part(part: Dict, lang: Optional[str] = None) -> str:
+    """Ein Satz (note_part) in einer Sprache."""
+    lang = normalize(lang) if lang else current()
+    values = {k: (v.get(lang, v.get(DEFAULT, "")) if isinstance(v, dict) else v)
+              for k, v in (part.get("values") or {}).items()}
+    return tr(str(part.get("msg") or ""), lang, **values)
+
+
+def tr_parts(parts, lang: Optional[str] = None) -> str:
+    """Alle Sätze eines Hinweises in einer Sprache, mit Leerzeichen verbunden."""
+    return " ".join(t for t in (tr_part(p, lang) for p in parts or []) if t).strip()

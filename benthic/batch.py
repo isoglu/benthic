@@ -19,9 +19,13 @@ import csv
 import io
 import json
 import os
+import re
+import shutil
 import threading
 import time
+import unicodedata
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -126,20 +130,67 @@ def summary_row(name: str, job: Dict) -> Dict:
     return row
 
 
+# --------------------------------------------------------------------------
+# Export einer Aufgabe aus Moodle oder ILIAS (ein .zip mit einem Ordner je Abgabe)
+# --------------------------------------------------------------------------
+# Moodle: "Vorname Nachname_123456_assignsubmission_file_/arbeit.pdf"
+_MOODLE = re.compile(r"^(?P<name>.+?)_\d+_assign(?:submission|feedback)_[a-z]+_?$", re.IGNORECASE)
+MAX_UNPACKED = 1_500_000_000  # Bytes: ein Kurs mit vielen PDFs, aber keine Zip-Bombe
+
+
+def unpack(zip_path: Path, target: Path) -> None:
+    """Ein LMS-Export in den Datenordner entpacken, ohne Pfade außerhalb des Ziels und ohne versteckte Dateien."""
+    total = 0
+    with zipfile.ZipFile(zip_path) as z:
+        for info in z.infolist():
+            parts = [p for p in Path(info.filename.replace("\\", "/")).parts if p not in ("", ".", "..", "/")]
+            if info.is_dir() or not parts or parts[0] == "__MACOSX" or any(p.startswith(".") for p in parts):
+                continue
+            total += info.file_size
+            if total > MAX_UNPACKED:
+                raise ValueError("size")
+            dest = target.joinpath(*parts)
+            if target.resolve() not in dest.resolve().parents:
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(info) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+
+
+def display_name(rel: str) -> str:
+    """Moodle-Ordner als Name der Person: „Ada Lovelace · arbeit.pdf“; sonst der Pfad im Export."""
+    parts = Path(rel).parts
+    m = _MOODLE.match(parts[0]) if parts else None
+    if m:
+        return " · ".join([m.group("name"), *parts[1:]]) if len(parts) > 1 else m.group("name")
+    return rel
+
+
 def start(folder: str, recursive: bool = False, quotes: bool = False, project: bool = False) -> Dict:
     root = Path(folder).expanduser()
+    batch_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    source = root
+    if root.is_file() and root.suffix.lower() == ".zip":  # Export einer Aufgabe aus Moodle oder ILIAS
+        target = _dir() / f"{batch_id}-files"
+        try:
+            unpack(root, target)
+        except (zipfile.BadZipFile, OSError):
+            shutil.rmtree(target, ignore_errors=True)
+            raise ValueError("zip")
+        root, recursive = target, True
     if not root.is_dir():
         raise ValueError("folder")
     files = submissions(root, recursive)
     if not files:
         raise ValueError("empty")
-    batch = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4], "folder": str(root),
-             "name": root.name, "created_at": time.time(), "status": "running", "total": len(files), "done": 0,
-             "current": None, "options": {"recursive": recursive, "quotes": quotes, "project": project},
+    batch = {"id": batch_id, "folder": str(source),
+             "name": source.stem if source.is_file() else root.name, "created_at": time.time(), "status": "running",
+             "total": len(files), "done": 0, "current": None,
+             "options": {"recursive": recursive, "quotes": quotes, "project": project, "lms": source.is_file()},
              "project": None,
-             "rows": [{"name": str(p.relative_to(root)), "path": str(p), "state": "queued"} for p in files]}
+             "rows": [{"name": display_name(str(p.relative_to(root))), "path": str(p), "state": "queued"} for p in files]}
     if project and _hooks.get("project"):
-        batch["project"] = _hooks["project"](root.name)
+        batch["project"] = _hooks["project"](batch["name"])
     _save(batch)
     _cancel[batch["id"]] = threading.Event()
     threading.Thread(target=_run, args=(batch["id"], [i for i in range(len(files))]), name="batch", daemon=True).start()
@@ -255,13 +306,46 @@ def totals(batch: Dict) -> Dict:
     return out
 
 
+def _title_key(title: str) -> str:
+    s = unicodedata.normalize("NFKD", str(title or "").lower())
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(w for w in re.findall(r"[a-z0-9]+", s) if len(w) > 2)
+
+
+def shared_phantoms(batch: Dict) -> List[Dict]:
+    """Erfundene oder falsch zugeordnete Quellen, die in mehreren Abgaben stehen: ein Hinweis auf dieselbe
+    Chat-Antwort oder auf abgeschriebene Listen. Jeder Fund lässt sich nachprüfen (die Quelle gibt es nicht)."""
+    groups: Dict[str, Dict] = {}
+    for r in batch.get("rows") or []:
+        for res in (r.get("job") or {}).get("results") or []:
+            if res.get("verdict") not in ("not_found", "mismatch"):
+                continue
+            title = str((res.get("claimed") or {}).get("title") or res.get("input") or "")
+            key = _title_key(title)
+            if len(key) < 15:
+                continue
+            g = groups.setdefault(key, {"title": title[:200], "verdict": res["verdict"], "files": []})
+            if r["name"] not in g["files"]:
+                g["files"].append(r["name"])
+    shared = [g for g in groups.values() if len(g["files"]) >= 2]
+    return sorted(shared, key=lambda g: (-len(g["files"]), g["title"]))[:40]
+
+
+def class_summary(batch: Dict) -> Dict:
+    """Wie viele Abgaben welches Problem haben, ohne Namen: für die Lehre, nicht für Einzelfälle."""
+    rows = [r for r in batch.get("rows") or [] if r.get("state") == "done"]
+    keys = ("not_found", "mismatch", "retracted", "missing", "quotes_bad", "style")
+    return {"files": len(rows), "with": {k: sum(1 for r in rows if r.get(k)) for k in keys}}
+
+
 def public(batch: Dict) -> Dict:
-    """Ohne die vollständigen Läufe (die holt der Bericht je Datei); mit Summen und Restzeit."""
+    """Ohne die vollständigen Läufe (die holt der Bericht je Datei); mit Summen, Restzeit und Signalen für den Kurs."""
     rows = [{k: v for k, v in r.items() if k != "job"} for r in batch.get("rows") or []]
     durations = [r["seconds"] for r in rows if r.get("seconds")]
     waiting = sum(1 for r in rows if r.get("state") in ("queued", "checking"))
     eta = round(sum(durations) / len(durations) * waiting) if durations and batch.get("status") == "running" else None
-    return {**{k: v for k, v in batch.items() if k != "rows"}, "rows": rows, "totals": totals(batch), "eta_seconds": eta}
+    return {**{k: v for k, v in batch.items() if k != "rows"}, "rows": rows, "totals": totals(batch), "eta_seconds": eta,
+            "shared_phantoms": shared_phantoms(batch), "class_summary": class_summary(batch)}
 
 
 def list_batches() -> List[Dict]:
