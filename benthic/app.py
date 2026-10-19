@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import signal
 import threading
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
@@ -85,6 +86,24 @@ def start_parent_watchdog() -> None:
     threading.Thread(target=watch, daemon=True).start()
 
 
+def stop_on_sigterm() -> None:
+    """SIGTERM beendet das Backend sofort, auch wenn der startende Prozess das Signal ignoriert.
+
+    Die App beendet so ein veraltetes Backend, das ein MCP-Server gestartet hat und das ihr
+    Beenden überlebt (19.10.2026: ein 1.0.1-Backend hielt nach dem Update auf 1.1.0 den Port,
+    die App zeigte weiter 1.0.1). Wie beim Wächter für die Eltern-App ohne Aufräumen, damit
+    laufende Aufträge das Ende nicht aufhalten. Signale gehen nur im Haupt-Thread.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+
+    def stop(_signum, _frame) -> None:
+        logger.info("SIGTERM erhalten, Backend fährt herunter.")
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+
+
 def _flag_hijacked(res: Dict, ref) -> Dict:
     """Verweist die Angabe auf eine bekannte gekaperte Zeitschriften-Website? (nur mit Einstellung)"""
     try:
@@ -105,6 +124,7 @@ def _flag_hijacked(res: Dict, ref) -> Dict:
 
 def start_background() -> None:
     """Alles, was neben dem Webserver läuft: Wächter für die Eltern-App, Rückzugswache, beobachtete Dateien."""
+    stop_on_sigterm()
     start_parent_watchdog()
     watch.start_scheduler()
     watchfile.start()

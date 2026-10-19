@@ -23,6 +23,7 @@ let backendPort: UInt16 = {
 let backendHost = "http://127.0.0.1:\(backendPort)"
 let dataFolderName = (Bundle.main.object(forInfoDictionaryKey: "BenthicDataFolder") as? String) ?? "Benthic"
 let appDisplayName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Benthic"
+let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
 
 /// Sprache der Oberfläche: Englisch (Standard) oder Deutsch. Die Weboberfläche meldet die Wahl
 /// beim Laden (benthicLang); Menüs und Dialoge folgen sofort, Texte von macOS selbst (etwa
@@ -724,6 +725,59 @@ let urlScheme: String = {
     return ((types?.first?["CFBundleURLSchemes"] as? [String])?.first) ?? "benthic"
 }()
 
+/// Ein Backend, das nicht zu dieser App gehört, hält sonst den Port mit altem Code: Ein MCP-Server
+/// (etwa für Claude Desktop) startet bei Bedarf ein eigenes Backend, das das Beenden der App und
+/// ein Update überlebt. Die App übernahm es ungeprüft und zeigte nach dem Update auf 1.1.0 weiter
+/// 1.0.1 mit „Update verfügbar“ (19.10.2026). Alte Backends lernen keinen neuen Endpunkt mehr,
+/// darum von außen: lsof findet den Prozess am Port, ps zeigt, ob er ein gebündeltes Backend ist.
+enum StaleBackend {
+    /// Ausgabe eines Hilfsprogramms, leer, wenn es nicht lief.
+    private static func output(_ tool: String, _ args: [String]) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// Prozesse, die auf dem Backend-Port lauschen.
+    static func listeners() -> [pid_t] {
+        output("/usr/sbin/lsof", ["-nP", "-iTCP:\(backendPort)", "-sTCP:LISTEN", "-t"])
+            .split(whereSeparator: \.isNewline).compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    /// Python aus <Name>.app/Contents/Resources/backend, so wie App und MCP-Server es starten.
+    /// Ein Backend aus einem Entwicklungsordner bleibt unangetastet.
+    static func isBundledBackend(_ pid: pid_t) -> Bool {
+        output("/bin/ps", ["-ww", "-o", "command=", "-p", String(pid)])
+            .contains(".app/Contents/Resources/backend/runtime/bin/python")
+    }
+
+    /// Beendet fremde gebündelte Backends am Port, erst mit SIGTERM, nach 3 s mit SIGKILL.
+    /// Liefert die beendeten PIDs, sobald der Port frei ist (oder nur noch `own` lauscht), sonst nil.
+    /// Ein beendetes Backend bleibt als Zombie seines MCP-Servers in der Prozessliste und
+    /// besteht `kill -0`, darum zählt der Port, nicht die PID.
+    static func stop(except own: pid_t?) -> [pid_t]? {
+        let foreign = { listeners().filter { $0 != own } }
+        let pids = foreign()
+        guard !pids.isEmpty, pids.allSatisfy(isBundledBackend) else { return nil }
+        for signal in [SIGTERM, SIGKILL] {
+            pids.forEach { _ = Darwin.kill($0, signal) }
+            let deadline = Date().addingTimeInterval(3)
+            while Date() < deadline {
+                if foreign().isEmpty { return pids }
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+        }
+        return nil
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
@@ -1008,10 +1062,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func startBackendAndLoad() {
+        if launchBackend(freshLog: true) { waitForBackendAndLoad() }
+    }
+
+    /// Backend-Log in ~/Library/Logs/<Datenordner>-backend.log
+    private var backendLog: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Logs/\(dataFolderName)-backend.log")
+    }
+
+    /// Eine Zeile der App selbst im Backend-Log, im Format des Backends.
+    private func noteInLog(_ message: String) {
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyy-MM-dd HH:mm:ss,SSS"
+        let fd = Darwin.open(backendLog.path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        guard fd >= 0 else { return }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        handle.write(Data("\(stamp.string(from: Date())) app INFO \(message)\n".utf8))
+    }
+
+    /// Startet das eigene Backend; false (nach einer Meldung), wenn das nicht ging.
+    @discardableResult
+    private func launchBackend(freshLog: Bool) -> Bool {
         guard let (python, script, workdir) = resolveBackend() else {
             showError(L("Python-Backend nicht gefunden. Bitte die App neu bauen (macos/build_app.sh) oder BENTHIC_BACKEND_DIR setzen.",
                         "Python backend not found. Rebuild the app (macos/build_app.sh) or set BENTHIC_BACKEND_DIR."))
-            return
+            return false
         }
 
         let proc = Process()
@@ -1042,12 +1118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         proc.environment = env
 
-        // Backend-Log in ~/Library/Logs/<Datenordner>-backend.log
-        let logDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Logs")
-        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-        let logPath = logDir.appendingPathComponent("\(dataFolderName)-backend.log")
-        FileManager.default.createFile(atPath: logPath.path, contents: nil)
-        let logHandle = FileHandle(forWritingAtPath: logPath.path) ?? FileHandle.nullDevice
+        // Neu beim Start der App, angehängt beim Neustart nach einem veralteten Backend.
+        // O_APPEND, damit sich Backend und noteInLog nicht überschreiben.
+        try? FileManager.default.createDirectory(at: backendLog.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = Darwin.open(backendLog.path, O_WRONLY | O_CREAT | O_APPEND | (freshLog ? O_TRUNC : 0), 0o644)
+        let logHandle = fd >= 0 ? FileHandle(fileDescriptor: fd, closeOnDealloc: true) : FileHandle.nullDevice
         proc.standardOutput = logHandle
         proc.standardError = logHandle
 
@@ -1056,9 +1131,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             try proc.run()
         } catch {
             showError(L("Backend konnte nicht gestartet werden: ", "The backend could not be started: ") + error.localizedDescription)
-            return
+            return false
         }
-        waitForBackendAndLoad()
+        return true
+    }
+
+    /// PID des eigenen Backends, solange es läuft.
+    private func ownBackendPID() -> pid_t? {
+        DispatchQueue.main.sync { backend?.isRunning == true ? backend?.processIdentifier : nil }
     }
 
     /// Für Grimpo: Hauptfenster nach vorn, eine Ansicht zeigen, bei „Prüfen“ den Text (etwa DOIs) einsetzen.
@@ -1076,19 +1156,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    /// Lädt die Oberfläche, sobald ein Backend antwortet. Meldet ein fremdes Benthic-Backend eine
+    /// andere Version als diese App, wird es beendet (StaleBackend) und das eigene neu gestartet,
+    /// falls es am belegten Port gescheitert ist. Höchstens zweimal, danach gilt, was antwortet.
     private func waitForBackendAndLoad() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let healthURL = URL(string: "\(backendHost)/api/health")!
-            for _ in 0..<120 {
-                if self?.hasLoaded == true { return }
+            var replaced = 0, restarts = 0
+            var deadline = Date().addingTimeInterval(30)
+            while Date() < deadline {
+                guard let self = self, !self.hasLoaded else { return }
                 if let data = try? Data(contentsOf: healthURL), !data.isEmpty {
-                    DispatchQueue.main.async {
+                    let health = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+                    let version = health["version"] as? String ?? ""
+                    if version != appVersion, health["app"] as? String == "Benthic", replaced < 2,
+                       let stopped = StaleBackend.stop(except: self.ownBackendPID()) {
+                        replaced += 1
+                        self.noteInLog("Backend \(version) auf Port \(backendPort) (PID \(stopped.map(String.init).joined(separator: ", "))) "
+                                       + "gehörte nicht zu dieser App (\(appVersion)) und wurde beendet.")
+                        deadline = Date().addingTimeInterval(30)
+                        continue
+                    }
+                    DispatchQueue.main.async { [weak self] in
                         guard let self = self, !self.hasLoaded else { return }
                         self.hasLoaded = true
                         self.webView.load(URLRequest(url: URL(string: "\(backendHost)/")!))
                         self.pet.restore()  // Grimpo braucht das Backend für seine Seite
                     }
                     return
+                }
+                // Das eigene Backend ist am belegten Port gescheitert: jetzt, da er frei ist, neu starten.
+                if restarts < replaced, self.ownBackendPID() == nil {
+                    restarts += 1
+                    guard DispatchQueue.main.sync(execute: { self.launchBackend(freshLog: false) }) else { return }
                 }
                 Thread.sleep(forTimeInterval: 0.25)
             }

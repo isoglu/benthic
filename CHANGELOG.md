@@ -5,6 +5,15 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.1
+
+A fix for the update inside the app.
+
+- **Updates take effect.** If an AI assistant such as Claude Desktop had
+  started Benthic's background service, the app kept using that older service
+  after an update: it still showed the old version and offered the same update
+  again. Benthic now replaces an older service when it starts.
+
 ## 1.1.0
 
 Benthic now helps you act on what it finds, checks more of a thesis, and brings

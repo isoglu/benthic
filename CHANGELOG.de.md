@@ -6,6 +6,15 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.1
+
+Eine Korrektur für das Update in der App.
+
+- **Updates kommen an.** Hatte ein KI-Assistent wie Claude Desktop den
+  Hintergrunddienst von Benthic gestartet, nutzte die App nach einem Update
+  weiter diesen älteren Dienst: Sie zeigte die alte Version und bot dasselbe
+  Update erneut an. Jetzt ersetzt Benthic beim Start einen älteren Dienst.
+
 ## 1.1.0
 
 Benthic hilft jetzt, mit seinen Ergebnissen weiterzuarbeiten, prüft mehr an
