@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
-from .i18n import tr
+from .i18n import catalog, tr
 
 PORT = int(os.environ.get("BENTHIC_PORT", "8327"))
 BASE = f"http://127.0.0.1:{PORT}"
@@ -156,14 +156,14 @@ def _fmt_verify(job: Dict) -> str:
             bits.append(f"doi:{r['doi']}")
         line = " ".join(bits)
         if r.get("note"):
-            line += f"\n   Note: {r['note']}"
+            line += f"\n   Note: {_en(r['note'])}"
         pub = r.get("published_version")
         if pub:
             line += (f"\n   Published since: doi:{pub['doi']} ({pub.get('venue') or pub.get('type')}, {pub.get('year')}). "
                      "Prefer citing the published version.")
         style_notes = ((job.get("style") or {}).get("entries") or {}).get(str(r.get("order", 0))) or []
         if style_notes:
-            line += "\n   Citation style: " + " ".join(i["text"] for i in style_notes)
+            line += "\n   Citation style: " + " ".join(_en(i) for i in style_notes)
         lines.append(line)
     head = ", ".join(f"{n} {VERDICT_EN.get(v, v).lower()}" for v, n in counts.items())
     status = job.get("status")
@@ -176,8 +176,25 @@ def _fmt_verify(job: Dict) -> str:
     if st.get("applicable"):
         name = (st.get("styles") or {}).get(st.get("style"), st.get("style"))
         out.append(f"Citation style: {name}" + (" (detected)." if st.get("detected") == st.get("style") else ".")
-                   + "".join(" " + i["text"] for i in st.get("list") or []))
+                   + "".join(" " + _en(i) for i in st.get("list") or []))
     return "\n".join(out + [""] + lines)
+
+
+def _en(note) -> str:
+    """Ein Hinweis aus einem Lauf auf Englisch, wie der Rest dieser Ausgabe.
+
+    Stilhinweise tragen Vorlage und Werte (style._note); andere Texte wurden beim Prüfen in der
+    Sprache der Oberfläche geschrieben und werden übersetzt, wenn sie ein fester Satz sind.
+    """
+    if isinstance(note, dict):
+        if note.get("msg"):
+            try:
+                return tr(note["msg"], lang="en", **(note.get("values") or {}))
+            except (KeyError, IndexError, ValueError):
+                pass
+        note = note.get("text") or ""
+    text = str(note or "")
+    return catalog("en").get(text, text)
 
 
 STATUS_EN = {"ok": "DOWNLOADED", "skipped": "ALREADY IN LIBRARY", "blocked": "FREE COPY KNOWN, OPEN MANUALLY",
@@ -197,7 +214,7 @@ def _fmt_download(job: Dict) -> str:
         if r.get("status") in ("blocked", "absent", "error") and (r.get("landing_url") or r.get("proxy_url")):
             line += f". Link: {r.get('proxy_url') or r.get('landing_url')}"
         if r.get("status") in ("absent", "error") and r.get("error"):
-            line += f" ({r['error']})"
+            line += f" ({_en(r['error'])})"
         lines.append(line)
     out = [f"{len(results)} of {job.get('total', len(results))} done (open access only)."]
     if job.get("status") not in ("done", "cancelled"):
@@ -354,7 +371,7 @@ def t_check_folder(a: Dict) -> str:
     rows = []
     for r in b.get("rows") or []:
         if r.get("error"):
-            rows.append(f"- {r['name']}: {r['error']}")
+            rows.append(f"- {r['name']}: {_en(r['error'])}")
             continue
         rows.append(f"- {r['name']}: {r.get('entries')} entries; {r.get('missing')} citations without an entry, "
                     f"{r.get('uncited')} entries never cited; {r.get('not_found')} not found, {r.get('mismatch')} "

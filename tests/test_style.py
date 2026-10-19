@@ -93,3 +93,23 @@ class Stil(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnglishOverMcp(unittest.TestCase):
+    """Hinweise aus einer Prüfung mit deutscher Oberfläche lesen sich im MCP-Text auf Englisch."""
+
+    def test_style_notes_keep_template_and_values(self):
+        from unittest import mock
+        from benthic import mcp_server
+        with mock.patch("benthic.i18n.current", return_value="de"):
+            issue = style._issue("no_issue", value="7553")
+            gap = style._note("gaps", "Die Nummern sind nicht fortlaufend: nach {a} folgt {b}.", a=2, b=4)
+        self.assertEqual(issue["text"], "Das Heft fehlt (7553).")
+        self.assertEqual(mcp_server._en(issue), "The issue is missing (7553).")
+        self.assertEqual(mcp_server._en(gap), "The numbering has a gap: 4 follows 2.")
+
+    def test_older_and_plain_notes(self):
+        from benthic import mcp_server
+        self.assertEqual(mcp_server._en({"code": "no_issue", "text": "Das Heft fehlt (1)."}), "Das Heft fehlt (1).")
+        self.assertEqual(mcp_server._en("kein Open-Access-Zugriff gefunden"), "no open-access copy found")
+        self.assertEqual(mcp_server._en("Something already English."), "Something already English.")

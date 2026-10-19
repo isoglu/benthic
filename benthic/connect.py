@@ -448,7 +448,7 @@ def manifest(author: str = "", lang: Optional[str] = None, env: Optional[Dict[st
             "Access laden, heruntergeladene Artikel lesen, Projekte führen und Literaturverzeichnisse "
             "erzeugen. Benthic lädt dabei nur frei verfügbare Fassungen.", lang=lang
         ),
-        "author": {"name": author or "Benthic"},
+        "author": {"name": author or "Sinan Isoglu"},
         "icon": "icon.png",
         "server": {
             "type": "binary",

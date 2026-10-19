@@ -5,6 +5,27 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.0.1
+
+Fixes and clearer settings. A correction to the 1.0.0 notes: projects export
+bibliographies (BibTeX, RIS and formatted), not CSV or Excel; those are for
+check reports, downloads, the history and batch checks.
+
+- **University access for downloads.** When a paper has no free copy, the
+  download result now links through your university library's proxy, as
+  "Check only (with OA)" already did, also for AI assistants.
+- **Correct versions in every style.** Vancouver works, and Harvard, MLA,
+  Vancouver and DIN versions no longer carry empty editor fields. IEEE and
+  Vancouver bibliographies are numbered, and DIN 1505 always uses German
+  terms.
+- **DIN lists from Word.** Surnames set in small caps are read as capitals, so
+  a DIN 1505 reference list in a Word file is recognised as DIN.
+- **Consistent answers for AI assistants.** Citation style notes in a tool's
+  answer are in English, like the rest of the answer.
+- **Clearer setup.** Setup and settings say that the contact e-mail goes to
+  Unpaywall, Crossref and OpenAlex, and the setup no longer asks for a name,
+  which no feature used.
+
 ## 1.0.0
 
 First public release.

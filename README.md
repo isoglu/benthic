@@ -153,22 +153,20 @@ Benthic is free and not notarised by Apple, because notarisation needs a paid
 Apple Developer account. macOS therefore blocks the first launch: open
 **System Settings → Privacy & Security**, scroll down to the message about
 Benthic, click **Open Anyway** and confirm. You do this once: updates from
-inside the app (version 1.3 and later) need no new approval. The download page
-lists the SHA-256 checksum of every release
-(`shasum -a 256 ~/Downloads/Benthic-*.dmg`), and you can always
-[build Benthic from source](#build-from-source).
+inside the app need no new approval. The download page lists the SHA-256
+checksum of every release (`shasum -a 256 ~/Downloads/Benthic-*.dmg`), and you
+can always [build Benthic from source](#build-from-source).
 
-Benthic tells you when a new version is out and, from version 1.3, installs it
-in one click: it downloads the disk image from benthic.isoglu.com, checks its
-SHA-256 against the release manifest and the app's signature, replaces itself
-and restarts. If it cannot replace itself where it is (for example outside
+Benthic tells you when a new version is out and installs it in one click: it
+downloads the disk image from benthic.isoglu.com, checks its SHA-256 against
+the release manifest and the app's signature, replaces itself and restarts. If it cannot replace itself where it is (for example outside
 Applications without write access), it opens the update in the Finder instead.
 What changed is in [CHANGELOG.md](CHANGELOG.md).
 
-On first launch a short assistant asks for your language, your name and e-mail address (sent
-to Unpaywall and Crossref as their etiquette asks), your university and its
-proxy (EZproxy or OpenAthens), a download folder (default `~/Documents/Benthic`)
-and an existing library to import.
+On first launch a short assistant asks for your language, an e-mail address
+(sent to Unpaywall, Crossref and OpenAlex as their etiquette asks), your
+university and its proxy (EZproxy or OpenAthens), a download folder (default
+`~/Documents/Benthic`) and an existing library to import.
 
 ![First-run setup](docs/screenshots/setup.png)
 
@@ -252,6 +250,10 @@ new disk image from the same server.
 
 To confirm references without a DOI (magazine articles, chapters, books) it
 also asks Semantic Scholar and Open Library by title and author.
+
+These services learn the DOIs, titles and authors you check. If you enter an
+e-mail address, Benthic sends it with its requests to Unpaywall, Crossref and
+OpenAlex, as their etiquette asks, and to no other service.
 
 The retraction watch sends the DOIs of your project sources to Crossref and
 OpenAlex once a day (off in Projects, also per project). The DOAJ lists and, if you turn it on,

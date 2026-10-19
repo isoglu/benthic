@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.0.0">
-  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.0.1">
+  <link rel="stylesheet" href="/static/style.css?v=1.0.1">
 </head>
 <body>
   <!-- Icon set: 24 px grid, 1.75 stroke, round caps. One icon per view, state and action. -->
@@ -681,7 +681,7 @@
           <div class="form-grid">
             <label for="set-institution">Hochschule</label>
             <input type="text" id="set-institution" placeholder="z. B. Universität Musterstadt" autocomplete="off">
-            <label for="set-email">Unpaywall-E-Mail</label>
+            <label for="set-email">Kontakt-E-Mail</label>
             <input type="text" id="set-email" placeholder="name@institution.de" autocomplete="off">
             <label for="set-core-key">CORE-API-Key</label>
             <input type="text" id="set-core-key" placeholder="optional, ohne Key mit Rate-Limit" autocomplete="off">
@@ -702,8 +702,6 @@
               <input type="text" id="set-download-dir" placeholder="leer = App-Ordner">
               <label for="set-proxy">Proxy-Präfix (Uni-Bibliothek)</label>
               <input type="text" id="set-proxy" placeholder="https://ezproxy.example.edu/login?url=https://doi.org/">
-              <label for="set-requester">Eigener Name (Autor:innen-Anfrage)</label>
-              <input type="text" id="set-requester" placeholder="Name, Institution">
               <label for="set-update-url">Update-Adresse (Manifest)</label>
               <input type="text" id="set-update-url" placeholder="leer = beim Bauen hinterlegt" autocomplete="off">
               <label for="set-sources">Bibliotheks-Quellen (eine pro Zeile)</label>
@@ -766,11 +764,9 @@
         <h2>Über dich</h2>
         <p class="lead">Damit Open-Access-Dienste und deine Bibliothek dich erkennen.</p>
         <div class="setup-form">
-          <label for="su-name">Name <span class="opt">optional</span></label>
-          <input type="text" id="su-name" autocomplete="name" placeholder="Vor- und Nachname">
           <label for="su-email">E-Mail <span class="opt">empfohlen</span></label>
           <input type="text" id="su-email" autocomplete="email" placeholder="name@hochschule.de">
-          <p class="help">Unpaywall und Crossref bitten um eine Kontaktadresse. Benthic sendet sie nur an diese Dienste.</p>
+          <p class="help">Unpaywall, Crossref und OpenAlex bitten um eine Kontaktadresse. Benthic sendet sie nur an diese drei Dienste.</p>
           <label for="su-institution">Hochschule <span class="opt">optional</span></label>
           <input type="text" id="su-institution" autocomplete="organization" placeholder="z. B. Universität Musterstadt">
           <label for="su-proxy">Bibliotheks-Proxy <span class="opt">optional</span></label>
@@ -828,6 +824,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.0.0"></script>
+  <script src="/static/app.js?v=1.0.1"></script>
 </body>
 </html>

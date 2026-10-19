@@ -79,6 +79,12 @@ def detect(raws: List[str]) -> Optional[str]:
     return best if votes[best] >= max(1, len(raws) // 3) else None
 
 
+def _note(code: str, msg: str, **values) -> Dict:
+    """Ein Hinweis: Text in der Sprache der Oberfläche, dazu Vorlage und Werte, damit der MCP-Server
+    ihn auf Englisch ausgeben kann, egal in welcher Sprache geprüft wurde."""
+    return {"code": code, "text": tr(msg, **values), "msg": msg, "values": values}
+
+
 def _issue(code: str, **values) -> Dict:
     texts = {
         "no_year": "Kein Jahr angegeben.",
@@ -99,7 +105,7 @@ def _issue(code: str, **values) -> Dict:
         "number": "Der Eintrag ist nicht nummeriert.",
         "other_style": "Diese Angabe folgt einem anderen Stil ({value}).",
     }
-    return {"code": code, "text": tr(texts[code], **values)}
+    return _note(code, texts[code], **values)
 
 
 def _mentions(text: str, value: object) -> bool:
@@ -191,21 +197,21 @@ def check_list(results: List[Dict], style: Optional[str] = None) -> Dict:
         if issues:
             out["entries"][str(r.get("order", 0))] = issues
     if others:
-        out["list"].append({"code": "mixed", "text": tr("Gemischte Zitierstile: {n} von {total} Angaben folgen einem anderen Stil.",
-                                                         n=others, total=len(rows))})
+        out["list"].append(_note("mixed", "Gemischte Zitierstile: {n} von {total} Angaben folgen einem anderen Stil.",
+                                 n=others, total=len(rows)))
     if chosen in ALPHABETICAL and len(rows) > 2:
         keys = [_sort_key(r) for r in rows]
         for a, b, ra, rb in zip(keys, keys[1:], rows, rows[1:]):
             if a and b and b < a:
                 label = lambda r: (r.get("claimed") or {}).get("authors", [None])[0] if (r.get("claimed") or {}).get("authors") else str(r.get("identifier") or "")[:40]
-                out["list"].append({"code": "order", "text": tr("Nicht alphabetisch sortiert: „{a}“ steht vor „{b}“.",
-                                                                 a=label(ra), b=label(rb))})
+                out["list"].append(_note("order", "Nicht alphabetisch sortiert: „{a}“ steht vor „{b}“.",
+                                         a=label(ra), b=label(rb)))
                 break
     if chosen in NUMBERED:
         nums = [int(m.group(1) or m.group(2)) for m in (_NUM_PREFIX.match(raw) for raw in raws) if m]
         for a, b in zip(nums, nums[1:]):
             if b != a + 1:
-                out["list"].append({"code": "gaps", "text": tr("Die Nummern sind nicht fortlaufend: nach {a} folgt {b}.", a=a, b=b)})
+                out["list"].append(_note("gaps", "Die Nummern sind nicht fortlaufend: nach {a} folgt {b}.", a=a, b=b))
                 break
     seen: Dict[str, int] = {}
     for r in rows:
@@ -215,5 +221,5 @@ def check_list(results: List[Dict], style: Optional[str] = None) -> Dict:
     dups = [k for k, n in seen.items() if n > 1]
     if dups:
         msg = "{n} Angabe steht doppelt im Verzeichnis." if len(dups) == 1 else "{n} Angaben stehen doppelt im Verzeichnis."
-        out["list"].append({"code": "duplicates", "text": tr(msg, n=len(dups))})
+        out["list"].append(_note("duplicates", msg, n=len(dups)))
     return out
