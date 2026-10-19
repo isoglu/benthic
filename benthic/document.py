@@ -49,27 +49,78 @@ _YEAR = re.compile(r"\b(1[89]\d{2}|20\d{2})[a-z]?\b")
 # --------------------------------------------------------------------------
 # Text aus Dateien
 # --------------------------------------------------------------------------
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _caps(rpr) -> Optional[bool]:
+    """Kapitälchen oder Großbuchstaben in einem w:rPr: True, False (ausdrücklich aus) oder None."""
+    if rpr is None:
+        return None
+    for tag in ("smallCaps", "caps"):
+        el = rpr.find(_W + tag)
+        if el is not None:
+            return el.get(_W + "val", "true").lower() not in ("0", "false", "off")
+    return None
+
+
+def _caps_styles(z: zipfile.ZipFile) -> set:
+    """Formatvorlagen (Zeichen und Absatz), die Kapitälchen oder Großbuchstaben setzen, mit Vererbung."""
+    if "word/styles.xml" not in z.namelist():
+        return set()
+    own, parent = {}, {}
+    for st in ElementTree.fromstring(z.read("word/styles.xml")).iter(_W + "style"):
+        sid = st.get(_W + "styleId")
+        if not sid:
+            continue
+        own[sid] = _caps(st.find(_W + "rPr"))
+        based = st.find(_W + "basedOn")
+        if based is not None:
+            parent[sid] = based.get(_W + "val")
+    result = set()
+    for sid in own:
+        cur, seen = sid, set()
+        while cur and cur not in seen and own.get(cur) is None:
+            seen.add(cur)
+            cur = parent.get(cur)
+        if cur and own.get(cur):
+            result.add(sid)
+    return result
+
+
 def _docx_text(data: bytes) -> str:
     """Absätze aus word/document.xml, dazu Fuß- und Endnoten (dort stehen oft die Zitate).
 
     Die Noten kommen zuerst, damit sie zum Fließtext zählen und nicht hinter dem Verzeichnis landen.
+    Text in Kapitälchen oder Großbuchstaben (direkt oder über eine Formatvorlage) kommt so heraus,
+    wie Word ihn zeigt, in Großbuchstaben: DIN 1505 setzt Nachnamen so, und Literaturverwaltungen
+    schreiben sie meist klein mit dem Format Kapitälchen.
     """
-    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    ns = _W
     parts = []
     with zipfile.ZipFile(io.BytesIO(data)) as z:
+        caps_styles = _caps_styles(z)
         for name in ("word/footnotes.xml", "word/endnotes.xml", "word/document.xml"):
             if name not in z.namelist():
                 continue
             root = ElementTree.fromstring(z.read(name))
             for p in root.iter(ns + "p"):
+                ppr = p.find(ns + "pPr")
+                pstyle = ppr.find(ns + "pStyle") if ppr is not None else None
+                para_caps = pstyle is not None and pstyle.get(ns + "val") in caps_styles
                 chunks = []
-                for el in p.iter():
-                    if el.tag == ns + "t" and el.text:
-                        chunks.append(el.text)
-                    elif el.tag == ns + "tab":
-                        chunks.append("\t")
-                    elif el.tag in (ns + "br", ns + "cr"):
-                        chunks.append("\n")
+                for r in p.iter(ns + "r"):
+                    rpr = r.find(ns + "rPr")
+                    caps = _caps(rpr)
+                    if caps is None:
+                        rstyle = rpr.find(ns + "rStyle") if rpr is not None else None
+                        caps = (rstyle is not None and rstyle.get(ns + "val") in caps_styles) or para_caps
+                    for el in r:
+                        if el.tag == ns + "t" and el.text:
+                            chunks.append(el.text.upper() if caps else el.text)
+                        elif el.tag == ns + "tab":
+                            chunks.append("\t")
+                        elif el.tag in (ns + "br", ns + "cr"):
+                            chunks.append("\n")
                 parts.append("".join(chunks))
             parts.append("")
     return "\n".join(parts)

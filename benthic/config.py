@@ -43,7 +43,7 @@ ALL_PROVIDERS = ["arxiv", "openalex", "unpaywall", "europepmc", "semantic_schola
 # --------------------------------------------------------------------------
 # Version 2: Europe PMC und CORE gehören zur Standard-Kaskade (vorher fehlten sie).
 # Version 3: Ersteinrichtung (setup_complete, institution).
-# Version 4: Sprache der Oberfläche (language); bis 1.0 gab es nur Deutsch.
+# Version 4: Sprache der Oberfläche (language); ältere Einstellungen stammen aus einer rein deutschen Oberfläche.
 SETTINGS_VERSION = 4
 LANGUAGES = ("en", "de")
 
@@ -65,8 +65,6 @@ DEFAULT_SETTINGS: dict = {
     "download_dir": "",
     "library_sources": [],
     "proxy_prefix": "",
-    "requester_name": "",
-    "requester_affiliation": "",
     "update_url": "",
     "journal_jufo": True,   # Zeitschriften-Stufen von JUFO (Julkaisufoorumi) abfragen
     "retraction_watch": True,  # Projektquellen täglich auf Rückzüge prüfen (watch.py)
@@ -96,7 +94,7 @@ def _clean(data: dict) -> dict:
                 "retraction_watch", "journal_lists", "hijacked_check"):
         cleaned[key] = bool(cleaned[key])
     for key in ("unpaywall_email", "core_api_key", "openalex_api_key", "semanticscholar_api_key", "elsevier_api_key", "download_dir",
-                "proxy_prefix", "requester_name", "requester_affiliation", "institution", "update_url"):
+                "proxy_prefix", "institution", "update_url"):
         cleaned[key] = str(cleaned[key]).strip()
     lang = str(cleaned["language"]).strip().lower()[:2]
     cleaned["language"] = lang if lang in LANGUAGES else DEFAULT_SETTINGS["language"]
@@ -135,7 +133,7 @@ def _migrate(data: dict) -> dict:
         # Bestehende Installationen sind bereits eingerichtet.
         data = dict(data, setup_complete=data.get("setup_complete", True))
     if version < 4:
-        # Bis 1.0 war die Oberfläche deutsch; wer sie schon nutzt, behält Deutsch.
+        # Einstellungen vor Version 4 stammen aus einer rein deutschen Oberfläche; wer sie schon nutzt, behält Deutsch.
         data = dict(data, language=data.get("language") or "de")
     return data
 

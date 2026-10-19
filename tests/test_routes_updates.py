@@ -41,11 +41,17 @@ oa.resolve_candidates = lambda *a, **k: ([], [])
 oa.resolve_metadata = lambda *a, **k: None
 c = appmod.app.test_client()
 d = lambda on: fetcher.BenthicDownloader(config.data_dir() / "papers", extra_routes=on, skip_existing=False)
+PROXY = "https://proxy.example/login?url=https://doi.org/"
+p = lambda on: fetcher.BenthicDownloader(config.data_dir() / "papers", extra_routes=on, skip_existing=False,
+                                         proxy_prefix=PROXY)
 out = {
   "routes": c.get("/api/routes").get_json()["routes"],
   "off": d(False).download_one("10.1/x")["status"],
   "on": {k: v for k, v in d(True).download_one("10.1/x").items() if k in ("status", "channel", "source", "route_label")},
   "miss": d(True).download_one("10.1/missing")["status"],
+  "proxy_none": d(False).download_one("10.1234/x")["proxy_url"],
+  "proxy_absent": p(False).download_one("10.1234/x")["proxy_url"],
+  "proxy_miss": p(True).download_one("10.1234/missing")["proxy_url"],
   "settings": c.post("/api/settings", json={"extra_routes": True}).get_json()["extra_routes"],
 }
 print(json.dumps(out))
@@ -75,6 +81,9 @@ class ExtraRoutes(unittest.TestCase):
         self.assertEqual(out["routes"], [])
         self.assertEqual(out["off"], "absent")
         self.assertEqual(out["on"]["status"], "absent")  # eingeschaltet, aber kein Weg angemeldet
+        # Ohne freie Kopie: Link über den Proxy der Hochschule, aber nur, wenn einer eingetragen ist
+        self.assertIsNone(out["proxy_none"])
+        self.assertEqual(out["proxy_absent"], "https://proxy.example/login?url=https://doi.org/10.1234/x")
 
     def test_plugin_route_runs_only_when_switched_on(self):
         out = run_check({"demo": PLUGIN, "broken": BROKEN})  # ein defektes Plugin stört nicht
@@ -82,6 +91,7 @@ class ExtraRoutes(unittest.TestCase):
         self.assertEqual(out["off"], "absent")
         self.assertEqual(out["on"], {"status": "ok", "channel": "demo", "source": "demo.example", "route_label": "Demo-Weg"})
         self.assertEqual(out["miss"], "error")
+        self.assertEqual(out["proxy_miss"], "https://proxy.example/login?url=https://doi.org/10.1234/missing")
         self.assertTrue(out["settings"])
 
     def test_tools_never_use_extra_routes(self):

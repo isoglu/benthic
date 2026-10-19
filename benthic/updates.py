@@ -8,9 +8,10 @@ macos/make_release.sh)::
      "notes": ["Neue Prüfansicht", "Schnellere Titelsuche"],
      "notes_en": ["New check view", "Faster title search"]}
 
-``notes`` ist deutsch (so lesen es auch Versionen bis 1.0), ``notes_en`` englisch.
+``notes`` ist deutsch, ``notes_en`` englisch; fehlt ``notes_en``, zeigt auch die englische
+Oberfläche ``notes``.
 
-Seit 1.3 aktualisiert sich die App selbst: ``download()`` lädt das DMG aus dem
+Die App aktualisiert sich selbst: ``download()`` lädt das DMG aus dem
 Manifest in ``updates/`` im Datenordner und prüft Größe und SHA-256; die native App
 (BenthicApp.swift, ``benthicUpdate``) hängt es ein, prüft Bundle-Kennung, Version
 und Signatur, tauscht die App aus und startet sie neu. Im Browser (Entwicklung) bleibt

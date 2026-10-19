@@ -90,6 +90,31 @@ class Dokument(unittest.TestCase):
         self.assertEqual(a["citations"], 1)          # das Zitat steht in der Fußnote
         self.assertEqual(len(a["uncited"]), 1)
 
+    def test_docx_small_caps_read_as_capitals(self):
+        """DIN-Nachnamen in Kapitälchen (direkt oder über eine Zeichenvorlage) bleiben als DIN erkennbar."""
+        from benthic import style
+        w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        def run(text, rpr=""):
+            return f'<w:r>{rpr}<w:t xml:space="preserve">{text}</w:t></w:r>'
+        small = "<w:rPr><w:smallCaps/></w:rPr>"
+        styled = '<w:rPr><w:rStyle w:val="Autor"/></w:rPr>'
+        off = '<w:rPr><w:rStyle w:val="Autor"/><w:smallCaps w:val="0"/></w:rPr>'
+        entry = (run("LeCun", small) + run(", Yann ; ") + run("Bengio", styled) + run(", Yoshua ; ")
+                 + run("Hinton", small) + run(", Geoffrey: Deep learning. In: ") + run("Nature", off)
+                 + run(" Bd. 521 (2015), Nr. 7553, S. 436–444"))
+        styles = (f'<w:styles {w}><w:style w:type="character" w:styleId="Kapitaelchen"><w:rPr><w:smallCaps/>'
+                  '</w:rPr></w:style><w:style w:type="character" w:styleId="Autor">'
+                  '<w:basedOn w:val="Kapitaelchen"/></w:style></w:styles>')
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("word/document.xml", f"<w:document {w}><w:body><w:p>{run('Literaturverzeichnis')}</w:p>"
+                                            f"<w:p>{entry}</w:p></w:body></w:document>")
+            z.writestr("word/styles.xml", styles)
+        text = document.extract_text("arbeit.docx", buf.getvalue())
+        line = text.splitlines()[1]
+        self.assertTrue(line.startswith("LECUN, Yann ; BENGIO, Yoshua ; HINTON, Geoffrey: Deep learning. In: Nature"))
+        self.assertEqual(style.guess(line), "din")
+
     def test_rejects_unknown_types(self):
         with self.assertRaises(ValueError):
             document.extract_text("notes.odt", b"x")

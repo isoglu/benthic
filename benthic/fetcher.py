@@ -62,6 +62,7 @@ class BenthicDownloader:
                 "channel": "oa" | "library" | <ID des Zusatzwegs> | None,
                 "legal": bool | None,
                 "title": str | None,
+                "proxy_url": str | None,  # ohne freie Kopie: Link über den Proxy der Hochschule
                 "error": str | None,
             }
         """
@@ -88,6 +89,7 @@ class BenthicDownloader:
             "version": None,
             "title": None,
             "landing_url": f"https://doi.org/{identifier}" if _is_doi(identifier) else None,
+            "proxy_url": None,
             "retryable": False,
             "error": None,
         }
@@ -180,7 +182,11 @@ class BenthicDownloader:
             emit("done", status="blocked", error=msg, landing_url=result.get("landing_url"))
             return result
 
-        # 3) Zusatzwege (nur wenn eingeschaltet und angemeldet).
+        # 3) Keine freie Kopie: Link über den Proxy der Hochschule, wie bei check_one.
+        if self.proxy_prefix and _is_doi(identifier):
+            result["proxy_url"] = self._proxy_url(identifier)
+
+        # 4) Zusatzwege (nur wenn eingeschaltet und angemeldet).
         if not self.routes:
             result.update(status="absent", error=tr("Keine Open-Access-Kopie gefunden"))
             emit("done", status="absent", error=result["error"], landing_url=result.get("landing_url"))

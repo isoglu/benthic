@@ -169,7 +169,6 @@ function renderSettings() {
   $("#set-elsevier-key").value = settings.elsevier_api_key || "";
   $("#set-download-dir").value = settings.download_dir || "";
   $("#set-proxy").value = settings.proxy_prefix || "";
-  $("#set-requester").value = settings.requester_name || "";
   $("#set-sources").value = (settings.library_sources || []).join("\n");
   $("#set-update-url").value = settings.update_url || "";
   renderProviders();
@@ -249,7 +248,6 @@ function collectSettings() {
   s.elsevier_api_key = ($("#set-elsevier-key").value || "").trim();
   s.download_dir = $("#set-download-dir").value.trim();
   s.proxy_prefix = $("#set-proxy").value.trim();
-  s.requester_name = $("#set-requester").value.trim();
   s.library_sources = $("#set-sources").value.split("\n").map((x) => x.trim()).filter(Boolean);
   s.update_url = $("#set-update-url").value.trim();
   return s;
@@ -976,15 +974,18 @@ function resultRow(res) {
 
   const act = document.createElement("td");
   act.className = "c-act";
-  const link = res.landing_url || res.proxy_url;
+  // Ohne freie Kopie führt der Link über den Proxy der Hochschule, sonst zur Landingpage.
+  const viaProxy = (key === "absent" || key === "fail") && !!res.proxy_url;
+  const link = viaProxy ? res.proxy_url : (res.landing_url || res.proxy_url);
   if (link && key !== "legal" && key !== "route" && key !== "library") {
     const a = document.createElement("a");
+    const label = viaProxy ? T("Über deine Hochschule öffnen") : T("Im Browser öffnen");
     a.href = link;
     a.target = "_blank";
     a.rel = "noopener";
     a.className = "open-link";
-    a.title = T("Im Browser öffnen");
-    a.setAttribute("aria-label", T("Im Browser öffnen"));
+    a.title = label;
+    a.setAttribute("aria-label", label);
     a.appendChild(icon("i-blocked"));
     act.appendChild(a);
   }
@@ -2823,7 +2824,6 @@ async function openSetup(force) {
   if (!force && !j.needed) return;
   const cur = j.current || {};
   setup.suggestions = j.suggestions || { sources: [] };
-  $("#su-name").value = cur.requester_name || "";
   $("#su-email").value = /example\.(org|com)$/.test(cur.unpaywall_email || "") ? "" : (cur.unpaywall_email || "");
   $("#su-institution").value = cur.institution || "";
   $("#su-proxy").value = cur.proxy_prefix || "";
@@ -2977,7 +2977,6 @@ async function submitSetup() {
     library = { kind: "file", path };
   }
   const body = {
-    name: $("#su-name").value.trim(),
     email: $("#su-email").value.trim(),
     institution: $("#su-institution").value.trim(),
     proxy_prefix: $("#su-proxy").value.trim(),
@@ -3002,7 +3001,6 @@ async function submitSetup() {
   const none = T("nicht angegeben");
   const rows = [
     [T("Sprache"), LANG === "de" ? "Deutsch" : "English"],
-    [T("Name"), s.requester_name || none],
     [T("E-Mail"), s.unpaywall_email || none],
     [T("Hochschule"), s.institution || none],
     ["Proxy", s.proxy_prefix ? T("eingerichtet") : T("keiner")],
@@ -4093,8 +4091,8 @@ function applyTheme(mode) {
   // Native App: Fensterrahmen und Titelleiste folgen derselben Wahl.
   try { window.webkit.messageHandlers.benthicTheme.postMessage({ theme: mode }); } catch (e) { /* Browser */ }
 }
-// Seit 1.3 ist Dunkel die Voreinstellung, wie die Website. Wer bisher auf Automatisch stand (das
-// war nur die alte Voreinstellung), wechselt einmal; eine spätere Wahl in den Einstellungen bleibt.
+// Dunkel ist die Voreinstellung, wie die Website. Wer noch auf Automatisch stand (die frühere
+// Voreinstellung), wechselt einmal; eine spätere Wahl in den Einstellungen bleibt.
 try {
   let mode = localStorage.getItem("benthic-theme");
   if (!localStorage.getItem("benthic-theme-v13")) {
@@ -4707,7 +4705,7 @@ async function checkUpdate(manual) {
   }
 }
 
-// Aktualisieren aus der App (seit 1.3): Das Backend lädt das DMG und prüft die Prüfsumme
+// Aktualisieren aus der App: Das Backend lädt das DMG und prüft die Prüfsumme
 // (/api/update/download), die native App hängt es ein, prüft die App darin, tauscht sie aus und
 // startet neu (BenthicApp.swift, benthicUpdate). Im Browser bleibt es beim Link.
 let updateBusy = false;

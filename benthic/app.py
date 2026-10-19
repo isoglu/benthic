@@ -351,7 +351,7 @@ def get_setup():
     s = config.load_settings()
     return jsonify({
         "needed": not s.get("setup_complete"),
-        "current": {k: s.get(k) for k in ("requester_name", "unpaywall_email", "institution",
+        "current": {k: s.get(k) for k in ("unpaywall_email", "institution",
                                           "proxy_prefix", "download_dir", "library_sources")},
         "suggestions": config.setup_suggestions(),
     })
@@ -360,7 +360,6 @@ def get_setup():
 @app.route("/api/setup", methods=["POST"])
 def save_setup():
     data = request.get_json(silent=True) or {}
-    name = str(data.get("name") or "").strip()
     email = str(data.get("email") or "").strip()
     if email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         return jsonify({"error": tr("Die E-Mail-Adresse sieht unvollständig aus."), "field": "email"}), 400
@@ -390,7 +389,6 @@ def save_setup():
             return jsonify({"error": tr("Bibliothek nicht lesbar: {exc}", exc=exc), "field": "library"}), 400
 
     settings = config.save_settings({
-        "requester_name": name,
         "unpaywall_email": email,
         "institution": str(data.get("institution") or "").strip(),
         "proxy_prefix": proxy,
@@ -854,8 +852,8 @@ def find_support():
     result = support.find(doi, claim[:1000], k=min(max(int(data.get("k") or 3), 1), 8),
                           translated=str(data.get("translated") or "")[:1500] or None)
     if not result["available"]:
-        result["error"] = (tr("Die PDF ließ sich nicht lesen.") if result.get("unreadable")
-                           else tr("Die PDF zu dieser Quelle liegt nicht in der Bibliothek. Erst laden, dann suchen."))
+        result["error"] = (tr("Das PDF ließ sich nicht lesen.") if result.get("unreadable")
+                           else tr("Das PDF zu dieser Quelle liegt nicht in der Bibliothek. Erst laden, dann suchen."))
     return jsonify(result)
 
 
@@ -1016,7 +1014,7 @@ def mcp_info():
 def mcp_connect():
     """Erzeugt Benthic.mcpb und öffnet es in Claude Desktop (Installationsdialog)."""
     s = config.load_settings()
-    bundle = connect.build_bundle(author=s.get("requester_name") or "")
+    bundle = connect.build_bundle()
     opened = connect.open_in_claude(bundle)
     return jsonify({"bundle": str(bundle), "opened": opened,
                     "claude_desktop": bool(connect.claude_desktop())})
@@ -1039,7 +1037,7 @@ def mcp_install():
 @app.route("/api/mcp/bundle")
 def mcp_bundle():
     s = config.load_settings()
-    bundle = connect.build_bundle(author=s.get("requester_name") or "")
+    bundle = connect.build_bundle()
     return send_file(str(bundle), as_attachment=True, download_name="Benthic.mcpb",
                      mimetype="application/zip")
 

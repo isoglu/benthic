@@ -6,6 +6,30 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.0.1
+
+Korrekturen und klarere Einstellungen. Eine Berichtigung zu 1.0.0: Projekte
+exportieren Literaturverzeichnisse (BibTeX, RIS und formatiert), nicht CSV oder
+Excel; die gibt es für Prüfberichte, Downloads, den Verlauf und
+Stapelprüfungen.
+
+- **Hochschulzugang beim Laden.** Gibt es von einem Artikel keine freie
+  Fassung, verlinkt das Ergebnis jetzt über den Proxy deiner
+  Hochschulbibliothek, wie es „Nur prüfen (mit OA)“ schon tat, auch für
+  KI-Assistenten.
+- **Korrekte Fassung in jedem Stil.** Vancouver funktioniert, und Harvard, MLA,
+  Vancouver und DIN kommen ohne leere Herausgeberfelder. Literaturverzeichnisse
+  in IEEE und Vancouver sind nummeriert, und DIN 1505 nutzt immer deutsche
+  Begriffe.
+- **DIN-Listen aus Word.** Nachnamen in Kapitälchen liest Benthic als
+  Großbuchstaben, sodass ein Literaturverzeichnis nach DIN 1505 in einer
+  Word-Datei als DIN erkannt wird.
+- **Einheitliche Antworten für KI-Assistenten.** Hinweise zum Zitierstil stehen
+  in der Antwort eines Werkzeugs auf Englisch, wie der Rest der Antwort.
+- **Klarere Einrichtung.** Einrichtung und Einstellungen sagen, dass die
+  Kontakt-E-Mail an Unpaywall, Crossref und OpenAlex geht, und die Einrichtung
+  fragt nicht mehr nach einem Namen, den keine Funktion nutzte.
+
 ## 1.0.0
 
 Erste öffentliche Version.

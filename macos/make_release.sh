@@ -55,7 +55,7 @@ with open(dmg, "rb") as f:
 manifest = {
     "version": version, "url": url, "sha256": h.hexdigest(), "size": os.path.getsize(dmg),
     "published": datetime.date.today().isoformat(), "minimum_os": min_os,
-    "notes": [n.strip() for n in notes.split("|") if n.strip()],   # Deutsch, so lesen es auch Versionen bis 1.0
+    "notes": [n.strip() for n in notes.split("|") if n.strip()],   # Deutsch, so lesen es auch ältere Fassungen ohne Sprachwahl
     "notes_en": notes_en,
 }
 with open(out, "w", encoding="utf-8") as f:
