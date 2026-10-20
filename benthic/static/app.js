@@ -400,10 +400,13 @@ async function scanZotero() {
     a.target = "_blank";
     a.rel = "noopener";
     a.textContent = midTrunc(f.doi, 44);
-    const z = document.createElement("a");
-    z.href = f.link;
-    z.textContent = T("In Zotero zeigen");
-    m.append(a, z);
+    m.append(a);
+    if (/^zotero:\/\/select\//.test(f.link || "")) {
+      const z = document.createElement("a");
+      z.href = f.link;
+      z.textContent = T("In Zotero zeigen");
+      m.append(z);
+    }
     const notice = (f.notices.find((n) => n.notice_doi && n.notice_doi !== f.doi.toLowerCase()) || {}).notice_doi;
     if (notice) {
       const n = document.createElement("a");
@@ -761,6 +764,8 @@ function renderLive(job) {
 function sourceLabel(s) { return SOURCE_LABELS[s] || s || ""; }
 function versionLabel(v) { return VERSION_LABELS[v] || ""; }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+// Links aus fremden Metadaten (Landingpage, OA-Link, ORCID, Archiv): nur http und https, sonst leer.
+function webUrl(u) { const s = String(u || "").trim(); return /^https?:\/\//i.test(s) ? s : ""; }
 
 function stepLabel(a) {
   const label = esc(a.route ? (a.target || routeLabel(a.route)) : sourceLabel(a.source));
@@ -985,7 +990,7 @@ function resultRow(res) {
   act.className = "c-act";
   // Ohne freie Kopie führt der Link über den Proxy der Hochschule, sonst zur Landingpage.
   const viaProxy = (key === "absent" || key === "fail") && !!res.proxy_url;
-  const link = viaProxy ? res.proxy_url : (res.landing_url || res.proxy_url);
+  const link = webUrl(viaProxy ? res.proxy_url : (res.landing_url || res.proxy_url));
   if (link && key !== "legal" && key !== "route" && key !== "library") {
     const a = document.createElement("a");
     const label = viaProxy ? T("Über deine Hochschule öffnen") : T("Im Browser öffnen");
@@ -1056,17 +1061,20 @@ async function toggleCopyRequest(tr, btn, doi) {
   const label = () => { sw.textContent = lang === "de" ? "English" : "Deutsch"; };
   label();
   sw.onclick = () => { lang = lang === "de" ? "en" : "de"; fill(); setMail(); label(); };
-  const page = document.createElement("a");
-  page.className = "btn small ghost";
-  page.href = j.landing_url;
-  page.target = "_blank";
-  page.rel = "noopener";
-  page.textContent = T("Verlagsseite");
-  bar.append(mail, copy, sw, page);
-  (j.contacts || []).filter((c) => c.orcid).forEach((c) => {
+  bar.append(mail, copy, sw);
+  if (webUrl(j.landing_url)) {
+    const page = document.createElement("a");
+    page.className = "btn small ghost";
+    page.href = webUrl(j.landing_url);
+    page.target = "_blank";
+    page.rel = "noopener";
+    page.textContent = T("Verlagsseite");
+    bar.append(page);
+  }
+  (j.contacts || []).filter((c) => webUrl(c.orcid)).forEach((c) => {
     const o = document.createElement("a");
     o.className = "btn small ghost";
-    o.href = c.orcid;
+    o.href = webUrl(c.orcid);
     o.target = "_blank";
     o.rel = "noopener";
     o.textContent = T("ORCID von {name}", { name: c.name });
@@ -2709,8 +2717,8 @@ function webLine(web) {
     t.textContent = T("Seite: {title}", { title: web.page_title });
     box.appendChild(t);
   }
-  if (web.archive_url) box.appendChild(link(web.archive_url, T("Im Internet Archive ({date})", { date: web.archive_date || "" })));
-  else if (web.reachable && web.url) box.appendChild(link("https://web.archive.org/save/" + web.url, T("Jetzt im Internet Archive sichern")));
+  if (webUrl(web.archive_url)) box.appendChild(link(webUrl(web.archive_url), T("Im Internet Archive ({date})", { date: web.archive_date || "" })));
+  else if (web.reachable && webUrl(web.url)) box.appendChild(link("https://web.archive.org/save/" + web.url, T("Jetzt im Internet Archive sichern")));
   if (web.accessed) {
     const d = document.createElement("span");
     d.textContent = T("Abgerufen am {date}", { date: new Date(web.accessed + "T12:00:00").toLocaleDateString(LOCALE, { day: "numeric", month: "long", year: "numeric" }) });
@@ -5213,15 +5221,20 @@ async function startUpdate() {
     return;
   }
   setUpdateUi(T("Prüfe und installiere Benthic {v} …", { v: st.version }), true);
-  updateCall({ action: "install", path: st.path, version: st.version }, (ok, code) => {
+  updateCall({ action: "install", path: st.path, version: st.version, signature: st.signature || "" }, (ok, code) => {
     if (ok) { setUpdateUi(T("Benthic startet neu …"), true); return; }
     updateBusy = false;
+    // Falsche Signatur oder keine neuere Version: nichts öffnen, das DMG ist nicht von Benthic.
+    if (code === "signature" || code === "not-newer") {
+      setUpdateUi(T("Das Update ließ sich nicht als echt bestätigen und wurde nicht installiert."), false);
+      return;
+    }
     const msg = {
       "not-writable": T("Benthic darf sich an seinem Ort nicht selbst ersetzen. Das Update wird im Finder geöffnet: Benthic in den Programme-Ordner ziehen."),
       location: T("Benthic läuft nicht aus dem Programme-Ordner. Das Update wird im Finder geöffnet: Benthic in den Programme-Ordner ziehen."),
     }[code] || T("Das Update ließ sich nicht installieren ({code}). Es wird im Finder geöffnet: Benthic in den Programme-Ordner ziehen.", { code });
     setUpdateUi(msg, false);
-    updateCall({ action: "open", path: st.path }, () => {});
+    updateCall({ action: "open", path: st.path, version: st.version, signature: st.signature || "" }, () => {});
   });
 }
 
@@ -5310,10 +5323,10 @@ async function findSources() {
     }
     const bar = document.createElement("div");
     bar.className = "fl-actions";
-    if (w.is_oa && w.oa_url) {
+    if (w.is_oa && webUrl(w.oa_url)) {
       const read = document.createElement("a");
       read.className = "btn small";
-      read.href = w.oa_url;
+      read.href = webUrl(w.oa_url);
       read.target = "_blank";
       read.rel = "noopener";
       read.textContent = T("Frei lesen");

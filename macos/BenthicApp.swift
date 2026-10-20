@@ -4,6 +4,7 @@
 // die Web-Oberfläche in einem nativen WKWebView-Fenster.
 
 import Cocoa
+import CryptoKit
 import WebKit
 import UserNotifications
 import UniformTypeIdentifiers
@@ -24,6 +25,85 @@ let backendHost = "http://127.0.0.1:\(backendPort)"
 let dataFolderName = (Bundle.main.object(forInfoDictionaryKey: "BenthicDataFolder") as? String) ?? "Benthic"
 let appDisplayName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Benthic"
 let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
+
+/// Gehört eine Adresse zum eigenen Backend? Schema, Host und Port genau, kein Präfixvergleich
+/// (sonst ginge http://127.0.0.1:8327@fremd.example/ als eigene Seite durch).
+func isBackendURL(_ url: URL) -> Bool {
+    url.scheme?.lowercased() == "http" && url.host?.lowercased() == "127.0.0.1" && url.port == Int(backendPort)
+        && url.user == nil && url.password == nil
+}
+
+/// Links aus der Oberfläche, die macOS öffnen darf: Web und E-Mail, dazu die festen App-Links aus Benthic selbst
+/// (Zotero-Einträge, MCP-Einrichtung für VS Code, Cursor und LM Studio in connect.py). Alles andere (file:, smb:,
+/// vnc:, Schemata weiterer Apps) kann aus fremden Metadaten stammen und wird nicht weitergegeben.
+let externalSchemes: Set<String> = ["http", "https", "mailto", "zotero", "vscode", "cursor", "lmstudio"]
+
+func openExternally(_ url: URL) {
+    guard let scheme = url.scheme?.lowercased(), externalSchemes.contains(scheme) else { return }
+    NSWorkspace.shared.open(url)
+}
+
+/// Fenster der App zeigen nur Seiten des eigenen Backends (sie haben Zugriff auf die Brücken zu macOS).
+/// Jede andere Adresse geht an den Standardbrowser, sofern openExternally sie zulässt.
+func navigationPolicy(_ action: WKNavigationAction) -> WKNavigationActionPolicy {
+    guard let url = action.request.url else { return .cancel }
+    if isBackendURL(url) || url.absoluteString == "about:blank" || url.absoluteString == "about:srcdoc" { return .allow }
+    openExternally(url)
+    return .cancel
+}
+
+/// Dieselbe Regel für Grimpos Fenster: Links öffnen im Browser, nicht im Panel.
+final class LinkPolicy: NSObject, WKNavigationDelegate, WKUIDelegate {
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationPolicy(navigationAction))
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url { openExternally(url) }
+        return nil
+    }
+}
+
+/// Öffentlicher Schlüssel (Ed25519, Base64), mit dem jedes Update signiert sein muss. Der private Schlüssel liegt
+/// nur bei Sinan: macos/make_release.sh signiert damit Version und Prüfsumme des DMG (Feld signature in
+/// release.json). Eigene Test-Builds (build_app.sh --update-key=DATEI) bringen ihren Schlüssel in der Info.plist mit.
+let releaseUpdateKey = "/d+slYaBiT4lmETDwHkdaAs9snzZDyngKyWsT7l1pDU="
+
+enum UpdateSignature {
+    static var keys: [String] {
+        #if BENTHIC_TEST_UPDATE_KEY
+        return [(Bundle.main.object(forInfoDictionaryKey: "BenthicTestUpdateKey") as? String) ?? ""]
+        #else
+        return [releaseUpdateKey]
+        #endif
+    }
+
+    /// Gleich in benthic/updates.py (SIGNED_FORMAT) und macos/make_release.sh.
+    static func message(version: String, sha256: String) -> Data {
+        Data("Benthic update\nversion \(version)\nsha256 \(sha256)\n".utf8)
+    }
+
+    static func sha256(of file: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Stammt das DMG mit dieser Version vom Inhaber des privaten Schlüssels?
+    static func valid(_ signature: String, version: String, dmg: URL) -> Bool {
+        guard let sig = Data(base64Encoded: signature), sig.count == 64, let digest = sha256(of: dmg) else { return false }
+        let msg = message(version: version, sha256: digest)
+        return keys.contains { key in
+            guard let raw = Data(base64Encoded: key), raw.count == 32,
+                  let pub = try? Curve25519.Signing.PublicKey(rawRepresentation: raw) else { return false }
+            return pub.isValidSignature(sig, for: msg)
+        }
+    }
+}
 
 /// Sprache der Oberfläche: Englisch (Standard) oder Deutsch. Die Weboberfläche meldet die Wahl
 /// beim Laden (benthicLang); Menüs und Dialoge folgen sofort, Texte von macOS selbst (etwa
@@ -310,6 +390,110 @@ final class PetPanel: NSPanel {
 ///   expand {expanded}, move {dx, dy}, screenshot {id}, frontTab {id}, open {view, text}, menu, hide;
 /// Antworten mit id kommen über window.benthicPetReply({id, ...}). Das Hauptfenster nutzt denselben Namen für
 ///   show, hide und state (Einstellungen).
+/// Intro beim Start (benthic/static/intro.html): liegt als durchsichtiger WKWebView über dem Hauptfenster,
+/// spielt den Abstieg, solange das Backend startet, und wartet über dem Meeresgrund, bis die Oberfläche
+/// geladen ist. Dann landet das Symbol auf dem Zeichen in der Seitenleiste und das Intro verschwindet.
+/// Ob und wie es spielt (erster Start, spätere Starts, Ton), entscheidet die Seite selbst.
+final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    static let seenKey = "BenthicIntroSeen"
+    var log: ((String) -> Void)?
+    private var view: WKWebView?
+    private weak var main: WKWebView?
+    private var loaded = false
+    private var pendingReady: String?
+    private var readySent = false
+
+    /// Legt das Intro über das Hauptfenster in `container`, falls die Seite im Backend-Ordner liegt.
+    func attach(to container: NSView, staticDir: URL) {
+        let page = staticDir.appendingPathComponent("intro.html")
+        guard FileManager.default.fileExists(atPath: page.path) else { return }
+        let first = !UserDefaults.standard.bool(forKey: Self.seenKey)
+        UserDefaults.standard.set(true, forKey: Self.seenKey)
+        let lang = UserDefaults.standard.string(forKey: languageKey) == "de" ? "de" : "en"
+        let config = WKWebViewConfiguration()
+        config.mediaTypesRequiringUserActionForPlayback = []  // der Klang des Intros braucht keinen Klick
+        config.userContentController.add(self, name: "benthicIntro")
+        config.userContentController.addUserScript(WKUserScript(
+            source: "window.benthicIntroConfig = {first: \(first), lang: \"\(lang)\"};",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let wv = WKWebView(frame: container.bounds, configuration: config)
+        wv.setValue(false, forKey: "drawsBackground")  // durchsichtig: am Ende scheint die Oberfläche durch
+        wv.autoresizingMask = [.width, .height]
+        wv.navigationDelegate = self
+        container.addSubview(wv)
+        wv.loadFileURL(page, allowingReadAccessTo: staticDir)
+        view = wv
+    }
+
+    /// Die Oberfläche ist geladen: Zeichen in der Seitenleiste verbergen, seine Lage messen, dem Intro melden.
+    func mainReady(_ webView: WKWebView) {
+        guard view != nil, !readySent else { return }
+        readySent = true
+        main = webView
+        let measure = """
+            (function () {
+              document.documentElement.classList.add('intro-on');
+              var e = document.querySelector('.brand-mark');
+              if (!e) return null;
+              var r = e.getBoundingClientRect();
+              return r.width > 0 && r.right > 0 ? [r.left, r.top, r.width, r.height] : null;
+            })()
+            """
+        webView.evaluateJavaScript(measure) { [weak self] result, _ in
+            var arg = "null"
+            if let r = result as? [NSNumber], r.count == 4 {
+                arg = "{x: \(r[0].doubleValue), y: \(r[1].doubleValue), w: \(r[2].doubleValue), h: \(r[3].doubleValue)}"
+            }
+            self?.log?("Intro: Oberfläche bereit, Ziel \(arg)")
+            self?.sendReady("window.benthicIntro && benthicIntro.ready(\(arg))")
+        }
+    }
+
+    private func sendReady(_ js: String) {
+        guard let view = view else { return }
+        guard loaded else { pendingReady = js; return }
+        view.evaluateJavaScript(js, completionHandler: nil)
+        // Falls die Seite sich nicht meldet: spätestens nach 12 s weg damit.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.finish(tail: 0) }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+        switch action {
+        case "loaded":
+            loaded = true
+            if let js = pendingReady { pendingReady = nil; sendReady(js) }
+        case "done":
+            finish(tail: (body["tail"] as? NSNumber)?.doubleValue ?? 0)
+        case "log":
+            if let text = body["message"] as? String { log?(text) }
+        default:
+            break
+        }
+    }
+
+    /// Blendet das Intro aus und gibt das Zeichen in der Seitenleiste frei. Der Ton darf noch `tail` Sekunden nachklingen.
+    func finish(tail: Double) {
+        guard let view = view else { return }
+        self.view = nil
+        log?("Intro beendet")
+        main?.evaluateJavaScript("document.documentElement.classList.remove('intro-on')", completionHandler: nil)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            view.animator().alphaValue = 0
+        }, completionHandler: {
+            view.isHidden = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, tail)) {
+                view.configuration.userContentController.removeScriptMessageHandler(forName: "benthicIntro")
+                view.removeFromSuperview()
+            }
+        })
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(tail: 0) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(tail: 0) }
+}
+
 final class PetController: NSObject, WKScriptMessageHandler, NSMenuDelegate {
     static let visibleKey = "BenthicPetVisible"
     static let originKey = "BenthicPetOrigin"
@@ -317,6 +501,7 @@ final class PetController: NSObject, WKScriptMessageHandler, NSMenuDelegate {
     private let expanded = NSSize(width: 380, height: 520)
     private var panel: PetPanel?
     private var webView: WKWebView?
+    private let links = LinkPolicy()
     /// Hauptfenster nach vorn holen und eine Ansicht zeigen (gesetzt von AppDelegate).
     var openApp: ((String, String) -> Void)?
     /// Benachrichtigt das Menü über Änderungen der Sichtbarkeit.
@@ -367,6 +552,8 @@ final class PetController: NSObject, WKScriptMessageHandler, NSMenuDelegate {
         let wv = WKWebView(frame: NSRect(origin: .zero, size: collapsed), configuration: config)
         wv.setValue(false, forKey: "drawsBackground")  // durchsichtig: nur Grimpo und sein Feld sind zu sehen
         wv.autoresizingMask = [.width, .height]
+        wv.navigationDelegate = links
+        wv.uiDelegate = links
         p.contentView = wv
         wv.load(URLRequest(url: URL(string: "\(backendHost)/pet")!))
         panel = p
@@ -508,7 +695,7 @@ final class ReportBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let raw = body["url"] as? String,
-              let url = URL(string: raw), raw.hasPrefix(backendHost + "/report/"), let window else { return }
+              let url = URL(string: raw), isBackendURL(url), url.path.hasPrefix("/report/"), let window else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (body["name"] as? String) ?? "Benthic.pdf"
         panel.allowedContentTypes = [.pdf]
@@ -574,10 +761,11 @@ final class RevealBridge: NSObject, WKScriptMessageHandler {
 }
 
 /// Aktualisieren aus der App. Das Backend hat das DMG schon geladen und seine Prüfsumme mit dem
-/// Manifest verglichen (updates.py). Hier: DMG einhängen, die App darin prüfen (gleiche Bundle-Kennung,
-/// erwartete Version, gültige Signatur), neben die laufende App kopieren und nach dem Beenden von einem
-/// kleinen Skript austauschen und neu starten lassen. Die Seite ruft
-/// window.webkit.messageHandlers.benthicUpdate.postMessage({id, action: "install"|"open", path, version});
+/// Manifest verglichen (updates.py). Hier: die Signatur aus dem Manifest gegen den eingebauten Schlüssel prüfen
+/// (UpdateSignature; ohne gültige Signatur wird nichts eingehängt oder geöffnet), DMG einhängen, die App darin
+/// prüfen (gleiche Bundle-Kennung, erwartete und neuere Version, intakte Code-Signatur), neben die laufende App
+/// kopieren und nach dem Beenden von einem kleinen Skript austauschen und neu starten lassen. Die Seite ruft
+/// window.webkit.messageHandlers.benthicUpdate.postMessage({id, action: "install"|"open", path, version, signature});
 /// die Antwort kommt über window.benthicUpdateDone(id, ok, code).
 final class UpdateBridge: NSObject, WKScriptMessageHandler {
     weak var webView: WKWebView?
@@ -592,14 +780,25 @@ final class UpdateBridge: NSObject, WKScriptMessageHandler {
             reply(id, false, "bad-file")
             return
         }
-        if body["action"] as? String == "open" {
-            NSWorkspace.shared.open(dmg)
-            reply(id, true, "opened")
+        let version = body["version"] as? String ?? ""
+        let signature = body["signature"] as? String ?? ""
+        guard version.range(of: #"^[0-9A-Za-z.\-]+$"#, options: .regularExpression) != nil,
+              version.compare(appVersion, options: .numeric) == .orderedDescending else {
+            reply(id, false, "not-newer")
             return
         }
-        let version = body["version"] as? String ?? ""
+        if body["action"] as? String == "open" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let ok = UpdateSignature.valid(signature, version: version, dmg: dmg)
+                DispatchQueue.main.async {
+                    if ok { NSWorkspace.shared.open(dmg) }
+                    self?.reply(id, ok, ok ? "opened" : "signature")
+                }
+            }
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let code = self?.install(dmg: dmg, version: version)
+            let code = self?.install(dmg: dmg, version: version, signature: signature)
             DispatchQueue.main.async {
                 self?.reply(id, code == nil, code ?? "started")
                 if code == nil {
@@ -639,8 +838,9 @@ final class UpdateBridge: NSObject, WKScriptMessageHandler {
     }
 
     /// nil = Austausch vorbereitet, die App darf sich beenden; sonst ein Fehlercode für die Seite.
-    private func install(dmg: URL, version: String) -> String? {
+    private func install(dmg: URL, version: String, signature: String) -> String? {
         let fm = FileManager.default
+        guard UpdateSignature.valid(signature, version: version, dmg: dmg) else { return "signature" }
         let current = Bundle.main.bundleURL.resolvingSymlinksInPath()
         // Aus "Downloads" gestartet (App Translocation): kein fester Ort zum Ersetzen. Direkt aus dem DMG
         // gestartet scheitert es unten am schreibgeschützten Ordner.
@@ -663,7 +863,7 @@ final class UpdateBridge: NSObject, WKScriptMessageHandler {
             return b.bundleIdentifier == Bundle.main.bundleIdentifier
                 && (b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) == version
         }) else { return "wrong-app" }
-        guard run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path]) == 0 else { return "signature" }
+        guard run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path]) == 0 else { return "codesign" }
 
         let name = current.lastPathComponent
         let staged = parent.appendingPathComponent(".\(name).update-\(version)")
@@ -795,6 +995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private let revealBridge = RevealBridge()
     private let updateBridge = UpdateBridge()
     private let serviceProvider = ServiceProvider()
+    private let intro = IntroController()
     private var pageReady = false
     private var inbox: [(String, String)] = []
 
@@ -851,6 +1052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.pageReady = true
             self?.flushInbox()
+            self?.intro.mainReady(webView)
         }
     }
 
@@ -907,7 +1109,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         reportBridge.window = window
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        window.contentView = webView
+        // Das Intro liegt über der Oberfläche, beide füllen das Fenster.
+        let container = NSView(frame: rect)
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+        window.contentView = container
+        intro.log = { [weak self] text in self?.noteInLog(text) }
+        if let (_, _, workdir) = resolveBackend() {
+            intro.attach(to: container, staticDir: URL(fileURLWithPath: workdir).appendingPathComponent("benthic/static"))
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -1201,18 +1412,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     // MARK: - WKUIDelegate / WKNavigationDelegate
 
-    /// Externe Links (z. B. DOI- oder OA-URLs) im Standardbrowser öffnen.
+    /// Externe Links (z. B. DOI- oder OA-URLs) im Standardbrowser öffnen, im Fenster bleibt nur das Backend.
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let url = navigationAction.request.url,
-           navigationAction.navigationType == .linkActivated,
-           !url.absoluteString.hasPrefix(backendHost) {
-            NSWorkspace.shared.open(url)
-            decisionHandler(.cancel)
-            return
-        }
-        decisionHandler(.allow)
+        decisionHandler(navigationPolicy(navigationAction))
     }
 
     /// `target="_blank"`-Links (z. B. Landing-Pages) im Standardbrowser öffnen.
@@ -1220,7 +1424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
+            openExternally(url)
         }
         return nil
     }
@@ -1266,6 +1470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // MARK: - Hilfen
 
     private func showError(_ message: String) {
+        intro.finish(tail: 0)
         let alert = NSAlert()
         alert.messageText = appDisplayName
         alert.informativeText = message

@@ -11,6 +11,7 @@ er erscheint nicht im Verzeichnis. Geprüft werden deshalb die zitierten Einträ
 from __future__ import annotations
 
 import io
+import os
 import re
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from . import document, refs
 
 MAX_FILES = 400
+MAX_SCAN = 20000  # so viele Einträge sieht files_from_path höchstens an; ein Projektordner hat weit weniger
 _CMD_CITE = re.compile(r"\\([A-Za-z]*[cC]ite[A-Za-z]*|nocite)\*?")
 _PAGE = re.compile(r"(\d{1,5})")
 _INPUT = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
@@ -36,6 +38,7 @@ def is_latex(name: str) -> bool:
 def files_from_upload(items: List[Tuple[str, bytes]]) -> Dict[str, str]:
     """Hochgeladene Dateien (auch .zip) als {relativer Pfad: Text}."""
     out: Dict[str, str] = {}
+    unpacked = 0
     for name, data in items:
         if name.lower().endswith(".zip"):
             try:
@@ -46,6 +49,9 @@ def files_from_upload(items: List[Tuple[str, bytes]]) -> Dict[str, str]:
                             continue
                         if info.file_size > document.MAX_BYTES:
                             continue
+                        unpacked += info.file_size  # zipfile liest nie mehr als angegeben
+                        if unpacked > document.MAX_UNPACKED:
+                            raise ValueError("size")
                         out[str(PurePosixPath(n))] = z.read(info).decode("utf-8", errors="replace")
             except zipfile.BadZipFile as exc:
                 raise ValueError("unreadable") from exc
@@ -57,17 +63,30 @@ def files_from_upload(items: List[Tuple[str, bytes]]) -> Dict[str, str]:
 
 
 def files_from_path(path: Path) -> Dict[str, str]:
-    """Eine .tex-Datei oder ein Projektordner auf diesem Mac als {relativer Pfad: Text}."""
+    """Eine .tex-Datei oder ein Projektordner auf diesem Mac als {relativer Pfad: Text}.
+
+    Geht den Ordner schrittweise durch statt ihn erst ganz aufzulisten: Ein Pfad wie / oder der Benutzerordner
+    endet nach MAX_SCAN Einträgen mit ValueError("too-many"), statt die Platte abzusuchen. Versteckte Ordner
+    (.git) bleiben außen vor, Verknüpfungen auf Ordner auch; gelesen werden nur gewöhnliche Dateien.
+    """
     root = path if path.is_dir() else path.parent
     out: Dict[str, str] = {}
-    for p in sorted(root.rglob("*")):
-        if len(out) >= MAX_FILES:
-            break
-        if p.is_file() and p.suffix.lower() in (".tex", ".bib", ".ltx") and p.stat().st_size <= document.MAX_BYTES:
-            rel = p.relative_to(root).as_posix()
-            if any(part.startswith(".") for part in rel.split("/")):
+    seen = unpacked = 0
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        for name in sorted(names):
+            seen += 1
+            if seen > MAX_SCAN:
+                raise ValueError("too-many")
+            if len(out) >= MAX_FILES or name.startswith(".") or not name.lower().endswith((".tex", ".bib", ".ltx")):
                 continue
-            out[rel] = p.read_text(encoding="utf-8", errors="replace")
+            p = Path(folder) / name
+            if not p.is_file() or p.stat().st_size > document.MAX_BYTES:
+                continue
+            unpacked += p.stat().st_size
+            if unpacked > document.MAX_UNPACKED:
+                raise ValueError("size")
+            out[p.relative_to(root).as_posix()] = p.read_text(encoding="utf-8", errors="replace")
     if path.is_file():
         out["\x00main"] = path.relative_to(root).as_posix()
     return out

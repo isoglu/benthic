@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import config, oa
+from . import config, netguard, oa
 
 MAX = 500
 _lock = threading.Lock()
@@ -63,15 +63,18 @@ def dois_in(text: str) -> List[str]:
 def doi_of_page(url: str) -> Optional[str]:
     """Die DOI, die eine Artikelseite in ihren Metadaten nennt (citation_doi und Verwandte)."""
     import requests
+    if not netguard.url_allowed(url):  # nichts auf diesem Mac oder im eigenen Netz abfragen
+        return None
     try:
-        resp = requests.get(url, timeout=10.0, stream=True, allow_redirects=True,
-                            headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
-        head = b""
-        for chunk in resp.iter_content(16384):
-            head += chunk
-            if len(head) > 300_000 or b"</head>" in head.lower():
-                break
-        resp.close()
+        with netguard.public_only(url):
+            resp = requests.get(url, timeout=10.0, stream=True, allow_redirects=True,
+                                headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
+            head = b""
+            for chunk in resp.iter_content(16384):
+                head += chunk
+                if len(head) > 300_000 or b"</head>" in head.lower():
+                    break
+            resp.close()
     except requests.exceptions.RequestException:
         return None
     page = head.decode("utf-8", "replace")

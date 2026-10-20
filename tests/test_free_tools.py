@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests import ui_client
+
 JOB = {
     "id": "4242", "mode": "verify", "finished_at": 1792300000,
     "results": [
@@ -27,7 +29,7 @@ class Werkzeuge(unittest.TestCase):
         self.env.start()
         from benthic import app as appmod, history
         history.append(JOB)
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         self.env.stop()

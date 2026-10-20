@@ -293,6 +293,13 @@ def parse_ranking_rows(rows: List[List[str]]) -> List[Dict]:
 def read_table(filename: str, data: bytes) -> List[List[str]]:
     if filename.lower().endswith((".xlsx", ".xlsm")):
         import openpyxl
+        import zipfile
+        from . import document
+        with zipfile.ZipFile(io.BytesIO(data)) as z:  # kein Entpacken über document.MAX_UNPACKED
+            try:
+                document.unpacked_size(z, z.namelist())
+            except ValueError:
+                raise ValueError(tr("Die Datei ließ sich nicht lesen. CSV oder XLSX?")) from None
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         ws = wb.worksheets[0]
         return [[c for c in row] for row in ws.iter_rows(values_only=True)]

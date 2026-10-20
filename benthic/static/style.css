@@ -28,6 +28,15 @@ body {
 
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Nur für die Tastatur: erscheint erst, wenn Tab ihn erreicht. */
+.skip-link {
+  position: fixed; top: 10px; left: 10px; z-index: 1000;
+  padding: 8px 14px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; text-decoration: none;
+  transform: translateY(-200%); transition: transform .15s;
+}
+.skip-link:focus-visible { transform: none; }
 
 .ic {
   width: 16px; height: 16px; flex-shrink: 0;
@@ -57,7 +66,9 @@ a:hover { color: var(--accent-hover); }
 }
 
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 24px; }
-.brand-mark { width: 40px; height: 40px; flex-shrink: 0; }
+.brand-mark { width: 40px; height: 40px; flex-shrink: 0; transition: opacity .2s ease; }
+/* Während des Intros fliegt das Symbol dorthin; das echte Zeichen erscheint erst bei der Landung. */
+html.intro-on .brand-mark { opacity: 0; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .wordmark {
   font-family: var(--font-title); font-size: 21px; font-weight: 650;

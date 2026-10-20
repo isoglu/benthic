@@ -8,6 +8,16 @@ from typing import Dict, List
 
 from .i18n import tr
 
+# Tabellenprogramme lesen Zellen, die so beginnen, als Formel (=HYPERLINK(…), =cmd|…). Werte aus fremden
+# Metadaten (Titel, Hinweise, Eingaben) bekommen davor ein Apostroph und bleiben so Text.
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def safe_cell(value):
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return "'" + value
+    return value
+
 COLUMNS = [
     ("identifier", "DOI / Identifier"),
     ("status", "Status"),
@@ -114,7 +124,7 @@ def to_csv(results: List[Dict]) -> str:
     writer = csv.writer(out)
     writer.writerow([tr(h) for h in headers])  # Spaltennamen in der eingestellten Sprache
     for row in rows:
-        writer.writerow([row[h] for h in headers])
+        writer.writerow([safe_cell(row[h]) for h in headers])
     return out.getvalue()
 
 
@@ -135,7 +145,7 @@ def to_xlsx(results: List[Dict]) -> bytes:
         cell.alignment = Alignment(vertical="center")
 
     for row in rows:
-        ws.append([row[h] for h in headers])
+        ws.append([safe_cell(row[h]) for h in headers])
 
     widths = {
         "DOI / Identifier": 40, "Status": 12, "Quelle": 22, "Kanal": 14,

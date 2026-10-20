@@ -6,6 +6,8 @@ import time
 import unittest
 from unittest import mock
 
+from tests import ui_client
+
 
 class Projektpruefung(unittest.TestCase):
     def setUp(self):
@@ -28,7 +30,7 @@ class Projektpruefung(unittest.TestCase):
         other = projects.create("Side project")
         projects.add_items(other["id"], [{"doi": "10.5555/side"}])
         self.pid, self.other = p["id"], other["id"]
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         self.patch.stop()

@@ -19,7 +19,12 @@ es beim Link zum DMG.
 
 Sicherheit: Das DMG muss vom selben Server kommen wie das Manifest, über HTTPS (nur
 für lokale Tests auch HTTP auf 127.0.0.1 oder localhost), und seine Prüfsumme muss
-zur Angabe im Manifest passen. Sonst wird nichts installiert.
+zur Angabe im Manifest passen. Ab 1.1.2 trägt das Manifest außerdem ``signature``: eine
+Ed25519-Signatur (Base64) über ``SIGNED_FORMAT`` mit Version und Prüfsumme, erzeugt von
+macos/make_release.sh mit dem privaten Schlüssel, der nur bei Sinan liegt. Die native App
+prüft sie mit dem eingebauten öffentlichen Schlüssel, bevor sie etwas einhängt oder
+installiert; das Backend reicht sie nur durch (Python hat kein Ed25519 an Bord). Ältere
+Fassungen der App kennen das Feld nicht und überspringen es. Sonst wird nichts installiert.
 """
 
 from __future__ import annotations
@@ -37,6 +42,10 @@ import requests
 
 from . import __version__, config
 from .i18n import current as current_lang, tr
+
+# Signierte Nachricht, gleich in macos/make_release.sh und BenthicApp.swift (UpdateSignature.message).
+SIGNED_FORMAT = "Benthic update\nversion {version}\nsha256 {sha256}\n"
+SIGNATURE_RE = re.compile(r"[A-Za-z0-9+/]{86}==")  # 64 Bytes in Base64
 
 _cache: Dict[str, Tuple[float, Optional[Dict]]] = {}
 _lock = threading.Lock()
@@ -80,7 +89,8 @@ def check(force: bool = False) -> Dict:
     notes = (m.get("notes_en") if current_lang() == "en" else None) or m.get("notes") or []
     return {**out, "available": newer, "latest": str(m["version"]), "url": str(m["url"]),
             "published": m.get("published"), "notes": notes if isinstance(notes, list) else [str(notes)],
-            "sha256": m.get("sha256"), "minimum_os": m.get("minimum_os")}
+            "sha256": m.get("sha256"), "minimum_os": m.get("minimum_os"),
+            "signature": str(m.get("signature") or "")}
 
 
 # --------------------------------------------------------------------------
@@ -160,6 +170,10 @@ def download() -> Dict:
             or not re.fullmatch(r"[0-9A-Za-z.\-]+", version):
         _set(state="error", version=version, error=tr("Das Update passt nicht zum Update-Server und wurde nicht geladen."))
         return status()
+    signature = info.get("signature") or ""
+    if not SIGNATURE_RE.fullmatch(signature):
+        _set(state="error", version=version, error=tr("Das Update ist nicht signiert und wurde nicht geladen."))
+        return status()
     if not _os_ok(info.get("minimum_os")):
         _set(state="error", version=version,
              error=tr("Benthic {v} braucht macOS {os} oder neuer.", v=version, os=info.get("minimum_os")))
@@ -167,15 +181,15 @@ def download() -> Dict:
     target = updates_dir() / f"Benthic-{version}.dmg"
     if target.is_file() and _sha256(target) == sha:
         _set(state="ready", version=version, path=str(target), received=target.stat().st_size,
-             total=target.stat().st_size)
+             total=target.stat().st_size, signature=signature)
         return status()
     size = int(info.get("size") or 0) if str(info.get("size") or "").isdigit() else 0
     _set(state="downloading", version=version, received=0, total=size)
-    threading.Thread(target=_run, args=(url, sha, size, target, version), daemon=True).start()
+    threading.Thread(target=_run, args=(url, sha, size, target, version, signature), daemon=True).start()
     return status()
 
 
-def _run(url: str, sha: str, size: int, target: Path, version: str) -> None:
+def _run(url: str, sha: str, size: int, target: Path, version: str, signature: str = "") -> None:
     part = target.with_name(target.name + ".part")
     h = hashlib.sha256()
     received = 0
@@ -202,7 +216,8 @@ def _run(url: str, sha: str, size: int, target: Path, version: str) -> None:
                  error=tr("Die geladene Datei stimmt nicht mit der Prüfsumme überein und wurde verworfen."))
             return
         part.replace(target)
-        _set(state="ready", version=version, path=str(target), received=received, total=received)
+        _set(state="ready", version=version, path=str(target), received=received, total=received,
+             signature=signature)
     except (requests.exceptions.RequestException, OSError):
         part.unlink(missing_ok=True)
         _set(state="error", version=version, error=tr("Das Update ließ sich nicht laden. Bitte später noch einmal versuchen."))

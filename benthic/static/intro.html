@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benthic</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  body { cursor: default; -webkit-user-select: none; user-select: none; font: 13px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; transition: opacity .3s ease; }
+  .hud { position: fixed; left: 22px; bottom: 20px; display: grid; gap: 5px; pointer-events: none; }
+  .depth { font: 500 13px/1 ui-monospace, "SF Mono", Menlo, monospace; color: rgba(234, 248, 255, .9); font-variant-numeric: tabular-nums; letter-spacing: .02em; text-shadow: 0 1px 8px rgba(0, 20, 60, .6); }
+  .status { color: rgba(190, 225, 255, .82); opacity: 0; transition: opacity .4s ease; }
+  .status.on { opacity: 1; }
+</style>
+</head>
+<body>
+<canvas id="cv" aria-hidden="true"></canvas>
+<div class="hud" id="hud" aria-hidden="true"><span class="status" id="status"></span><span class="depth" id="depth">0 m</span></div>
+<script>
+(() => {
+"use strict";
+// Intro der App, über dem Hauptfenster, solange das Backend startet: Abstieg von der Oberfläche an einem
+// Fischschwarm vorbei bis zum leuchtenden tiefsten Punkt. Über dem Meeresgrund wartet die Szene (mit
+// Sonar-Pings), bis die App meldet, dass die Oberfläche geladen ist (benthicIntro.ready). Dann flutet das
+// Licht das Bild, das Bild wird zum App-Symbol und landet auf dem Zeichen in der Seitenleiste; der
+// Hintergrund wird dabei durchsichtig und gibt die Oberfläche frei. Am Ende meldet die Seite "done".
+// Jedes Bild ist aus den sechs Tiefenlinien von AppIcon.svg gezeichnet; Vorlage ist
+// design-2026/motion/benthic-motion-study.html (wie das Intro der Website). Escape überspringt.
+
+// Offene Entscheidungen:
+const FIRST_LAUNCH = "full";     // erster Start: "full" der ganze Abstieg, "none" kein Intro
+const LATER_LAUNCHES = "short";  // jeder weitere Start: "short" ab dem Meeresgrund und etwas schneller, "none" kein Intro
+const SOUND = "always";          // "always" bei jedem Intro, "first" nur beim ersten Start, "never"
+const SHORT_SPEED = 1.35;        // Tempo der kurzen Fassung
+
+const cfg = window.benthicIntroConfig || {};
+const first = !!cfg.first, lang = cfg.lang === "de" ? "de" : "en";
+const post = (msg) => { try { window.webkit.messageHandlers.benthicIntro.postMessage(msg); } catch (e) {} };
+const version = first ? (FIRST_LAUNCH === "full" ? "full" : null) : (LATER_LAUNCHES === "short" ? "short" : null);
+if (!version || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.body.style.display = "none";
+  post({ action: "done", tail: 0 });
+  return;
+}
+const speed = version === "short" ? SHORT_SPEED : 1;
+const wantSound = SOUND === "always" || (SOUND === "first" && first);
+
+// Die sechs Tiefenlinien von AppIcon.svg, von außen nach innen, in Kachel-Einheiten (1 = 824 pt) um den tiefsten Punkt.
+const RAW = [[0.5029,-0.0655,0.5109,-0.0275,0.5119,0.0162,0.5013,0.0535,0.4906,0.0907,0.4655,0.1281,0.4388,0.1579,0.412,0.1877,0.3738,0.2109,0.3407,0.2325,0.3077,0.2541,0.2729,0.2696,0.2406,0.2876,0.2083,0.3056,0.1793,0.3239,0.147,0.3405,0.1147,0.3572,0.0823,0.3766,0.0468,0.3874,0.0114,0.3983,-0.0282,0.4063,-0.0655,0.4057,-0.1028,0.405,-0.1421,0.3954,-0.1769,0.3834,-0.2118,0.3715,-0.2439,0.3519,-0.2747,0.3341,-0.3056,0.3163,-0.3338,0.2969,-0.3622,0.2767,-0.3905,0.2564,-0.4197,0.2368,-0.445,0.2128,-0.4702,0.1889,-0.4957,0.1624,-0.5138,0.1331,-0.5319,0.1038,-0.5449,0.07,-0.5535,0.0369,-0.5621,0.0038,-0.5634,-0.0309,-0.5655,-0.0655,-0.5675,-0.1001,-0.5671,-0.1343,-0.5658,-0.1706,-0.5645,-0.2069,-0.5653,-0.2455,-0.5575,-0.2835,-0.5498,-0.3215,-0.5403,-0.3644,-0.5193,-0.3985,-0.4983,-0.4325,-0.4672,-0.4668,-0.4317,-0.488,-0.3962,-0.5091,-0.3487,-0.521,-0.3063,-0.5255,-0.2639,-0.5301,-0.2172,-0.5216,-0.1771,-0.5152,-0.137,-0.5088,-0.1006,-0.4958,-0.0655,-0.4872,-0.0305,-0.4786,0.0006,-0.4715,0.0332,-0.4635,0.0658,-0.4555,0.0984,-0.45,0.1301,-0.4392,0.1617,-0.4284,0.1938,-0.4154,0.2232,-0.3986,0.2525,-0.3818,0.2796,-0.3607,0.3061,-0.3382,0.3325,-0.3157,0.3573,-0.291,0.3818,-0.2637,0.4063,-0.2364,0.4329,-0.2075,0.4531,-0.1744,0.4733,-0.1414,0.4948,-0.1035,0.5029,-0.0655],[0.419,-0.0546,0.4254,-0.0231,0.4249,0.0134,0.415,0.044,0.4051,0.0746,0.3826,0.1048,0.3596,0.1289,0.3367,0.1531,0.3047,0.1714,0.2773,0.1889,0.2499,0.2064,0.2218,0.2191,0.1954,0.2338,0.169,0.2484,0.1453,0.2636,0.1189,0.2768,0.0924,0.2901,0.0656,0.3052,0.0367,0.3134,0.0078,0.3216,-0.0244,0.3269,-0.0546,0.3261,-0.0848,0.3253,-0.1162,0.3175,-0.1447,0.3086,-0.1733,0.2996,-0.1998,0.2857,-0.2259,0.2726,-0.252,0.2595,-0.277,0.2458,-0.3015,0.2302,-0.326,0.2146,-0.3517,0.1988,-0.373,0.179,-0.3943,0.1592,-0.415,0.1362,-0.4293,0.1114,-0.4435,0.0866,-0.4523,0.0578,-0.4583,0.0302,-0.4643,0.0025,-0.4641,-0.0261,-0.4653,-0.0546,-0.4664,-0.0831,-0.4664,-0.111,-0.4653,-0.1408,-0.4642,-0.1707,-0.4654,-0.2026,-0.4589,-0.2337,-0.4524,-0.2648,-0.444,-0.2999,-0.4263,-0.3273,-0.4087,-0.3548,-0.3822,-0.3818,-0.3527,-0.3986,-0.3233,-0.4153,-0.2845,-0.424,-0.2499,-0.4277,-0.2153,-0.4314,-0.178,-0.425,-0.1454,-0.4206,-0.1129,-0.4162,-0.0833,-0.4073,-0.0546,-0.4011,-0.0259,-0.395,0.0002,-0.3902,0.0271,-0.3838,0.0539,-0.3773,0.0808,-0.372,0.1066,-0.3626,0.1323,-0.3531,0.1578,-0.3413,0.1816,-0.3271,0.2053,-0.3129,0.227,-0.2956,0.249,-0.2774,0.2711,-0.2592,0.2926,-0.2399,0.3139,-0.2179,0.3351,-0.1958,0.3591,-0.1724,0.3767,-0.1452,0.3942,-0.118,0.4127,-0.0861,0.419,-0.0546],[0.3386,-0.0437,0.3433,-0.0183,0.3416,0.011,0.3328,0.0354,0.3241,0.0597,0.3049,0.0834,0.286,0.1024,0.2671,0.1214,0.2414,0.1356,0.2195,0.1494,0.1976,0.1632,0.1756,0.1735,0.1546,0.1851,0.1337,0.1967,0.1149,0.2088,0.0938,0.219,0.0727,0.2292,0.0512,0.2403,0.0282,0.2462,0.0053,0.2521,-0.0199,0.2553,-0.0437,0.2545,-0.0675,0.2537,-0.0917,0.2478,-0.1144,0.2415,-0.1372,0.2352,-0.1585,0.2259,-0.18,0.2168,-0.2015,0.2076,-0.2229,0.1984,-0.2434,0.1867,-0.2639,0.175,-0.2857,0.1625,-0.303,0.1465,-0.3203,0.1305,-0.3364,0.1111,-0.3472,0.0908,-0.3579,0.0704,-0.3636,0.0467,-0.3676,0.0243,-0.3716,0.0019,-0.3706,-0.0209,-0.3712,-0.0437,-0.3717,-0.0665,-0.3719,-0.0886,-0.371,-0.1124,-0.3701,-0.1362,-0.3712,-0.1618,-0.3658,-0.1864,-0.3604,-0.211,-0.3531,-0.2386,-0.3386,-0.26,-0.324,-0.2814,-0.3022,-0.302,-0.2787,-0.3148,-0.2551,-0.3276,-0.2244,-0.3339,-0.1972,-0.337,-0.17,-0.34,-0.1411,-0.3358,-0.1155,-0.3331,-0.0899,-0.3304,-0.0666,-0.3248,-0.0437,-0.3207,-0.0208,-0.3166,0.0005,-0.3134,0.022,-0.3083,0.0434,-0.3032,0.065,-0.2981,0.0853,-0.2901,0.1056,-0.2821,0.1252,-0.2717,0.1439,-0.2601,0.1626,-0.2485,0.1795,-0.2348,0.1974,-0.2206,0.2153,-0.2063,0.2334,-0.1917,0.2512,-0.1744,0.2691,-0.1571,0.2897,-0.1385,0.3043,-0.1168,0.3188,-0.095,0.3338,-0.069,0.3386,-0.0437],[0.2593,-0.0328,0.2625,-0.0134,0.2602,0.0089,0.253,0.0272,0.2458,0.0456,0.2304,0.0632,0.2158,0.0774,0.2012,0.0916,0.1819,0.1022,0.1654,0.1126,0.1488,0.123,0.1325,0.131,0.1167,0.1397,0.101,0.1484,0.0866,0.1575,0.0707,0.1649,0.0547,0.1722,0.0382,0.1798,0.021,0.1838,0.0037,0.1878,-0.015,0.1894,-0.0328,0.1887,-0.0505,0.1881,-0.0683,0.184,-0.0855,0.18,-0.1027,0.1759,-0.1192,0.1704,-0.136,0.1644,-0.1528,0.1585,-0.1701,0.1527,-0.1862,0.1443,-0.2024,0.1359,-0.2197,0.1264,-0.2329,0.1141,-0.2462,0.1018,-0.258,0.0863,-0.2657,0.0704,-0.2734,0.0546,-0.2767,0.0362,-0.2792,0.019,-0.2817,0.0018,-0.2805,-0.0155,-0.2807,-0.0328,-0.2809,-0.0501,-0.2812,-0.0668,-0.2805,-0.0848,-0.2797,-0.1028,-0.2805,-0.1222,-0.2761,-0.1406,-0.2717,-0.159,-0.2656,-0.1795,-0.2542,-0.1953,-0.2429,-0.211,-0.226,-0.2257,-0.2081,-0.2351,-0.1903,-0.2444,-0.1674,-0.2489,-0.1472,-0.2514,-0.127,-0.2539,-0.1058,-0.2515,-0.0867,-0.2502,-0.0676,-0.2488,-0.0501,-0.2459,-0.0328,-0.2434,-0.0154,-0.2408,0.001,-0.2388,0.0174,-0.2349,0.0337,-0.231,0.05,-0.2264,0.0652,-0.22,0.0804,-0.2135,0.0947,-0.2049,0.1087,-0.196,0.1227,-0.187,0.1353,-0.1769,0.1491,-0.1662,0.1629,-0.1556,0.1775,-0.1451,0.1915,-0.1321,0.2056,-0.1192,0.2222,-0.1052,0.2335,-0.0887,0.2448,-0.0721,0.256,-0.0521,0.2593,-0.0328],[0.1848,-0.0218,0.1867,-0.0082,0.1844,0.0075,0.1789,0.0203,0.1734,0.0331,0.1623,0.0452,0.1519,0.0551,0.1415,0.065,0.1281,0.0725,0.1166,0.0798,0.1051,0.0871,0.0939,0.0929,0.0829,0.099,0.0718,0.105,0.0617,0.1113,0.0504,0.1162,0.0392,0.1211,0.0274,0.1258,0.0154,0.1282,0.0033,0.1307,-0.0095,0.1313,-0.0218,0.1308,-0.0342,0.1304,-0.0463,0.1279,-0.0584,0.1256,-0.0705,0.1233,-0.0823,0.1205,-0.0945,0.117,-0.1067,0.1134,-0.1196,0.1101,-0.1314,0.1045,-0.1431,0.0989,-0.1558,0.0921,-0.1651,0.0833,-0.1745,0.0745,-0.1825,0.063,-0.1876,0.0516,-0.1927,0.0401,-0.1943,0.0269,-0.1958,0.0147,-0.1972,0.0024,-0.1962,-0.0097,-0.1962,-0.0218,-0.1962,-0.034,-0.1966,-0.0458,-0.1959,-0.0584,-0.1953,-0.071,-0.1956,-0.0846,-0.1923,-0.0974,-0.1889,-0.1101,-0.1841,-0.1241,-0.1759,-0.1348,-0.1677,-0.1456,-0.1555,-0.1553,-0.143,-0.1616,-0.1305,-0.168,-0.1149,-0.171,-0.101,-0.173,-0.0871,-0.175,-0.0727,-0.1741,-0.0595,-0.1737,-0.0463,-0.1733,-0.0341,-0.1721,-0.0218,-0.1707,-0.0096,-0.1693,0.0022,-0.1681,0.0137,-0.1652,0.0252,-0.1624,0.0367,-0.1587,0.0473,-0.1538,0.0578,-0.149,0.0675,-0.1426,0.0773,-0.1362,0.087,-0.1298,0.0958,-0.1228,0.1057,-0.1154,0.1156,-0.1081,0.1264,-0.101,0.1366,-0.0921,0.1469,-0.0831,0.159,-0.0732,0.1671,-0.0615,0.1751,-0.0498,0.1828,-0.0355,0.1848,-0.0218],[0.1171,-0.0109,0.1181,-0.0025,0.1162,0.0072,0.1126,0.015,0.1091,0.0229,0.1021,0.0302,0.0956,0.0363,0.0892,0.0424,0.0812,0.047,0.0742,0.0515,0.0671,0.056,0.0604,0.0598,0.0536,0.0635,0.0468,0.0672,0.0404,0.0709,0.0334,0.0737,0.0264,0.0766,0.0191,0.0791,0.0117,0.0803,0.0043,0.0816,-0.0034,0.0817,-0.0109,0.0815,-0.0184,0.0813,-0.0257,0.0801,-0.0332,0.079,-0.0407,0.0779,-0.0482,0.0768,-0.0559,0.0751,-0.0637,0.0733,-0.0721,0.0716,-0.0796,0.0683,-0.0871,0.065,-0.0951,0.0606,-0.1009,0.0551,-0.1067,0.0495,-0.1113,0.0421,-0.1143,0.0349,-0.1173,0.0276,-0.1179,0.0193,-0.1187,0.0117,-0.1194,0.0041,-0.1187,-0.0034,-0.1187,-0.0109,-0.1186,-0.0185,-0.1189,-0.0258,-0.1184,-0.0335,-0.1179,-0.0412,-0.1179,-0.0496,-0.1156,-0.0573,-0.1134,-0.065,-0.11,-0.0734,-0.1048,-0.0798,-0.0996,-0.0862,-0.092,-0.0918,-0.0843,-0.0956,-0.0767,-0.0994,-0.0674,-0.1013,-0.059,-0.1027,-0.0506,-0.1042,-0.0421,-0.1041,-0.0341,-0.1042,-0.0261,-0.1044,-0.0185,-0.1042,-0.0109,-0.1035,-0.0034,-0.1029,0.0041,-0.1021,0.0113,-0.1003,0.0184,-0.0985,0.0254,-0.0959,0.0319,-0.0927,0.0384,-0.0895,0.0441,-0.0853,0.0501,-0.0813,0.0561,-0.0773,0.0616,-0.0732,0.0678,-0.0687,0.074,-0.0642,0.081,-0.06,0.0875,-0.0545,0.094,-0.049,0.1017,-0.0429,0.1067,-0.0356,0.1116,-0.0283,0.1161,-0.0194,0.1171,-0.0109]].map((a) => Float32Array.from(a));
+const NP = 170;
+const TC = [-0.050971, -0.075243];    // Mitte der Kachel, vom tiefsten Punkt aus
+const TILE_R = 0.225728;              // Eckenradius 186 / 824
+const TL = -0.550971, TT = -0.575243; // linke und obere Kante der Kachel
+const MARK = 60 / 64;                 // Anteil der Kachel am Zeichen in der Seitenleiste (favicon.svg: 60 von 64)
+const DEPTH_M = 10935;
+const PIXELS = 4.6e6;                 // höchstens so viele Bildpunkte je Bild
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
+const eOut = (x) => 1 - Math.pow(1 - clamp01(x), 3);
+const eInOut = (x) => { x = clamp01(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const rng = (seed) => { let s = seed >>> 0; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; };
+const hx = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const rgba = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const ramp = (stops) => {
+  const s = stops.map(([p, h]) => [p, hx(h)]);
+  return (x) => {
+    if (x <= s[0][0]) return s[0][1];
+    for (let i = 1; i < s.length; i++) if (x <= s[i][0]) return mixc(s[i - 1][1], s[i][1], (x - s[i - 1][0]) / (s[i][0] - s[i - 1][0]));
+    return s[s.length - 1][1];
+  };
+};
+const WATER = ramp([[0, "#3CC2EE"], [.12, "#22A0DC"], [.3, "#1470B4"], [.5, "#0B4585"], [.7, "#062654"], [.86, "#03132E"], [1, "#020A19"]]);
+const RING_LIT = ramp([[-4, "#3FBDEA"], [-2, "#2CA7E0"], [-1, "#2399D8"], [0, "#1C8FCF"], [1, "#1472B9"], [2, "#0D5AA0"], [3, "#094385"], [4, "#062F69"], [5, "#041F4D"], [7, "#021333"], [10, "#010A1E"]]);
+const RING_DARK = ramp([[-6, "#082753"], [-2, "#072148"], [0, "#061C3D"], [2, "#051630"], [4, "#041025"], [5, "#030C1C"], [8, "#01060F"]]);
+const LINE = hx("#A8EEFF");
+
+// Tiefenlinie auf einer stetigen Stufe u: 0 bis 5 liegt zwischen den Linien des Symbols, darüber hinaus wächst oder schrumpft sie weiter.
+const P = new Float32Array(NP);
+function ringAt(u) {
+  if (u <= 0) { const k = Math.pow(1.2, -u), a = RAW[0]; for (let i = 0; i < NP; i++) P[i] = a[i] * k; }
+  else if (u >= 5) { const k = Math.pow(.634, u - 5), a = RAW[5]; for (let i = 0; i < NP; i++) P[i] = a[i] * k; }
+  else { const j = Math.floor(u), f = u - j, a = RAW[j], b = RAW[j + 1]; for (let i = 0; i < NP; i++) P[i] = a[i] + (b[i] - a[i]) * f; }
+  return P;
+}
+function trace(c, p, ox, oy, s) {
+  c.beginPath();
+  c.moveTo(ox + p[0] * s, oy + p[1] * s);
+  for (let i = 2; i < NP; i += 6) c.bezierCurveTo(ox + p[i] * s, oy + p[i + 1] * s, ox + p[i + 2] * s, oy + p[i + 3] * s, ox + p[i + 4] * s, oy + p[i + 5] * s);
+  c.closePath();
+}
+function rrect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+// Radius einer Tiefenlinie je Winkel, für die Fische, die an ihr entlang schwimmen.
+function polar(arr, bins = 180) {
+  const r = new Float32Array(bins);
+  let x0 = arr[0], y0 = arr[1];
+  for (let i = 2; i < NP; i += 6) {
+    const x1 = arr[i], y1 = arr[i + 1], x2 = arr[i + 2], y2 = arr[i + 3], x3 = arr[i + 4], y3 = arr[i + 5];
+    for (let k = 0; k <= 12; k++) {
+      const t = k / 12, m = 1 - t;
+      const x = m * m * m * x0 + 3 * m * m * t * x1 + 3 * m * t * t * x2 + t * t * t * x3;
+      const y = m * m * m * y0 + 3 * m * m * t * y1 + 3 * m * t * t * y2 + t * t * t * y3;
+      const b = Math.floor(((Math.atan2(y, x) / (2 * Math.PI)) + 1) % 1 * bins) % bins;
+      r[b] = Math.max(r[b], Math.hypot(x, y));
+    }
+    x0 = x3; y0 = y3;
+  }
+  for (let pass = 0; pass < 4; pass++) for (let b = 0; b < bins; b++) if (!r[b]) r[b] = r[(b + bins - 1) % bins] || r[(b + 1) % bins];
+  return (th) => { const f = (((th / (2 * Math.PI)) % 1) + 1) % 1 * bins, i = Math.floor(f) % bins, w = f - Math.floor(f); return r[i] * (1 - w) + r[(i + 1) % bins] * w; };
+}
+const R3 = polar(RAW[3]);
+
+// ── Zeitplan ── Sekunden der Szene: Oberfläche, Abstieg, Meeresgrund (hier wartet sie offen), Licht, Symbol, Landung.
+const FS0 = 3.4, FS1 = .38, SETTLE = .6;
+const T = { descent: .7, seafloor: 2.3, hold0: 3.3, start: version === "short" ? 2.85 : 0 };
+T.fa = T.seafloor - .4;
+T.Fh = FS1 * (T.hold0 - T.fa) + (FS0 - FS1) * (T.hold0 - T.fa) / 3;
+// Solange die App nicht bereit ist, liegt das Licht in unendlicher Ferne; ready() legt es fest.
+function setIgnite(ign) {
+  Object.assign(T, { ignite: ign, iconStart: ign + .6, iconSet: ign + 1.45, rest: ign + 1.8, welcome: ign + 2.4, end: ign + 2.75 });
+  T.Fi = T.Fh + FS1 * (ign - T.hold0);
+  T.target = isFinite(ign) ? Math.ceil(T.Fi + .4 * FS1 * SETTLE) : 0;
+  T.pings = [];
+  const until = isFinite(ign) ? ign - .2 : T.hold0 + 90;
+  for (let tp = T.seafloor - .1; tp < until; tp += .8) T.pings.push(tp);
+}
+setIgnite(Infinity);
+function flow(t) {
+  const a = T.fa, h = T.hold0;
+  if (t < a) return FS0 * (t - a);
+  if (t < h) { const p = (t - a) / (h - a); return FS1 * (t - a) + (FS0 - FS1) * (h - a) * (1 - Math.pow(1 - p, 3)) / 3; }
+  if (t < T.ignite) return T.Fh + FS1 * (t - h);
+  const p = clamp01((t - T.ignite) / SETTLE), p2 = p * p, p3 = p2 * p;
+  return (2 * p3 - 3 * p2 + 1) * T.Fi + (p3 - 2 * p2 + p) * SETTLE * FS1 + (-2 * p3 + 3 * p2) * T.target;
+}
+const creep = (t) => .955 + .03 * (1 - Math.exp(-Math.max(0, t - T.hold0) / 1.6));
+function depth(t) {
+  if (t <= T.descent) return .015 * smooth(t / T.descent);
+  if (t <= T.hold0) { const p = (t - T.descent) / (T.hold0 - T.descent); return .015 + .94 * (1 - Math.cos(Math.PI * Math.pow(p, .75))) / 2; }
+  if (t <= T.ignite) return creep(t);
+  return lerp(creep(T.ignite), 1, eOut((t - T.ignite) / .5));
+}
+const vis = (t) => smooth((t - (T.seafloor - .45)) / .9);
+const litAmt = (t) => smooth((t - T.ignite) / .5);
+
+// ── Bühne ──
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const lit = document.createElement("canvas"), lctx = lit.getContext("2d");
+if (!ctx || !lctx) { post({ action: "done", tail: 0 }); return; }
+let W = 1, H = 1, DPR = 1, S0 = 1, U = 1;
+const slots = { head: null, centre: null };
+let target = null;   // Zeichen in der Seitenleiste, aus der Oberfläche gemessen: {x, y, w, h}
+
+function covers(S) {
+  const ox = W / 2, oy = H / 2, x = ox + TL * S, y = oy + TT * S, r = TILE_R * S;
+  if (x > 0 || y > 0 || x + S < W || y + S < H) return false;
+  const corners = [[0, 0, x + r, y + r], [W, 0, x + S - r, y + r], [0, H, x + r, y + S - r], [W, H, x + S - r, y + S - r]];
+  return corners.every(([px, py, cx, cy]) => {
+    const inX = px < x + r || px > x + S - r, inY = py < y + r || py > y + S - r;
+    return !(inX && inY) || Math.hypot(px - cx, py - cy) <= r;
+  });
+}
+function layout() {
+  W = Math.max(1, innerWidth); H = Math.max(1, innerHeight);
+  DPR = Math.min(2, window.devicePixelRatio || 1, Math.sqrt(PIXELS / (W * H)));
+  for (const c of [cv, lit]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+  U = Math.min(W, H);
+  S0 = Math.max(W / (2 * .449), H / (2 * .4247)) * 1.02;
+  while (!covers(S0)) S0 *= 1.025;
+  slots.centre = { x: W / 2, y: H / 2, s: Math.max(72, Math.min(150, U * .22)) };
+  slots.head = target && target.w > 4 ? { x: target.x + target.w / 2, y: target.y + target.h / 2, s: target.w * MARK } : null;
+  initFish();
+}
+function view(t) {
+  let S = S0, tcx = W / 2 + TC[0] * S0, tcy = H / 2 + TC[1] * S0, clip = false, shadow = 0, shrink = 0;
+  if (t > T.iconStart) {
+    clip = true;
+    const p = eInOut((t - T.iconStart) / (T.iconSet - T.iconStart)), tg = slots.centre;
+    S = Math.exp(lerp(Math.log(S0), Math.log(tg.s), p));
+    tcx = lerp(tcx, tg.x, p); tcy = lerp(tcy, tg.y, p);
+    shadow = shrink = p;
+    if (slots.head && t > T.rest) {
+      const g = eInOut((t - T.rest) / (T.welcome - T.rest)), hd = slots.head;
+      S = Math.exp(lerp(Math.log(tg.s), Math.log(hd.s), g));
+      tcx = lerp(tg.x, hd.x, g); tcy = lerp(tg.y, hd.y, g);
+      shadow = 1 - g;
+    }
+  }
+  return { S, ox: tcx - TC[0] * S, oy: tcy - TC[1] * S, tcx, tcy, clip, shadow, shrink };
+}
+
+// --- particles
+const SNOW = [], BUB = [], RAYS = [];
+{
+  const r = rng(7);
+  for (let i = 0; i < 210; i++) SNOW.push({ x: (r() * 2 - 1) * 1.5, y: (r() * 2 - 1) * 1.5, z0: r() * 4, s: .5 + r() * 1.3 });
+  for (let i = 0; i < 34; i++) BUB.push({ x: (r() * 2 - 1) * .55, y: (r() * 2 - 1) * .5, z0: .45 + r() * 1.9, r: 2.2 + r() * 5, p: r() * 6.28 });
+  for (let i = 0; i < 15; i++) RAYS.push({ a: (i / 15) * Math.PI * 2 + r() * .3, w: .025 + r() * .05, k: .5 + r() * .5, p: r() * 6.28 });
+}
+let FISH = [];
+const PASS = [[-.14, .86], [.34, 1.12], [1.02, .64], [.72, .2]];
+const TP = 1.15, TPD = 1.45, TM = TP + 1.1;
+let MILL0 = 0, Q = [];
+function initFish() {
+  const r = rng(42), g = () => (r() + r() + r() - 1.5) / 1.5;
+  FISH = [];
+  for (let i = 0; i < 74; i++) FISH.push({ lag: r() * .5, off: g() * .05, wig: r() * 6.28, r: 1.05 + r() * 1.5, om: .85 + r() * .35, sc: .74 + r() * .42, th: g() * .5, sv: .55 + r() * .9, sw: (r() - .5) * .7 });
+  MILL0 = Math.atan2((PASS[3][1] - .5) * H, (PASS[3][0] - .5) * W);
+  Q = PASS.map(([a, b]) => [a * W, b * H]);
+}
+function fishXY(f, t, out) {
+  const tau = (t - TP - f.lag) / TPD;
+  const q = Q;
+  let x, y, tx, ty;
+  if (tau < 0) { x = q[0][0] + 3 * (q[1][0] - q[0][0]) * tau; y = q[0][1] + 3 * (q[1][1] - q[0][1]) * tau; tx = q[1][0] - q[0][0]; ty = q[1][1] - q[0][1]; }
+  else if (tau > 1) { x = q[3][0] + 3 * (q[3][0] - q[2][0]) * (tau - 1); y = q[3][1] + 3 * (q[3][1] - q[2][1]) * (tau - 1); tx = q[3][0] - q[2][0]; ty = q[3][1] - q[2][1]; }
+  else {
+    const m = 1 - tau, a = m * m * m, b = 3 * m * m * tau, c = 3 * m * tau * tau, d = tau * tau * tau;
+    x = a * q[0][0] + b * q[1][0] + c * q[2][0] + d * q[3][0];
+    y = a * q[0][1] + b * q[1][1] + c * q[2][1] + d * q[3][1];
+    tx = 3 * m * m * (q[1][0] - q[0][0]) + 6 * m * tau * (q[2][0] - q[1][0]) + 3 * tau * tau * (q[3][0] - q[2][0]);
+    ty = 3 * m * m * (q[1][1] - q[0][1]) + 6 * m * tau * (q[2][1] - q[1][1]) + 3 * tau * tau * (q[3][1] - q[2][1]);
+  }
+  const tl = Math.hypot(tx, ty) || 1, nx = -ty / tl, ny = tx / tl;
+  const lat = f.off * U + Math.sin(t * 7.5 + f.wig) * .004 * U;
+  x += nx * lat; y += ny * lat;
+  const cx = W / 2, cy = H / 2;
+  const th = MILL0 + f.th + f.lag * 1.3 - f.om * (t - TM);
+  const rr = R3(th) * S0 * f.sc;
+  let mx = cx + Math.cos(th) * rr, my = cy + Math.sin(th) * rr;
+  const s = t - T.ignite;
+  if (s > 0) {
+    const dx = mx - cx, dy = my - cy, dl = Math.hypot(dx, dy) || 1, cs = Math.cos(f.sw), sn = Math.sin(f.sw);
+    const dist = (f.sv * s + 2.4 * s * s) * U;
+    mx += (dx * cs - dy * sn) / dl * dist; my += (dx * sn + dy * cs) / dl * dist;
+  }
+  const w = smooth((t - TM - f.lag * .5) / .9);
+  out[0] = lerp(x, mx, w); out[1] = lerp(y, my, w);
+}
+
+// --- drawing
+function drawRays(c, t, d, ox, oy) {
+  const ra = 1 - smooth((d - .05) / .36);
+  if (ra <= 0) return;
+  const R = Math.hypot(W, H) * 1.1;
+  const g = c.createRadialGradient(ox, oy, R * .04, ox, oy, R);
+  g.addColorStop(0, "rgba(212,246,255,0)"); g.addColorStop(.3, "rgba(212,246,255,.07)"); g.addColorStop(1, "rgba(212,246,255,.2)");
+  c.save(); c.globalCompositeOperation = "lighter"; c.fillStyle = g;
+  for (const r of RAYS) {
+    const a = r.a + Math.sin(t * .35 + r.p) * .05, w = r.w * (.75 + .25 * Math.sin(t * 1.6 + r.p * 3));
+    c.globalAlpha = ra * r.k * (.7 + .3 * Math.sin(t * 2.1 + r.p));
+    c.beginPath(); c.moveTo(ox, oy); c.arc(ox, oy, R, a - w, a + w); c.closePath(); c.fill();
+  }
+  c.restore();
+}
+function litBg(c, ox, oy, S) {
+  const g = c.createLinearGradient(0, oy + TT * S, 0, oy + (TT + 1) * S);
+  g.addColorStop(0, "#3CC2EE"); g.addColorStop(.5, "#1F95D6"); g.addColorStop(1, "#1679BF");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const sx = ox - .050971 * S, sy = oy - .623786 * S, sr = .849515 * S;
+  const s = c.createRadialGradient(sx, sy, 0, sx, sy, sr);
+  s.addColorStop(0, "rgba(212,246,255,.8)"); s.addColorStop(.5, "rgba(127,214,245,.152)"); s.addColorStop(1, "rgba(127,214,245,0)");
+  c.fillStyle = s; c.fillRect(0, 0, W, H);
+}
+function pingBoost(u, t) {
+  let b = 0;
+  for (const tp of T.pings) {
+    const age = t - tp; if (age < 0 || age > 1.7) continue;
+    const up = 6.8 - age * 6.5; b += Math.exp(-((u - up) * (u - up)) / .3) * (1 - age / 1.7);
+  }
+  return b;
+}
+function drawBase(c, L, st, t, d) {
+  const { S, ox, oy } = st;
+  if (!L) {
+    const g = c.createRadialGradient(ox, oy, 0, ox, oy, Math.hypot(W, H) * .72);
+    g.addColorStop(0, rgba(WATER(Math.min(1, d + .17)))); g.addColorStop(1, rgba(WATER(d)));
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    drawRays(c, t, d, ox, oy);
+  } else litBg(c, ox, oy, S);
+  const V = vis(t);
+  if (V <= 0) return;
+  const F = flow(t), sp = clamp01((t - T.ignite) / SETTLE), settled = t >= T.ignite;
+  const k0 = Math.ceil(F - 6.5), k1 = Math.floor(F + 12);
+  c.strokeStyle = rgba(LINE);
+  for (let k = k0; k <= k1; k++) {
+    const u = k - F;
+    let a = V;
+    if (settled) { const j = k - T.target; if (j < 0 || j > 5) a *= 1 - sp; }
+    if (u > 8) a *= 1 - smooth((u - 8) / 4);
+    if (a <= .003) continue;
+    trace(c, ringAt(u), ox, oy, S);
+    c.globalAlpha = a; c.fillStyle = rgba(L ? RING_LIT(u) : RING_DARK(u)); c.fill();
+    const ui = Math.max(0, Math.min(5, u));
+    const sa = (L ? lerp(.42, .82, ui / 5) : lerp(.16, .46, ui / 5)) + pingBoost(u, t) * (L ? .2 : .6);
+    c.globalAlpha = a * Math.min(1, sa);
+    c.lineWidth = Math.max(.8, S * (u <= .5 ? 5 : 6) / 824 * (L ? lerp(.42, 1, st.shrink) : .34));
+    c.stroke();
+  }
+  // the ping itself, a thin contour running outwards
+  for (const tp of T.pings) {
+    const age = t - tp; if (age < 0 || age > 1.7) continue;
+    trace(c, ringAt(6.8 - age * 6.5), ox, oy, S);
+    c.globalAlpha = V * .5 * (1 - age / 1.7) * (1 - litAmt(t)); c.lineWidth = Math.max(1, S * .0022); c.stroke();
+  }
+  c.globalAlpha = 1;
+}
+function drawSnow(c, t, d, st, pf) {
+  const camZ = d * 7 + t * .05, camP = depth(Math.max(0, t - .03)) * 7 + (t - .03) * .05;
+  const ox = st.ox, oy = st.oy, R = Math.max(W, H) * .5, k = R / 560;
+  const base = lerp(.3, .62, smooth(d / .5)) + .35 * Math.exp(-Math.max(0, t - T.ignite) * 3) * (t > T.ignite ? 1 : 0);
+  c.strokeStyle = "#D8F4FF"; c.lineCap = "round";
+  for (const p of SNOW) {
+    const z = .22 + (((p.z0 - camZ) % 4) + 4) % 4, zp = .22 + (((p.z0 - camP) % 4) + 4) % 4;
+    const sx = ox + p.x * R / z, sy = oy + p.y * R / z;
+    if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+    const a = smooth((z - .22) / .35) * (1 - smooth((z - 2.7) / 1.3)) * base * pf;
+    if (a <= .01) continue;
+    c.globalAlpha = a; c.lineWidth = Math.max(.6, p.s * k / z);
+    c.beginPath();
+    if (zp >= z && zp - z < 1.5) {
+      let px = ox + p.x * R / zp, py = oy + p.y * R / zp; const len = Math.hypot(sx - px, sy - py), mx = 34 * k;
+      if (len > mx) { px = sx + (px - sx) * mx / len; py = sy + (py - sy) * mx / len; }
+      c.moveTo(px, py);
+    } else c.moveTo(sx - .01, sy);
+    c.lineTo(sx, sy); c.stroke();
+  }
+  c.globalAlpha = 1;
+}
+function drawBubbles(c, t, st) {
+  if (T.start > 0 || t > 1.5) return;
+  const R = Math.max(W, H) * .5, k = R / 560, fade = 1 - smooth((t - .55) / .8);
+  for (const b of BUB) {
+    const z = b.z0 - t * 1.5; if (z < .12) continue;
+    const x = st.ox + (b.x * R + Math.sin(t * 7 + b.p) * 5) / z, y = st.oy + b.y * R / z - t * 30 / z, r = b.r * k / z;
+    const a = fade * smooth((z - .12) / .25) * .75;
+    if (a <= .01 || r > 120) continue;
+    c.globalAlpha = a; c.strokeStyle = "#E6FAFF"; c.lineWidth = Math.max(.8, r * .12);
+    c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.stroke();
+    c.fillStyle = "#FFFFFF"; c.beginPath(); c.arc(x - r * .35, y - r * .35, r * .2, 0, 6.2832); c.fill();
+  }
+  c.globalAlpha = 1;
+}
+const A = [0, 0], B = [0, 0], C = [0, 0];
+function drawFish(c, t, pf) {
+  if (t < TP - .3) return;
+  const sc = U / 700, s = t - T.ignite, fa = (s > 0 ? 1 - smooth(s / .75) : 1) * pf;
+  if (fa <= 0) return;
+  c.lineCap = "round";
+  for (const f of FISH) {
+    fishXY(f, t, A); fishXY(f, t - .018, B); fishXY(f, t - .075, C);
+    if (A[0] < -30 || A[1] < -30 || A[0] > W + 30 || A[1] > H + 30) continue;
+    const r = f.r * sc, ang = Math.atan2(A[1] - B[1], A[0] - B[0]);
+    c.globalAlpha = .3 * fa; c.strokeStyle = "#DDF6FF"; c.lineWidth = r * 1.05;
+    c.beginPath(); c.moveTo(C[0], C[1]); c.lineTo(A[0], A[1]); c.stroke();
+    c.globalAlpha = .92 * fa; c.fillStyle = "#E4F8FF";
+    c.beginPath(); c.ellipse(A[0], A[1], r * 2, r * .85, ang, 0, 6.2832); c.fill();
+  }
+  c.globalAlpha = 1;
+}
+function drawGlow(c, t, st) {
+  const { S, ox, oy } = st, V = vis(t), L = litAmt(t);
+  if (V <= 0) return;
+  let pulse = 0;
+  for (const tp of T.pings) { const age = t - tp; if (age >= 0 && age < .6) pulse = Math.max(pulse, 1 - age / .6); }
+  const ga = Math.min(1, lerp(V * (.5 + .35 * pulse), 1, L)), gr = .145631 * S * lerp(.36 + .06 * pulse, 1, L);
+  const g = c.createRadialGradient(ox, oy, 0, ox, oy, gr);
+  g.addColorStop(0, `rgba(232,251,255,${ga})`); g.addColorStop(.18, `rgba(143,227,255,${.9 * ga})`);
+  g.addColorStop(.45, `rgba(92,211,242,${.3 * ga})`); g.addColorStop(1, "rgba(92,211,242,0)");
+  c.fillStyle = g; c.beginPath(); c.arc(ox, oy, gr, 0, 6.2832); c.fill();
+  c.fillStyle = `rgba(255,255,255,${Math.min(1, V * (.55 + .45 * pulse) * (1 - L) + L)})`;
+  c.beginPath(); c.arc(ox, oy, .024272 * S * lerp(.3, 1, L), 0, 6.2832); c.fill();
+}
+function drawFlare(c, t, st) {
+  const s = t - T.ignite; if (s < 0 || s > 1.5) return;
+  const f = s < .07 ? s / .07 : Math.exp(-(s - .07) * 3.6), R = Math.hypot(W, H) * (.16 + .95 * eOut(s / .5));
+  c.save(); c.globalCompositeOperation = "lighter";
+  const g = c.createRadialGradient(st.ox, st.oy, 0, st.ox, st.oy, R);
+  g.addColorStop(0, `rgba(240,253,255,${.95 * f})`); g.addColorStop(.18, `rgba(143,227,255,${.42 * f})`); g.addColorStop(1, "rgba(92,211,242,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.restore();
+  const p = s / .85;
+  if (p < 1) {
+    trace(c, ringAt(lerp(5.5, -6.5, eOut(p))), st.ox, st.oy, st.S);
+    c.strokeStyle = `rgba(232,251,255,${.65 * (1 - p)})`; c.lineWidth = Math.max(1, st.S * .004 * (1 + p * 2)); c.stroke();
+  }
+}
+function drawGlass(c, t, st) {
+  const L = litAmt(t); if (L <= 0) return;
+  const { S, ox, oy } = st;
+  const sx = ox - .271845 * S, sy = oy - .393204 * S, sr = .509709 * S;
+  const g = c.createRadialGradient(sx, sy, 0, sx, sy, sr);
+  g.addColorStop(0, `rgba(255,255,255,${.28 * L})`); g.addColorStop(1, "rgba(255,255,255,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  if (!st.clip) return;
+  const x = ox + TL * S, y = oy + TT * S;
+  const rim = c.createLinearGradient(0, y, 0, y + .242718 * S);
+  rim.addColorStop(0, "rgba(255,255,255,.32)"); rim.addColorStop(1, "rgba(255,255,255,0)");
+  c.fillStyle = rim; c.fillRect(x, y, S, S);
+  const i = 1.5 / 824 * S;
+  rrect(c, x + i, y + i, S - 2 * i, S - 2 * i, 185 / 824 * S);
+  c.strokeStyle = "rgba(255,255,255,.24)"; c.lineWidth = Math.max(.6, 3 / 824 * S); c.stroke();
+}
+// ---------------------------------------------------------------- sound
+// An ethereal score in D, synthesised live with the Web Audio API. It is laid out on the same timeline as the
+// picture, so slow motion, the app's wait and every phase line up, and there are no audio files to load.
+const NOTE = m => 440 * Math.pow(2, (m - 69) / 12);
+function noiseBuf(ac, sec, brown) {
+  const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(1, len, ac.sampleRate), d = b.getChannelData(0), r = rng(brown ? 11 : 5);
+  let last = 0;
+  for (let i = 0; i < len; i++) { const w = r() * 2 - 1; if (brown) { last = (last + .02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+  if (brown) { const f = Math.floor(ac.sampleRate * .05); for (let i = 0; i < f; i++) { d[i] *= i / f; d[len - 1 - i] *= i / f; } }
+  return b;
+}
+// A long, dark tail: noise that loses its highs as it decays, after a short pre-delay.
+function impulse(ac, sec) {
+  const rate = ac.sampleRate, len = Math.floor(rate * sec), b = ac.createBuffer(2, len, rate), r = rng(99), pre = Math.floor(rate * .024);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch); let lp = 0;
+    for (let i = pre; i < len; i++) {
+      const t = (i - pre) / rate, fc = 6500 * Math.exp(-t * .9) + 450, a = 1 - Math.exp(-2 * Math.PI * fc / rate);
+      lp += ((r() * 2 - 1) - lp) * a;
+      d[i] = lp * Math.exp(-t * 1.05) * (t < .09 ? t / .09 : 1);
+    }
+  }
+  return b;
+}
+function makeFx(ac) {
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 3.5; comp.attack.value = .004; comp.release.value = .3;
+  const master = ac.createGain(); master.gain.value = .85;
+  master.connect(comp); comp.connect(ac.destination);
+  const verb = ac.createConvolver(); verb.buffer = impulse(ac, 5.2);
+  const verbIn = ac.createGain(), verbOut = ac.createGain(); verbOut.gain.value = .8;
+  verbIn.connect(verb); verb.connect(verbOut); verbOut.connect(master);
+  // ping-pong echo that darkens on every repeat, like a sonar return
+  const echoIn = ac.createGain(), dl = ac.createDelay(2), dr = ac.createDelay(2), lp = ac.createBiquadFilter(), fb = ac.createGain(), mg = ac.createChannelMerger(2), echoOut = ac.createGain();
+  dl.delayTime.value = .34; dr.delayTime.value = .34; lp.type = "lowpass"; lp.frequency.value = 2200; fb.gain.value = .45; echoOut.gain.value = .6;
+  echoIn.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);
+  lp.connect(mg, 0, 0); dr.connect(mg, 0, 1); mg.connect(echoOut); echoOut.connect(master); echoOut.connect(verbIn);
+  return { master, verbIn, echoIn, noise: noiseBuf(ac, 2, false), brown: noiseBuf(ac, 6, true) };
+}
+function route(P, node, o) {
+  const link = (dst, v) => { if (!v) return; const g = P.ac.createGain(); g.gain.value = v; node.connect(g); g.connect(dst); };
+  link(o.amb ? P.amb : P.out, o.dry ?? 1); link(P.send, o.verb); link(P.echo, o.echo);
+}
+function env(param, at, peak, a, d) { param.setValueAtTime(.0001, at); param.exponentialRampToValueAtTime(peak, at + a); param.exponentialRampToValueAtTime(.0001, at + a + d); }
+function osc(P, type, f, at, stop) { const o = P.ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, at); o.start(at); o.stop(stop); P.nodes.push(o); return o; }
+function noise(P, at, stop, brown) {
+  const s = P.ac.createBufferSource(); s.buffer = brown ? P.fx.brown : P.fx.noise; s.loop = true;
+  s.start(at, (at * 7.3) % 1.5); s.stop(stop); P.nodes.push(s); return s;
+}
+function bell(P, at, f, lvl, dec, o = {}) {
+  const m = P.ac.createGain();
+  const parts = o.soft ? [[1, 1, 1], [2.001, .16, .5]] : [[1, 1, 1], [2.001, .28, .55], [3.012, .1, .34], [4.18, .05, .22]];
+  for (const [r, a, k] of parts) {
+    const g = P.ac.createGain(); env(g.gain, at, lvl * a, .006, dec * k);
+    osc(P, "sine", f * r, at, at + dec * k + .1).connect(g); g.connect(m);
+  }
+  route(P, m, o.route || { dry: .6, verb: .85 });
+}
+function sNoise(P, at, dur, type, f0, f1, q, lvl, o, a = .01) {
+  const s = noise(P, at, at + dur + .05), fl = P.ac.createBiquadFilter(), g = P.ac.createGain();
+  fl.type = type; fl.Q.value = q; fl.frequency.setValueAtTime(f0, at); if (f1 !== f0) fl.frequency.exponentialRampToValueAtTime(f1, at + dur);
+  env(g.gain, at, lvl, a, dur - a);
+  s.connect(fl); fl.connect(g); route(P, g, o);
+}
+function sPing(P, at, f = 1318.5, lvl = .22, echo = .9) {
+  const m = P.ac.createGain(), g = P.ac.createGain(), g2 = P.ac.createGain();
+  g.gain.setValueAtTime(.0001, at); g.gain.exponentialRampToValueAtTime(lvl, at + .006);
+  g.gain.exponentialRampToValueAtTime(lvl * .22, at + .3); g.gain.exponentialRampToValueAtTime(.0001, at + 1.9);
+  const o = osc(P, "sine", f, at, at + 2); o.frequency.exponentialRampToValueAtTime(f * .985, at + 1.6); o.connect(g); g.connect(m);
+  env(g2.gain, at, lvl * .1, .004, .45); osc(P, "sine", f * 2.01, at, at + .6).connect(g2); g2.connect(m);
+  route(P, m, { dry: .75, verb: .75, echo });
+  sNoise(P, at, .03, "highpass", 3800, 3800, .7, lvl * .2, { dry: .5, verb: .3 }, .002);
+}
+function sSplash(P, at) {
+  sNoise(P, at, .7, "bandpass", 2800, 380, .6, .38, { dry: .9, verb: .3 }, .012);
+  sNoise(P, at + .02, .25, "highpass", 6000, 6000, .7, .12, { dry: .7, verb: .2 }, .005);
+  const g = P.ac.createGain(); env(g.gain, at, .42, .02, .7);
+  const o = osc(P, "sine", 120, at, at + .8); o.frequency.exponentialRampToValueAtTime(36, at + .55); o.connect(g);
+  route(P, g, { dry: 1 });
+  sNoise(P, at + .08, 1.1, "lowpass", 900, 260, .7, .22, { amb: true, dry: 1, verb: .4 }, .25);
+}
+function sBubble(P, at, seed, lvl = 1) {
+  const r = rng(seed), f0 = 420 + r() * 700, dur = .035 + r() * .055;
+  const g = P.ac.createGain(); env(g.gain, at, (.04 + r() * .05) * lvl, .004, dur * 1.7);
+  const o = osc(P, "sine", f0, at, at + dur * 2 + .05); o.frequency.exponentialRampToValueAtTime(f0 * 2.4, at + dur); o.connect(g);
+  const p = P.ac.createStereoPanner(); p.pan.value = r() * 1.6 - .8; g.connect(p);
+  route(P, p, { amb: true, dry: 1, verb: .35 });
+}
+function sSwell(P, at, len) {
+  const s = noise(P, at, at + len + .2), fl = P.ac.createBiquadFilter(), g = P.ac.createGain();
+  fl.type = "bandpass"; fl.Q.value = 3.5; fl.frequency.setValueAtTime(240, at); fl.frequency.exponentialRampToValueAtTime(4600, at + len);
+  g.gain.setValueAtTime(.0001, at); g.gain.exponentialRampToValueAtTime(.11, at + len * .95); g.gain.exponentialRampToValueAtTime(.0001, at + len + .09);
+  s.connect(fl); fl.connect(g); route(P, g, { dry: .55, verb: .7 });
+  for (const [m, l] of [[62, .03], [69, .025]]) {
+    const gg = P.ac.createGain();
+    gg.gain.setValueAtTime(.0001, at); gg.gain.exponentialRampToValueAtTime(l, at + len * .95); gg.gain.exponentialRampToValueAtTime(.0001, at + len + .06);
+    osc(P, "triangle", NOTE(m), at, at + len + .1).connect(gg); route(P, gg, { dry: .5, verb: .8 });
+  }
+}
+function sBloom(P, at) {
+  [50, 57, 62, 66, 69, 73, 76, 81].forEach((m, i) => bell(P, at + i * .032, NOTE(m), i < 3 ? .085 : .06, 3.8 - i * .22, { route: { dry: .55, verb: .95, echo: i > 4 ? .3 : 0 } }));
+  const g = P.ac.createGain(); env(g.gain, at, .3, .03, 1.4);
+  const o = osc(P, "sine", 58, at, at + 1.6); o.frequency.exponentialRampToValueAtTime(46, at + 1.2); o.connect(g); route(P, g, { dry: 1 });
+  sNoise(P, at, 1.8, "highpass", 5200, 5200, .7, .055, { dry: .3, verb: .9 }, .08);
+}
+function sScatter(P, at) {
+  const r = rng(77);
+  for (let i = 0; i < 7; i++) {
+    const t0 = at + r() * .28, d = .16 + r() * .14, f = 1300 + r() * 1700;
+    const s = noise(P, t0, t0 + d + .05), fl = P.ac.createBiquadFilter(), am = P.ac.createGain(), g = P.ac.createGain(), lg = P.ac.createGain();
+    fl.type = "bandpass"; fl.Q.value = 2.2; fl.frequency.setValueAtTime(f, t0); fl.frequency.exponentialRampToValueAtTime(f * 1.6, t0 + d);
+    am.gain.value = .5; lg.gain.value = .5; osc(P, "square", 20 + r() * 14, t0, t0 + d + .05).connect(lg); lg.connect(am.gain);
+    env(g.gain, t0, .06, .01, d);
+    const p = P.ac.createStereoPanner(); p.pan.value = (r() * 2 - 1) * .9;
+    s.connect(fl); fl.connect(am); am.connect(g); g.connect(p);
+    route(P, p, { amb: true, dry: 1, verb: .3 });
+  }
+}
+function sSettle(P, at) {
+  const g = P.ac.createGain(); env(g.gain, at, .22, .012, .5);
+  const o = osc(P, "sine", 92, at, at + .6); o.frequency.exponentialRampToValueAtTime(50, at + .3); o.connect(g);
+  route(P, g, { dry: 1, verb: .12 });
+  bell(P, at + .01, NOTE(86), .02, 1.1, { route: { dry: .4, verb: .9 } });
+}
+function sLand(P, at) {
+  bell(P, at, NOTE(81), .04, 1.8, { route: { dry: .55, verb: .85, echo: .3 } });
+  bell(P, at + .09, NOTE(86), .035, 2.2, { route: { dry: .55, verb: .85, echo: .3 } });
+}
+function sHello(P, at) {
+  [[74, .045, 2.6], [81, .035, 2.8], [78, .025, 2.4]].forEach(([m, l, d], i) => bell(P, at + i * .12, NOTE(m), l, d, { route: { dry: .55, verb: .9, echo: i === 1 ? .25 : 0 } }));
+}
+
+// One performance of the timeline from t0 at speed s. Pausing, scrubbing or switching modes throws it away.
+function perform(ac, fx, t0, s) {
+  const P = { ac, fx, t0, s, start: ac.currentTime + .04, nodes: [] };
+  const A = tl => P.start + (tl - t0) / s;
+  const tEnd = isFinite(T.end) ? T.end + 2.6 : Math.max(t0, T.hold0) + 60, stopAt = A(tEnd) + .1, fresh = T.start === 0;
+  const after = (tl, a, b) => (isFinite(a) ? smooth((tl - a) / (b - a)) : 0);
+  P.out = ac.createGain(); P.send = ac.createGain(); P.echo = ac.createGain();
+  P.out.connect(fx.master); P.send.connect(fx.verbIn); P.echo.connect(fx.echoIn);
+  for (const g of [P.out, P.send]) { g.gain.setValueAtTime(0, P.start); g.gain.linearRampToValueAtTime(1, P.start + .06); }
+  const curve = (param, fn) => {
+    const n = Math.max(2, Math.ceil((tEnd - t0) / s * 50)), arr = new Float32Array(n);
+    for (let i = 0; i < n; i++) arr[i] = fn(t0 + (tEnd - t0) * i / (n - 1));
+    param.value = arr[0];
+    param.setValueCurveAtTime(arr, P.start, (tEnd - t0) / s);
+  };
+  // the water: everything ambient goes through a low-pass that closes as you go under and opens with the light
+  const water = ac.createBiquadFilter(); water.type = "lowpass"; water.Q.value = .5;
+  P.amb = ac.createGain(); P.amb.connect(water); water.connect(P.out);
+  const ws = ac.createGain(); ws.gain.value = .28; water.connect(ws); ws.connect(P.send);
+  curve(water.frequency, tl => {
+    let f = lerp(3400, 1500, smooth((depth(tl) - .05) / .9));
+    if (fresh && tl < .6) f = Math.exp(lerp(Math.log(14000), Math.log(f), eOut((tl - .06) / .5)));
+    return lerp(f, 9000, litAmt(tl));
+  });
+  // drone: open fifths in D, darkening with depth, swelling into the light
+  const padLP = ac.createBiquadFilter(); padLP.type = "lowpass"; padLP.Q.value = 1.2;
+  const breath = ac.createGain(); breath.gain.value = .8;
+  const lfoG = ac.createGain(); lfoG.gain.value = .2; osc(P, "sine", .11, P.start, stopAt).connect(lfoG); lfoG.connect(breath.gain);
+  const pad = ac.createGain(); padLP.connect(breath); breath.connect(pad); pad.connect(P.amb);
+  const ps = ac.createGain(); ps.gain.value = .5; pad.connect(ps); ps.connect(P.send);
+  for (const [m, type, l] of [[38, "sawtooth", .1], [45, "sawtooth", .08], [50, "triangle", .2], [52, "triangle", .1], [57, "sine", .12], [62, "sine", .05]]) {
+    for (const det of [-6, 6]) { const o = osc(P, type, NOTE(m), P.start, stopAt), g = ac.createGain(); o.detune.value = det; g.gain.value = l; o.connect(g); g.connect(padLP); }
+  }
+  const swell = tl => smooth((tl - (T.ignite - .8)) / .8) * (1 - smooth((tl - T.ignite - .05) / .5));
+  curve(pad.gain, tl => .17 * (fresh ? smooth((tl - .15) / 1.3) : 1) * (1 + .45 * swell(tl)) * (1 - after(tl, T.iconStart, tEnd)));
+  curve(padLP.frequency, tl => lerp(lerp(1500, 330, smooth(depth(tl) / .95)) + 1300 * swell(tl), 2600, litAmt(tl)));
+  // the light: D major ninth voices that only sound once the deepest point is lit
+  const hi = ac.createGain(), hiLP = ac.createBiquadFilter(); hiLP.type = "lowpass"; hiLP.frequency.value = 3200; hiLP.connect(hi); hi.connect(P.out);
+  const hs = ac.createGain(); hs.gain.value = .7; hi.connect(hs); hs.connect(P.send);
+  for (const [m, l] of [[66, .05], [69, .06], [73, .045], [76, .035], [81, .02]]) {
+    for (const det of [-5, 5]) { const o = osc(P, "triangle", NOTE(m), P.start, stopAt), g = ac.createGain(); o.detune.value = det; g.gain.value = l; o.connect(g); g.connect(hiLP); }
+  }
+  curve(hi.gain, tl => .55 * smooth((tl - T.ignite) / .7) * (1 - after(tl, T.iconSet, tEnd)));
+  // pressure: a slow low rumble that grows with depth
+  const rb = noise(P, P.start, stopAt, true), rbLP = ac.createBiquadFilter(), rbG = ac.createGain();
+  rbLP.type = "lowpass"; rbLP.frequency.value = 130; rb.connect(rbLP); rbLP.connect(rbG); rbG.connect(P.out);
+  curve(rbG.gain, tl => .3 * smooth((depth(tl) - .2) / .55) * (1 - litAmt(tl)) * (1 + .25 * Math.sin(tl * 1.3)));
+  // rushing water that follows the speed of the descent
+  const rs = noise(P, P.start, stopAt), rsF = ac.createBiquadFilter(), rsG = ac.createGain();
+  rsF.type = "bandpass"; rsF.Q.value = .8; rs.connect(rsF); rsF.connect(rsG); rsG.connect(P.amb);
+  const vel = tl => clamp01((depth(tl + .04) - depth(Math.max(0, tl - .04))) / .08 / .55);
+  curve(rsG.gain, tl => .2 * Math.pow(vel(tl), 1.3));
+  curve(rsF.frequency, tl => 260 + 1200 * vel(tl));
+  // the shoal: fluttering fins, panned to where the fish are on screen
+  const fn = noise(P, P.start, stopAt), fF = ac.createBiquadFilter(), fAm = ac.createGain(), fG = ac.createGain(), fP = ac.createStereoPanner();
+  fF.type = "bandpass"; fF.frequency.value = 1900; fF.Q.value = 2.6; fAm.gain.value = .55;
+  const flG = ac.createGain(); flG.gain.value = .45; osc(P, "sine", 23, P.start, stopAt).connect(flG); flG.connect(fAm.gain);
+  fn.connect(fF); fF.connect(fAm); fAm.connect(fG); fG.connect(fP); fP.connect(P.amb);
+  const SAMPLE = FISH.filter((_, i) => i % 9 === 0), q0 = [0, 0], q1 = [0, 0];
+  const school = tl => {
+    let x = 0, on = 0, sp = 0;
+    for (const f of SAMPLE) {
+      fishXY(f, tl, q0); fishXY(f, tl - .05, q1); x += q0[0];
+      if (q0[0] > -40 && q0[0] < W + 40 && q0[1] > -40 && q0[1] < H + 40) on++;
+      sp += Math.hypot(q0[0] - q1[0], q0[1] - q1[1]) / .05 / U;
+    }
+    return { x: x / SAMPLE.length / W, on: on / SAMPLE.length, sp: sp / SAMPLE.length };
+  };
+  curve(fG.gain, tl => { if (tl < TP - .4) return 0; const sc = school(tl); return .26 * sc.on * (.25 + .75 * clamp01(sc.sp / 2.4)) * (1 - smooth((tl - T.ignite) / .35)); });
+  curve(fP.pan, tl => { if (tl < TP - .4) return 0; return Math.max(-1, Math.min(1, (school(tl).x * 2 - 1) * .85)); });
+  // events, at the moments the picture shows them
+  const ev = [];
+  if (fresh) {
+    ev.push([0, at => sSplash(P, at)]);
+    const r = rng(3); let bt = .05;
+    for (let i = 0; i < 17; i++) { const seed = 100 + i, l = 1 - i / 22; ev.push([bt, at => sBubble(P, at, seed, l)]); bt += .03 + r() * .07; }
+  }
+  for (const tp of T.pings) ev.push([tp, at => sPing(P, at)]);
+  ev.push([T.ignite - .75, at => sSwell(P, at, .75 / s)]);
+  ev.push([T.ignite, at => sBloom(P, at)]);
+  ev.push([T.ignite + .03, at => sScatter(P, at)]);
+  ev.push([T.iconSet - .1, at => sPing(P, at, 1760, .07, .5)]);
+  ev.push([T.iconSet, at => sSettle(P, at)]);
+  ev.push(slots.head ? [T.welcome - .05, at => sLand(P, at)] : [T.iconSet + .25, at => sHello(P, at)]);
+  for (const [tl, f] of ev) if (isFinite(tl) && tl >= t0 - 1e-6) f(A(tl));
+  return P;
+}
+function cancelPerf(P) {
+  const now = P.ac.currentTime;
+  for (const g of [P.out, P.send, P.echo]) { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(g.gain.value, now); g.gain.setTargetAtTime(0, now, .08); }
+  setTimeout(() => { for (const n of P.nodes) { try { n.stop(); } catch (e) {} } for (const g of [P.out, P.send, P.echo]) g.disconnect(); }, 900);
+}
+
+// ── Bild ──
+function frame(t) {
+  const d = depth(t), st = view(t);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (st.clip) {
+    // Der Hintergrund wird durchsichtig und gibt die Oberfläche der App frei, während das Symbol kleiner wird.
+    const a = 1 - smooth((t - T.iconStart - .15) / .8);
+    if (a > 0) {
+      const g = ctx.createRadialGradient(W * .5, -H * .25, 0, W * .5, -H * .25, H * 1.35);
+      g.addColorStop(0, `rgba(16,40,90,${a})`); g.addColorStop(1, `rgba(4,10,23,${a})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    const x = st.ox + TL * st.S, y = st.oy + TT * st.S, r = TILE_R * st.S;
+    if (st.S < Math.max(W, H) * 2.5 && st.shadow > 0) {
+      ctx.save(); ctx.shadowColor = `rgba(0,0,0,${.45 * st.shadow})`; ctx.shadowBlur = st.S * .14; ctx.shadowOffsetY = st.S * .04;
+      ctx.fillStyle = "#1679BF"; rrect(ctx, x, y, st.S, st.S, r); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); rrect(ctx, x, y, st.S, st.S, r); ctx.clip();
+  }
+  const fs = t - T.ignite;
+  if (fs < 0) drawBase(ctx, 0, st, t, d);
+  else if (fs < .6) {
+    drawBase(ctx, 0, st, t, d);
+    lctx.setTransform(DPR, 0, 0, DPR, 0, 0); lctx.globalCompositeOperation = "source-over"; lctx.clearRect(0, 0, W, H);
+    drawBase(lctx, 1, st, t, d);
+    const R = Math.max(0, eOut((fs - .03) / .55)) * Math.hypot(W, H) * 1.15, fe = Math.hypot(W, H) * .3;
+    const g = lctx.createRadialGradient(st.ox, st.oy, 0, st.ox, st.oy, R + fe);
+    g.addColorStop(0, "#000"); g.addColorStop(R / (R + fe), "#000"); g.addColorStop(1, "rgba(0,0,0,0)");
+    lctx.globalCompositeOperation = "destination-in"; lctx.fillStyle = g; lctx.fillRect(0, 0, W, H);
+    lctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(lit, 0, 0, W, H);
+  } else drawBase(ctx, 1, st, t, d);
+  const pf = 1 - smooth((t - T.iconStart) / .45);
+  if (pf > 0) { drawSnow(ctx, t, d, st, pf); drawBubbles(ctx, t, st); drawFish(ctx, t, pf); }
+  drawGlow(ctx, t, st);
+  drawFlare(ctx, t, st);
+  drawGlass(ctx, t, st);
+  if (st.clip) ctx.restore();
+  // ein Ping um das fertige Symbol
+  const pa = (t - T.iconSet + .1) / 1.2;
+  if (pa > 0 && pa < 1) {
+    trace(ctx, ringAt(lerp(0, -5.5, eOut(pa))), st.ox, st.oy, st.S);
+    ctx.strokeStyle = `rgba(143,227,255,${.55 * (1 - pa)})`; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  if (T.start === 0 && t < .6) { ctx.fillStyle = `rgba(226,248,255,${.92 * (1 - eOut(t / .6))})`; ctx.fillRect(0, 0, W, H); }
+  if (T.start > 0 && t < T.start + .4) { ctx.fillStyle = `rgba(2,6,15,${1 - smooth((t - T.start) / .4)})`; ctx.fillRect(0, 0, W, H); }
+  // Ohne Ziel in der Seitenleiste (etwa bei schmalem Fenster) blendet das Symbol in der Mitte aus.
+  cv.style.opacity = slots.head ? 1 : 1 - smooth((t - T.rest) / .5);
+  hud.style.opacity = 1 - smooth((t - T.ignite) / .35);
+  depthEl.textContent = num.format(Math.round(d * DEPTH_M)) + " m";
+  statusEl.classList.toggle("on", readyAt === null && t > T.hold0 + 2.5);
+}
+
+// ── Ablauf ──
+const hud = document.getElementById("hud"), depthEl = document.getElementById("depth"), statusEl = document.getElementById("status");
+const num = new Intl.NumberFormat(lang === "de" ? "de-DE" : "en-GB");
+statusEl.textContent = lang === "de" ? "Benthic startet …" : "Starting Benthic…";
+const SND = { ac: null, fx: null, perf: null };
+let t = T.start, last = performance.now(), readyAt = null, skipWanted = false, finished = false, audioSeen = -1;
+
+// Ton: in der App darf die Seite ohne Klick klingen (mediaTypesRequiringUserActionForPlayback = []).
+function restartSound(from) {
+  if (!SND.ac || SND.ac.state !== "running") return;
+  if (SND.perf) cancelPerf(SND.perf);
+  SND.perf = perform(SND.ac, SND.fx, from + .04 * speed, speed);
+}
+layout();
+if (wantSound) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    SND.ac = new AC(); SND.fx = makeFx(SND.ac);
+    // Nur hörbar, solange das Fenster zu sehen ist (etwa nicht bei gesperrtem Bildschirm); Bild und Ton halten dann gemeinsam an.
+    const go = () => { if (!finished && !SND.perf && SND.ac.state === "running" && !document.hidden) restartSound(t); };
+    if (document.hidden) SND.ac.suspend(); else if (SND.ac.state === "running") go(); else SND.ac.resume().then(go, () => {});
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) SND.ac.suspend(); else if (!finished) SND.ac.resume().then(go, () => {});
+    });
+    setTimeout(() => post({ action: "log", message: `Intro (${version}): Ton ${SND.ac.state}` }), 400);
+  } catch (e) { SND.ac = null; post({ action: "log", message: "Intro: kein Ton (" + e.message + ")" }); }
+}
+
+// Ende, ob gelandet oder übersprungen. tail: so lange klingt der Ton noch nach (die App wartet damit).
+function finish(tail) {
+  if (finished) return;
+  finished = true;
+  if (tail < 1 && SND.perf) { cancelPerf(SND.perf); SND.perf = null; }
+  post({ action: "done", tail });
+}
+window.benthicIntro = {
+  // Die Oberfläche ist geladen; rect ist das Zeichen in der Seitenleiste (oder null).
+  ready(rect) {
+    if (readyAt !== null || finished) return;
+    readyAt = t; target = rect || null; layout();
+    if (skipWanted) { finish(.4); return; }
+    setIgnite(Math.max(T.hold0, t + .85));
+    if (SND.perf) restartSound(t);
+  }
+};
+function skip() {
+  if (finished) return;
+  if (readyAt !== null) { finish(.4); return; }
+  skipWanted = true;
+  if (t < T.hold0 - .3) { t = T.hold0 - .3; if (SND.perf) restartSound(t); }
+}
+// Wie auf der Website läuft das Intro durch: Klicks beenden es nicht, nur Escape.
+addEventListener("keydown", (e) => { if (e.key === "Escape") skip(); });
+addEventListener("resize", () => { layout(); frame(t); });
+
+function tick(now) {
+  if (finished) return;
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  // Mit Ton führt die Uhr des Tons, damit Bild und Klang nicht auseinanderlaufen. Steht sie (kein
+  // Ausgabegerät, gesperrter Bildschirm), läuft das Bild mit seiner eigenen Uhr weiter.
+  const at = SND.perf ? SND.ac.currentTime : -1;
+  if (at > audioSeen + 1e-4) { audioSeen = at; t = Math.max(t, SND.perf.t0 + (at - SND.perf.start - (SND.ac.outputLatency || 0)) * SND.perf.s); }
+  else t += dt * speed;
+  if (t >= T.end) { t = T.end; frame(t); finish(SND.perf ? 2.6 : 0); return; }
+  frame(t);
+  requestAnimationFrame(tick);
+}
+frame(t);
+requestAnimationFrame(tick);
+post({ action: "loaded" });
+})();
+</script>
+</body>
+</html>

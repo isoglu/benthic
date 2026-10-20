@@ -7,6 +7,8 @@
 #   --update-url=URL  Adresse des Release-Manifests (macos/make_release.sh) für die
 #                     Update-Prüfung; auch über BENTHIC_UPDATE_URL. Ohne Angabe:
 #                     https://benthic.isoglu.com/release.json; --update-url=none schaltet sie ab
+#   --update-key=DATEI  öffentlicher Schlüssel (Base64) für Test-Builds des Aktualisierens; ohne Angabe
+#                     prüft die App Updates mit releaseUpdateKey aus macos/BenthicApp.swift
 #
 # Eigene Builds (z. B. mit Plugins, siehe docs/extending.md):
 #   --plugin=DIR       Plugin-Ordner ins Bundle übernehmen (mehrfach möglich); eine
@@ -20,7 +22,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."   # Projektwurzel
 ARCH_MODE="universal"
-UPDATE_URL="${BENTHIC_UPDATE_URL:-}"
+UPDATE_URL="${BENTHIC_UPDATE_URL:-}"; UPDATE_KEY=""
 UPDATE_BASE="https://benthic.isoglu.com/"   # Ablage für DMG und Manifest
 APP_NAME="Benthic"; BUNDLE_ID=""; DATA_FOLDER=""; PORT=""; BUILD_DIR="dist"
 PLUGINS=()
@@ -28,6 +30,7 @@ for arg in "$@"; do
   case "$arg" in
     --native) ARCH_MODE="native" ;;
     --update-url=*) UPDATE_URL="${arg#--update-url=}" ;;
+    --update-key=*) UPDATE_KEY="${arg#--update-key=}" ;;
     --plugin=*) PLUGINS+=("${arg#--plugin=}") ;;
     --bundle-id=*) BUNDLE_ID="${arg#--bundle-id=}" ;;
     --name=*) APP_NAME="${arg#--name=}" ;;
@@ -41,6 +44,15 @@ done
 [ -z "$UPDATE_URL" ] && UPDATE_URL="${UPDATE_BASE}release.json"
 [ "$UPDATE_URL" = "none" ] && UPDATE_URL=""
 APP="$BUILD_DIR/$APP_NAME.app"
+SWIFT_FLAGS=()
+if [ -n "$UPDATE_KEY" ]; then
+  UPDATE_KEY_VALUE="$(tr -d ' \n' < "$UPDATE_KEY")"
+  SWIFT_FLAGS=(-DBENTHIC_TEST_UPDATE_KEY)
+elif [ -n "$UPDATE_URL" ] && ! grep -Eq '^let releaseUpdateKey = "[A-Za-z0-9+/]{43}="$' macos/BenthicApp.swift; then
+  # Ohne Schlüssel könnte die App nie ein Update installieren; lieber jetzt abbrechen.
+  echo "Kein öffentlicher Update-Schlüssel in macos/BenthicApp.swift (releaseUpdateKey)" >&2
+  exit 1
+fi
 MIN_OS="13.0"   # Intel braucht 13+: die Command Line Tools liefern Swift-Kompatibilitätsbibliotheken nur noch für arm64
 
 echo "==> $APP_NAME ($ARCH_MODE)"
@@ -54,7 +66,7 @@ echo "==> Kompiliere Swift-App"
 # Modul-Cache und TMPDIR im Workspace (umgeht Sandbox-/CLT-Cache-Probleme).
 # -file-compilation-dir: im Binary steht macos/BenthicApp.swift statt des Build-Pfads.
 build_slice() {  # $1 = arm64 | x86_64, $2 = Ausgabe
-  TMPDIR="$PWD/.swifttmp" swiftc -O macos/BenthicApp.swift -o "$2" \
+  TMPDIR="$PWD/.swifttmp" swiftc -O macos/BenthicApp.swift -o "$2" ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} \
     -target "$1-apple-macos$MIN_OS" -framework Cocoa -framework WebKit \
     -Xfrontend -disable-autolink-framework -Xfrontend Translation -Xlinker -weak_framework -Xlinker Translation \
     -Xfrontend -disable-autolink-framework -Xfrontend FoundationModels -Xlinker -weak_framework -Xlinker FoundationModels \
@@ -87,6 +99,7 @@ if [ "$APP_NAME" != "Benthic" ]; then
 fi
 [ -n "$DATA_FOLDER" ] && /usr/libexec/PlistBuddy -c "Add :BenthicDataFolder string $DATA_FOLDER" "$PLIST"
 [ -n "$PORT" ] && /usr/libexec/PlistBuddy -c "Add :BenthicPort integer $PORT" "$PLIST"
+[ -n "$UPDATE_KEY" ] && /usr/libexec/PlistBuddy -c "Add :BenthicTestUpdateKey string $UPDATE_KEY_VALUE" "$PLIST"
 cp macos/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp -R macos/Resources/*.lproj "$APP/Contents/Resources/"   # Sprachen: en, de (InfoPlist.strings)
 

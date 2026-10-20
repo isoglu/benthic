@@ -394,8 +394,9 @@ def table(batch: Dict, tr: Callable[[str], str]) -> List[List[object]]:
 
 
 def to_csv(batch: Dict, tr: Callable[[str], str]) -> str:
+    from .export import safe_cell
     buf = io.StringIO()
-    csv.writer(buf, delimiter=";").writerows(table(batch, tr))
+    csv.writer(buf, delimiter=";").writerows([safe_cell(v) for v in row] for row in table(batch, tr))
     return "﻿" + buf.getvalue()  # BOM: Excel erkennt UTF-8
 
 
@@ -404,8 +405,9 @@ def to_xlsx(batch: Dict, tr: Callable[[str], str]) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = (batch.get("name") or "Benthic")[:31]
+    from .export import safe_cell
     for row in table(batch, tr):
-        ws.append(row)
+        ws.append([safe_cell(v) for v in row])
     ws.freeze_panes = "B2"
     buf = io.BytesIO()
     wb.save(buf)

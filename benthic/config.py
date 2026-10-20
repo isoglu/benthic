@@ -158,10 +158,33 @@ def save_settings(settings: dict) -> dict:
         current = load_settings()
         current.update({k: v for k, v in (settings or {}).items() if k in DEFAULT_SETTINGS})
         cleaned = _clean(current)
-        settings_path().write_text(
-            json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        path = settings_path()
+        path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            path.chmod(0o600)  # API-Keys und E-Mail-Adresse: nur für die eigene Person lesbar
+        except OSError:
+            pass
     return cleaned
+
+
+# API-Keys gehen nie im Klartext an die Oberfläche: GET /api/settings zeigt nur einen Platzhalter mit den
+# letzten vier Zeichen. Kommt der Platzhalter beim Speichern unverändert zurück, bleibt der Key, wie er ist.
+SECRET_KEYS = ("core_api_key", "openalex_api_key", "semanticscholar_api_key", "elsevier_api_key")
+MASK = "•" * 8
+
+
+def masked(settings: dict) -> dict:
+    out = dict(settings)
+    for key in SECRET_KEYS:
+        value = str(out.get(key) or "")
+        if value:
+            out[key] = MASK + (value[-4:] if len(value) >= 12 else "")
+    return out
+
+
+def without_masks(data: dict) -> dict:
+    """Änderungen ohne unveränderte Platzhalter aus masked() (sonst würde der Platzhalter zum Key)."""
+    return {k: v for k, v in (data or {}).items() if not (k in SECRET_KEYS and MASK[0] in str(v))}
 
 
 def resolve_download_dir(settings: dict) -> Tuple[Path, Optional[str]]:
@@ -200,11 +223,24 @@ def build_update_url() -> str:
         return ""
 
 
+OFFICIAL_UPDATES = "https://benthic.isoglu.com/"
+
+
+def bundled() -> bool:
+    """Läuft das Backend aus einer gebauten App (Contents/Resources/backend) statt aus dem Projekt?"""
+    return PROJECT_ROOT.parts[-3:] == ("Contents", "Resources", "backend")
+
+
 def update_url(settings: Optional[dict] = None) -> str:
-    """Adresse des Release-Manifests: Einstellung, sonst beim Bauen hinterlegt."""
+    """Adresse des Release-Manifests: beim Bauen hinterlegt, beim Entwickeln auch aus den Einstellungen.
+
+    In einer gebauten App zählt eine eigene Adresse nur auf benthic.isoglu.com: Sonst könnte jede, die
+    die Einstellung ändert, ein anderes Manifest unterschieben (die App prüft zusätzlich dessen Signatur).
+    """
     s = settings if settings is not None else load_settings()
-    if s.get("update_url"):
-        return str(s["update_url"]).strip()
+    own = str(s.get("update_url") or "").strip()
+    if own and (not bundled() or own.startswith(OFFICIAL_UPDATES)):
+        return own
     return build_update_url()
 
 

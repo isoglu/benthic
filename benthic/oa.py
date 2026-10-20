@@ -25,7 +25,7 @@ import re
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -72,11 +72,12 @@ def _api_get(url: str, params: Optional[Dict] = None, headers: Optional[Dict] = 
              timeout: float = 20.0) -> Optional[requests.Response]:
     """GET mit höflichem Umgang mit Rate-Limits (429/503: kurz warten, max. 2 Wiederholungen)."""
     hdrs = {"User-Agent": API_USER_AGENT}
-    if "api.openalex.org" in url:
+    host = (urlparse(url).hostname or "").lower()  # genau dieser Rechner, nicht irgendwo in der Adresse
+    if host == "api.openalex.org":
         key = _openalex_key()
         if key:
             hdrs["Authorization"] = f"Bearer {key}"
-    if "api.semanticscholar.org" in url:
+    if host == "api.semanticscholar.org":
         key = _setting("semanticscholar_api_key")
         if key:
             hdrs["x-api-key"] = key
@@ -483,8 +484,11 @@ def download_pdf(url: str, headers: Optional[Dict[str, str]] = None,
     if "html" in ctype or content[:1] in (b"<",):
         pdf_url = _extract_pdf_url(resp.text, resp.url)
         if pdf_url and pdf_url != url:
+            # Ein Link aus fremdem HTML bekommt keine Zugangsdaten (etwa den Elsevier-Key), außer er bleibt beim selben Rechner
+            same = (urlparse(pdf_url).hostname or "").lower() == (urlparse(url).hostname or "").lower()
+            plain = {"User-Agent": PDF_USER_AGENT, "Accept": "application/pdf,*/*"}
             try:
-                r2 = requests.get(pdf_url, headers=hdrs, timeout=timeout, allow_redirects=True)
+                r2 = requests.get(pdf_url, headers=hdrs if same else plain, timeout=timeout, allow_redirects=True)
                 if r2.status_code == 200 and r2.content.startswith(b"%PDF-"):
                     return r2.content
             except requests.exceptions.RequestException:

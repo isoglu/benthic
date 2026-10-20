@@ -9,6 +9,8 @@ from unittest import mock
 
 from benthic import document, quotes
 
+from tests import ui_client
+
 PAGES = [
     {"page": 1, "text": "Array programming provides a powerful, compact and expressive syntax for accessing,\n"
                         "manipulating and operating on data in vectors, matrices and higher-dimensional arrays. NumPy is\n"
@@ -85,7 +87,7 @@ class Route(unittest.TestCase):
         for p in self.patches:
             p.start()
         self.appmod = appmod
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         for p in self.patches:
