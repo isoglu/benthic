@@ -5,6 +5,20 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.3
+
+A welcome for new users and a guided tour, and the intro's sound now ends
+properly.
+
+- **A welcome on the first start.** Setting up Benthic is now a short dive
+  with a depth gauge: language, contact, download folder and library, each a
+  little deeper.
+- **A guided tour.** Two minutes on the real interface, from a live sample
+  check down to the floor of the Challenger Deep at 10,935 m. Take it again
+  any time from ⌘K or the settings.
+- **The intro's last chord rings out.** The sound at the end of the intro no
+  longer cuts off when the app appears.
+
 ## 1.1.2
 
 A security update after a review of 1.1.1: Benthic now guards its local service

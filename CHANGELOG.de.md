@@ -6,6 +6,20 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.3
+
+Eine Begrüßung für neue Nutzer:innen und ein Rundgang, und der Ton des Intros
+endet jetzt sauber.
+
+- **Eine Begrüßung beim ersten Start.** Die Einrichtung ist jetzt ein kurzer
+  Tauchgang mit Tiefenmesser: Sprache, Kontakt, Download-Ordner und
+  Bibliothek, jeder Schritt etwas tiefer.
+- **Ein Rundgang.** Zwei Minuten an der echten Oberfläche, von einer
+  Beispielprüfung bis zum Grund des Challengertiefs in 10.935 m. Jederzeit
+  wieder über ⌘K oder die Einstellungen.
+- **Der Schlussakkord des Intros klingt aus.** Der Ton am Ende des Intros
+  bricht nicht mehr ab, wenn die App erscheint.
+
 ## 1.1.2
 
 Ein Sicherheitsupdate nach einer Prüfung von 1.1.1: Benthic schützt seinen

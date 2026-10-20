@@ -547,58 +547,91 @@ tr.reveal { animation: rowin .4s var(--ease-out) both; }
 @keyframes rowin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* ------------------------------------------------------------------ */
-/* Setup wizard                                                       */
+/* Welcome and setup: a dive from the surface into the abyss          */
 /* ------------------------------------------------------------------ */
+/* Always deep water, in both themes: the scene picks up where the intro of the app ends.
+   The water itself is drawn on #sea (app.js, sea scene); the gauge counts the metres. */
+.setup, .gauge, .sea-sound {
+  color-scheme: dark;
+  --panel: rgba(12, 24, 46, .68);
+  --panel-2: rgba(16, 30, 56, .78);
+  --panel-3: rgba(22, 38, 68, .82);
+  --border: rgba(160, 190, 255, .15);
+  --border-strong: rgba(160, 190, 255, .28);
+  --edge-hi: rgba(255, 255, 255, .1);
+  --text: #eaf2ff;
+  --muted: #a6b8d4;
+  --faint: #7184a6;
+  --focus: #8fe3ff;
+  --accent: #45d3e6;
+  --accent-2: #8fe3ff;
+  --accent-ink: #04132e;
+  --accent-soft: rgba(69, 211, 230, .12);
+  --accent-glow: rgba(120, 170, 255, .45);
+  --btn-grad: linear-gradient(180deg, #ffffff 0%, #eef4ff 100%);
+  --btn-grad-hover: linear-gradient(180deg, #ffffff 0%, #dfeaff 100%);
+  --btn-ink: #04132e;
+  --state-legal: #45d3e6;
+  --state-legal-bg: rgba(69, 211, 230, .13);
+  --state-fail: #ff8e84;
+  --state-fail-bg: rgba(255, 142, 132, .13);
+  --progress-track: rgba(160, 190, 255, .12);
+}
 .setup {
   position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-  background:
-    radial-gradient(800px 500px at 50% 0%, rgba(46, 159, 211, .22), transparent 70%),
-    rgba(5, 18, 29, .52);
-  -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3);
-  animation: fadein var(--dur) var(--ease);
+  padding: 72px 190px 56px 64px; overflow-y: auto; background: #040a17; color: var(--text);
 }
-@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
-.setup-card {
-  position: relative; width: min(580px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
-  padding: 34px 38px 26px; border-radius: var(--r-xl); background: var(--panel); border: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-lg); animation: pop .45s var(--ease-out);
-}
-.setup-card::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 160px; pointer-events: none;
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  background: radial-gradient(420px 150px at 18% -30px, var(--caustic-a), transparent 70%);
-}
-.setup-card > * { position: relative; }
-@keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
-.setup-dots { display: flex; gap: 6px; list-style: none; margin: 0 0 26px; padding: 0; }
-.setup-dots li { height: 4px; flex: 1; border-radius: var(--r-pill); background: var(--progress-track); transition: background var(--dur), box-shadow var(--dur); }
-.setup-dots li.on { background: linear-gradient(90deg, var(--accent-2), var(--accent)); box-shadow: 0 0 10px var(--accent-glow); }
+.sea { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.setup-lang { position: fixed; top: 20px; left: 22px; z-index: 1; background: rgba(10, 20, 40, .55); }
+.setup-lang[hidden] { display: none; }
+.setup-card { position: relative; width: min(560px, 100%); margin: auto 0; }
 .setup-step { display: none; }
-.setup-step.active { display: block; animation: slidein .38s var(--ease-out); }
-.setup-step.back { animation-name: slideback; }
-@keyframes slidein { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
-@keyframes slideback { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
-.setup h2 { margin: 0 0 8px; font-family: var(--font-title); font-size: 27px; font-weight: 600; letter-spacing: -.4px; line-height: 1.15; }
-.setup .lead { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.setup-mark { width: 68px; height: 68px; margin-bottom: 16px; }
-.setup-points { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 8px; }
-.setup-points li { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: var(--r-md); background: var(--panel-2); border: 1px solid var(--border); }
-.setup-points .ic { width: 20px; height: 20px; color: var(--accent); margin-top: 1px; }
-.setup-form { display: grid; gap: 6px; }
+.setup-step.active { display: block; }
+/* Going down, what lies deeper rises into view; going back up, it sinks in from above. */
+.setup-step.active > * { animation: surface .8s var(--ease-out) both; }
+.setup-step.active > :nth-child(2) { animation-delay: .08s; }
+.setup-step.active > :nth-child(3) { animation-delay: .16s; }
+.setup-step.active > :nth-child(4) { animation-delay: .24s; }
+.setup-step.active > :nth-child(5) { animation-delay: .32s; }
+.setup-step.back > * { animation-name: sinkin; }
+.setup-step.active > .setup-mark { animation: none; }  /* the intro lands on it, so it must not move */
+@keyframes surface { from { opacity: 0; transform: translateY(26px); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes sinkin { from { opacity: 0; transform: translateY(-22px); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
+.setup-foot, .setup-lang, .gauge, .sea-sound { animation: surface .9s var(--ease-out) both .35s; }
+/* While the intro plays over the scene, its icon is still on the way and the words wait. */
+html.intro-on .setup-mark { opacity: 0; }
+html.intro-on .setup-step > :not(.setup-mark), html.intro-on .setup-foot, html.intro-on .setup-lang,
+html.intro-on .gauge, html.intro-on .sea-sound { animation: none; opacity: 0; }
+
+.setup h2 { margin: 0 0 14px; font-family: var(--font-title); font-size: 34px; font-weight: 600; letter-spacing: -.6px; line-height: 1.12; text-wrap: balance; }
+.setup-step[data-step="0"] h2 { font-size: 50px; letter-spacing: -1.4px; line-height: 1.04; margin-bottom: 20px; }
+.setup .lead { margin: 0 0 12px; color: var(--muted); font-size: 16px; line-height: 1.6; text-wrap: pretty; }
+.setup-step[data-step="0"] .lead { font-size: 18px; }
+.setup-step[data-step="0"] .lead:first-of-type { color: var(--text); }
+.setup-step[data-step="0"] .hint { margin: 26px 0 0; color: var(--muted); font-size: var(--fs-base); }
+.setup-mark { display: block; width: 104px; height: 104px; margin: 0 0 30px; filter: drop-shadow(0 18px 46px rgba(46, 159, 211, .5)); }
+.setup-form {
+  display: grid; gap: 6px; margin-top: 24px; padding: 18px 22px 22px; border-radius: var(--r-lg);
+  background: var(--panel); border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 var(--edge-hi), 0 30px 80px rgba(0, 10, 40, .45);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
 .setup-form label { font-weight: 600; margin-top: 8px; }
 .setup-form label .opt { font-weight: 400; color: var(--muted); font-size: var(--fs-sm); margin-left: 4px; }
-.setup-form input[type="text"] { width: 100%; }
-.setup-form .help { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.setup-form input[type="text"] { width: 100%; height: 38px; }
+.setup-form .help { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
 .setup-form .inline { display: flex; gap: 8px; }
 .setup-form .inline input { flex: 1; min-width: 0; }
+.setup-form .inline .btn { height: 38px; }
 .setup-form input.invalid { border-color: var(--state-fail); box-shadow: 0 0 0 4px var(--state-fail-bg); }
+.setup .choices { margin-top: 24px; }
 .choices { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 12px; }
 .choice {
   display: flex; gap: 12px; align-items: center; padding: 13px 15px; cursor: pointer; text-align: left;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel); font: inherit; color: var(--text);
   transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
 }
+.setup .choice { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .choice:hover { border-color: var(--border-strong); }
 .choice[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
 .choice .ic { width: 20px; height: 20px; color: var(--accent); }
@@ -606,24 +639,128 @@ tr.reveal { animation: rowin .4s var(--ease-out) both; }
 .choice .t { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
 .choice .t strong { font-weight: 600; }
 .choice .t span { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lang-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 18px 0 4px; }
-.lang-choices .choice { padding: 15px 16px; }
-.lang-code {
-  flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%;
-  font-family: var(--font-title); font-size: 15px; font-weight: 600; letter-spacing: .3px;
-  color: var(--accent); background: var(--panel-2); border: 1px solid var(--border); box-shadow: inset 0 1px 0 var(--edge-hi);
-}
-.choice[aria-checked="true"] .lang-code { color: var(--accent-ink); background: var(--btn-grad); border-color: transparent; }
-.setup-done { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: var(--state-legal-bg); margin-bottom: 16px; box-shadow: 0 0 0 8px var(--accent-soft); }
-.setup-done .ic { width: 30px; height: 30px; color: var(--state-legal); animation: popcheck .5s var(--ease-out) both .1s; }
+.setup-done { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: var(--state-legal-bg); margin-bottom: 22px; box-shadow: 0 0 0 9px var(--accent-soft), 0 0 50px rgba(69, 211, 230, .35); }
+.setup-done .ic { width: 32px; height: 32px; color: var(--state-legal); animation: popcheck .5s var(--ease-out) both .2s; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes popcheck { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
-.setup-recap { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.setup-recap { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 0; }
 .setup-recap li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
 .setup-recap li span:first-child { color: var(--muted); }
 .setup-recap li span:last-child { text-align: right; overflow-wrap: anywhere; }
-.setup-error { min-height: 18px; margin: 12px 0 0; color: var(--state-fail); font-size: var(--fs-sm); }
-.setup-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.setup-error { min-height: 18px; margin: 14px 0 0; color: var(--state-fail); font-size: var(--fs-sm); }
+.setup-foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
 .setup-foot .spacer { flex: 1; }
+.setup[data-step="0"] .setup-foot { margin-top: 30px; }
+.setup[data-step="0"] .setup-foot .spacer { display: none; }
+.setup-foot .btn { height: 42px; padding: 0 22px; font-size: 14px; }
+.setup-foot .btn.primary .ic { width: 16px; height: 16px; }
+
+/* Depth gauge: a sounding line to the floor of the Challenger Deep (as on benthic.isoglu.com). The pearl
+   carries the depth, the zone and, once it stops, the fact that belongs to that depth. */
+.gauge { position: fixed; z-index: 230; top: 72px; bottom: 72px; right: 44px; width: 2px; pointer-events: none; color: var(--text); }
+.gauge[hidden], .sea-sound[hidden], .tour[hidden] { display: none; }
+.gauge-track { position: absolute; inset: 0; border-radius: 2px; background: rgba(160, 190, 255, .16); overflow: hidden; }
+.gauge-fill { position: absolute; left: 0; right: 0; top: 0; height: 0; background: linear-gradient(180deg, #8fe3ff, #45d3e6 55%, #2e6fd3); box-shadow: 0 0 10px rgba(143, 227, 255, .6); }
+.gauge-zones { list-style: none; margin: 0; padding: 0; position: absolute; inset: 0; }
+.gauge-zones li { position: absolute; left: -4px; width: 10px; height: 1px; background: rgba(160, 190, 255, .45); }
+.gauge-zones li:last-child { left: -7px; width: 16px; height: 2px; background: rgba(160, 190, 255, .6); }
+.gauge-pearl { position: absolute; left: 1px; top: 0; width: 0; height: 0; }
+.gauge-pearl::before {
+  content: ""; position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffffff, #8fe3ff 45%, #2e9fd3);
+  box-shadow: 0 0 0 4px rgba(143, 227, 255, .14), 0 0 18px rgba(143, 227, 255, .8);
+}
+.gauge-pearl b {
+  position: absolute; right: 16px; top: -10px; white-space: nowrap; font: 500 14px/20px var(--font-mono);
+  font-variant-numeric: tabular-nums; letter-spacing: .02em; text-shadow: 0 1px 8px rgba(0, 20, 60, .7);
+}
+.gauge-pearl b small { display: block; text-align: right; font: 400 var(--fs-xs)/16px var(--font-ui); letter-spacing: 0; color: var(--muted); }
+.gauge-fact {
+  position: absolute; right: 16px; top: 30px; width: 210px; text-align: right; font-size: var(--fs-sm); line-height: 1.45;
+  color: rgba(206, 224, 250, .8); text-shadow: 0 1px 8px rgba(0, 20, 60, .7);
+  opacity: 0; transform: translateY(-4px); transition: opacity .7s var(--ease), transform .7s var(--ease-out);
+}
+.gauge-fact.on { opacity: 1; transform: none; }
+html.touring .gauge-fact { display: none; }  /* in the tour the fact stands in the card */
+.sea-sound {
+  position: fixed; z-index: 231; right: 30px; bottom: 22px; width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; color: var(--muted);
+  border: 1px solid var(--border-strong); background: rgba(10, 20, 40, .55);
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+.sea-sound:hover { color: var(--text); border-color: var(--accent); }
+.sea-sound .ic { width: 15px; height: 15px; }
+
+/* ------------------------------------------------------------------ */
+/* Tour: a beam of light moves over the real interface                */
+/* ------------------------------------------------------------------ */
+.tour { position: fixed; inset: 0; z-index: 220; }
+.tour-veil { position: absolute; inset: 0; }
+.tour-hole {
+  position: fixed; left: 50%; top: 50%; width: 0; height: 0; border-radius: 16px; pointer-events: none;
+  box-shadow: 0 0 0 200vmax rgba(2, 7, 18, .72), 0 0 0 1.5px rgba(143, 227, 255, .6), 0 0 40px 6px rgba(69, 211, 230, .22);
+  transition: left .65s var(--ease-out), top .65s var(--ease-out), width .65s var(--ease-out), height .65s var(--ease-out), box-shadow .8s var(--ease);
+}
+/* Sonar: two rings run outward from the lit part, like the pings of the intro. */
+.tour-hole::before, .tour-hole::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1.5px solid rgba(143, 227, 255, .7);
+  opacity: 0; animation: sonar 2.8s var(--ease-out) infinite .4s;
+}
+.tour-hole::after { animation-delay: 1.8s; }
+@keyframes sonar { 0% { inset: 0; opacity: .85; } 100% { inset: -30px; opacity: 0; border-radius: 34px; } }
+.tour.floor .tour-hole { box-shadow: 0 0 0 200vmax rgba(2, 7, 18, .86); }
+.tour.floor .tour-hole::before, .tour.floor .tour-hole::after { display: none; }
+.tour-bloom {
+  position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1.6s var(--ease);
+  background: radial-gradient(60vmax 50vmax at 50% 44%, rgba(214, 246, 255, .38), rgba(92, 211, 242, .16) 30%, transparent 64%);
+}
+.tour.floor .tour-bloom { opacity: 1; }
+.tour-card {
+  position: fixed; left: 0; top: 0; width: min(356px, calc(100vw - 32px)); padding: 20px 20px 18px; overflow: hidden;
+  border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-lg), 0 0 0 1px rgba(143, 227, 255, .08);
+  transition: left .65s var(--ease-out), top .65s var(--ease-out);
+}
+.tour-card::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 120px; pointer-events: none;
+  background: radial-gradient(300px 110px at 15% -30px, var(--caustic-a), transparent 70%);
+}
+.tour-card > * { position: relative; }
+.tour-card h2 { margin: 0 34px 8px 0; font-family: var(--font-title); font-size: 19px; font-weight: 600; letter-spacing: -.2px; line-height: 1.25; text-wrap: balance; }
+.tour-card p { margin: 0; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
+.tour-card p.tour-fact { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); font-size: var(--fs-sm); line-height: 1.5; }
+.tour-card.swap h2, .tour-card.swap p { animation: surface .55s var(--ease-out) both; }
+.tour-card.swap p { animation-delay: .06s; }
+.tour-card.swap p.tour-fact { animation-delay: .14s; }
+.tour-close { position: absolute; top: 12px; right: 10px; color: var(--muted); }
+.tour-mark { display: block; width: 76px; height: 76px; margin: 6px auto 16px; filter: drop-shadow(0 14px 40px rgba(92, 211, 242, .6)); animation: popcheck .9s var(--ease-out) both .2s; }
+.tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 18px; }
+.tour-foot .spacer { flex: 1; }
+.tour-depth { font: 500 var(--fs-sm)/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--accent); white-space: nowrap; }
+.tour-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--progress-track); }
+.tour-progress i { display: block; height: 100%; width: 0; background: var(--progress-fill); transition: width .65s var(--ease-out); }
+.tour.floor .tour-card { text-align: center; }
+.tour.floor .tour-card h2 { margin-right: 0; font-size: 24px; }
+.tour.floor .tour-foot { justify-content: center; }
+.tour.floor .tour-foot .spacer { display: none; }
+
+@media (max-width: 980px) {
+  .setup { padding: 72px 110px 40px 32px; }
+  .gauge-fact { display: none; }
+  .setup-step[data-step="0"] h2 { font-size: 40px; }
+}
+@media (max-height: 720px) {
+  .setup { padding-top: 40px; padding-bottom: 24px; }
+  .setup h2 { font-size: 28px; margin-bottom: 10px; }
+  .setup-step[data-step="0"] h2 { font-size: 40px; }
+  .setup-mark { width: 84px; height: 84px; margin-bottom: 20px; }
+  .setup .lead { font-size: 15px; }
+  .setup-form { margin-top: 16px; padding: 14px 18px 16px; }
+  .setup-form .help { font-size: var(--fs-xs); }
+  .setup-error { margin-top: 8px; }
+  .setup-foot { margin-top: 8px; }
+}
 
 /* ------------------------------------------------------------------ */
 /* Projects                                                           */

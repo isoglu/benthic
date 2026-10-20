@@ -720,6 +720,8 @@ function finish(tail) {
   if (finished) return;
   finished = true;
   if (tail < 1 && SND.perf) { cancelPerf(SND.perf); SND.perf = null; }
+  // Der Nachhall klingt aus und ist zum Ende von tail still, bevor die App die Seite entfernt.
+  else if (SND.perf) { const g = SND.fx.master.gain, at = SND.ac.currentTime; g.setValueAtTime(g.value, at + tail * .4); g.linearRampToValueAtTime(0, at + tail); }
   post({ action: "done", tail });
 }
 window.benthicIntro = {
