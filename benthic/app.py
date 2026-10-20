@@ -27,6 +27,72 @@ logger = logging.getLogger("benthic")
 quota.install()  # jede Anfrage an einen Dienst wird gezählt und im Rahmen gehalten (quota.py)
 
 app = Flask("benthic", static_folder="static", static_url_path="/static")
+# Größte Anfrage: eine Arbeit (document.MAX_BYTES) samt Formularfeldern; alles darüber lehnt Flask mit 413 ab.
+app.config["MAX_CONTENT_LENGTH"] = document.MAX_BYTES + 4 * 1024 * 1024
+
+# --------------------------------------------------------------------------
+# Schutz der lokalen Schnittstelle
+# --------------------------------------------------------------------------
+# Das Backend hört nur auf 127.0.0.1, aber jede Website im Browser kann Anfragen dorthin schicken.
+# Zwei Wege sind damit zu: DNS-Rebinding (eine fremde Domain zeigt plötzlich auf 127.0.0.1, erkennbar
+# am Host-Kopf) und einfache Anfragen fremder Seiten (Formulare, fetch ohne Vorabprüfung, erkennbar an
+# Origin und Sec-Fetch-Site). Die App, Grimpo, der MCP-Server und das Zotero-Plug-in kommen weiter durch:
+# Sie senden den eigenen Host und dazu den eigenen Origin oder JSON. JSON darf eine fremde Seite nur
+# nach einer Vorabprüfung (CORS) senden, und die besteht hier keine.
+LOCAL_NAMES = ("127.0.0.1", "localhost")
+SAFE_METHODS = ("GET", "HEAD")
+
+
+def _split_host(value: str):
+    """("127.0.0.1", "8327") aus einem Host-Kopf; ohne Port gilt 80."""
+    value = (value or "").strip().lower()
+    name, sep, port = value.rpartition(":")
+    if sep and port.isdigit() and ":" not in name:
+        return name, port
+    return value, "80"
+
+
+def _own_origins(port: str):
+    origins = {f"http://{n}:{port}" for n in LOCAL_NAMES}
+    return origins | ({f"http://{n}" for n in LOCAL_NAMES} if port == "80" else set())
+
+
+def refusal(host: str, port: str, method: str, origin: Optional[str], content_type: str,
+            fetch_site: str = "", fetch_mode: str = "", own_port: str = "80") -> Optional[str]:
+    """Grund, eine Anfrage abzulehnen ("host", "origin", "site", "type"), oder None."""
+    if host not in LOCAL_NAMES or port != own_port:
+        return "host"
+    json_body = content_type == "application/json"
+    own = origin is not None and origin.lower() in _own_origins(port)
+    # "null" senden etwa Seiten in einer Sandbox und vielleicht Zotero; mit JSON ist das ungefährlich (siehe oben).
+    if origin is not None and not own and not (origin == "null" and json_body):
+        return "origin"
+    navigation = method == "GET" and fetch_mode == "navigate"
+    if fetch_site in ("cross-site", "same-site") and not (navigation or json_body):
+        return "site"
+    if method in SAFE_METHODS or own or json_body:
+        return None
+    return "type"
+
+
+@app.before_request
+def _guard():
+    host, port = _split_host(request.headers.get("Host", ""))
+    reason = refusal(host, port, request.method, request.headers.get("Origin"), request.mimetype,
+                     request.headers.get("Sec-Fetch-Site", ""), request.headers.get("Sec-Fetch-Mode", ""),
+                     str(request.environ.get("SERVER_PORT") or "80"))
+    if reason:
+        logger.warning("Anfrage abgelehnt (%s): %s %s, Host %r, Origin %r", reason, request.method, request.path,
+                       request.headers.get("Host", "")[:80], (request.headers.get("Origin") or "")[:80])
+        return jsonify({"error": tr("Diese Anfrage kam nicht aus Benthic und wurde abgelehnt.")}), 403
+    return None
+
+
+@app.errorhandler(413)
+def _too_large(_exc):
+    """Über MAX_CONTENT_LENGTH: eine Antwort, die die Oberfläche lesen kann."""
+    return jsonify({"error": tr("Die Datei ist größer als 60 MB.")}), 413
+
 
 # Plugins (Zusatzwege, eigene Endpunkte, UI-Module); ohne Plugins bleibt alles beim Kern.
 routes.load_plugins()
@@ -462,7 +528,7 @@ def save_setup():
         "library_sources": sources,
         "setup_complete": True,
     })
-    return jsonify({"settings": settings, "imported": imported, "count": library.count()})
+    return jsonify({"settings": config.masked(settings), "imported": imported, "count": library.count()})
 
 
 # --------------------------------------------------------------------------
@@ -470,13 +536,13 @@ def save_setup():
 # --------------------------------------------------------------------------
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
-    return jsonify(config.load_settings())
+    return jsonify(config.masked(config.load_settings()))  # API-Keys nur als Platzhalter
 
 
 @app.route("/api/settings", methods=["POST"])
 def set_settings():
     data = request.get_json(silent=True) or {}
-    return jsonify(config.save_settings(data))
+    return jsonify(config.masked(config.save_settings(config.without_masks(data))))
 
 
 # --------------------------------------------------------------------------
@@ -589,7 +655,7 @@ def check_document():
     else:
         body = request.get_json(silent=True) or {}
         path = Path(str(body.get("path") or "")).expanduser()
-        if not path.exists():
+        if not path.exists() or not (path.is_dir() or path.is_file()):
             return jsonify({"error": tr("Datei nicht gefunden: {path}", path=str(path))}), 400
         items = [] if path.is_dir() else [(path.name, b"")]
         project = body.get("project", projects.active())
@@ -600,6 +666,7 @@ def check_document():
         msg = {"type": tr("Bitte eine PDF-, Word-, LaTeX-, Text- oder Markdown-Datei wählen."),
                "size": tr("Die Datei ist größer als 60 MB."),
                "no-tex": tr("Im Projekt steht keine .tex-Datei."),
+               "too-many": tr("Im Ordner liegen zu viele Dateien für ein LaTeX-Projekt."),
                }.get(reason, tr("Die Datei ließ sich nicht lesen."))
         return jsonify({"error": msg}), 400
     if not analysis["entries"]:
@@ -618,6 +685,12 @@ def check_document():
 def _analyse_document(items, path=None):
     """(Analyse, Anzeigename, Zeichenzahl) für hochgeladene Dateien oder einen Pfad; ValueError bei Fehlern."""
     names = [n for n, _ in items]
+    if path is not None and not path.is_dir():
+        # Vor dem Lesen: nur gewöhnliche Dateien passender Art und Größe (kein /dev/zero, keine Pipe).
+        if not path.is_file() or path.suffix.lower() not in document.TYPES + (".tex", ".ltx", ".zip"):
+            raise ValueError("type")
+        if path.stat().st_size > document.MAX_BYTES:
+            raise ValueError("size")
     tex_like = path is not None and (path.is_dir() or path.suffix.lower() in (".tex", ".ltx"))
     if not tex_like and any(n.lower().endswith((".tex", ".ltx", ".zip")) for n in names):
         tex_like = True
@@ -1551,7 +1624,7 @@ def library_import():
     if data.get("path"):
         try:
             res = library.import_from_file(str(data["path"]))
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify({**res, "count": library.count()})
     res = library.import_from_text(str(data.get("text", "")))

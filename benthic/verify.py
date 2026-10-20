@@ -21,7 +21,7 @@ import unicodedata
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from . import oa, quota, refs
+from . import netguard, oa, quota, refs
 from .i18n import each_lang, join_list, note_part, tr, tr_parts
 
 VERDICTS = ("verified", "corrected", "partial", "uncertain", "mismatch", "not_found", "retracted")
@@ -601,15 +601,24 @@ _MAGAZINES = re.compile(r"McKinsey|Harvard Business Review|MIT Sloan Management 
 
 def _fetch_page(url: str) -> Tuple[Optional[bool], str]:
     """(erreichbar, Seitentitel). True: die Seite gibt es (auch wenn sie Programme aussperrt); False: Adresse falsch;
-    None: unklar. Gelesen werden höchstens 300 kB, genug für den Kopf einer Seite."""
+    None: unklar. Gelesen werden höchstens 300 kB, genug für den Kopf einer Seite.
+
+    Nur Adressen im öffentlichen Internet (netguard): Ein Link auf diesen Mac oder ins eigene Netz bleibt
+    unklar, wird nicht aufgerufen und geht auch nicht ans Internet Archive.
+    """
     import requests
-    try:
-        resp = requests.get(url.rstrip(".,;"), timeout=10.0, allow_redirects=True, stream=True,
-                            headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
-    except requests.exceptions.ConnectionError:
-        return False, ""  # Domain gibt es nicht oder nimmt keine Verbindung an
-    except requests.exceptions.RequestException:
+    url = url.rstrip(".,;")
+    if not netguard.url_allowed(url):
         return None, ""
+    with netguard.public_only(url) as guard:
+        try:
+            resp = requests.get(url, timeout=10.0, allow_redirects=True, stream=True,
+                                headers={"User-Agent": oa.PDF_USER_AGENT, "Accept": "text/html,*/*"})
+        except requests.exceptions.ConnectionError:
+            # Domain gibt es nicht oder nimmt keine Verbindung an; eine Weiterleitung ins eigene Netz bleibt unklar
+            return (None if guard["blocked"] else False), ""
+        except requests.exceptions.RequestException:
+            return None, ""
     title = ""
     try:
         if resp.status_code < 400 and "html" in str(resp.headers.get("Content-Type") or "").lower():

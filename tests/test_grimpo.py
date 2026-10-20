@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests import ui_client
+
 
 class Grimpo(unittest.TestCase):
     def setUp(self):
@@ -13,7 +15,7 @@ class Grimpo(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"BENTHIC_DATA_DIR": self.tmp.name})
         self.env.start()
         from benthic import app as appmod
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         self.env.stop()

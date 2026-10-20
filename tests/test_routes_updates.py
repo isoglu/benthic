@@ -10,6 +10,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from tests import ui_client
+
 ROOT = Path(__file__).resolve().parent.parent
 
 PLUGIN = """
@@ -119,7 +121,7 @@ class Updates(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["BENTHIC_DATA_DIR"] = self.tmp.name
         from benthic import app as appmod
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         self.srv.shutdown()
@@ -135,6 +137,37 @@ class Updates(unittest.TestCase):
         self.assertEqual(u["latest"], "9.0.0")
         self.assertEqual(u["notes"], ["Neu"])
 
+    def test_own_address_only_from_source_or_official_site(self):
+        """In der gebauten App zählt eine eigene Update-Adresse nur auf benthic.isoglu.com."""
+        from unittest import mock
+        from benthic import config
+        local = f"http://127.0.0.1:{self.srv.server_port}/release.json"
+        official = "https://benthic.isoglu.com/release.json"
+        with mock.patch.object(config, "build_update_url", return_value="https://benthic.isoglu.com/release.json"):
+            self.assertEqual(config.update_url({"update_url": local}), local)  # Entwicklung aus dem Projekt
+            with mock.patch.object(config, "bundled", return_value=True):
+                self.assertEqual(config.update_url({"update_url": local}), official)
+                self.assertEqual(config.update_url({"update_url": "https://benthic.isoglu.com.evil.example/x"}), official)
+                self.assertEqual(config.update_url({"update_url": official + "?beta"}), official + "?beta")
+        self.assertFalse(config.bundled())
+
+    def test_signed_message_is_the_same_everywhere(self):
+        from benthic import updates
+        msg = updates.SIGNED_FORMAT.format(version="1.2.3", sha256="ab")
+        self.assertEqual(msg, "Benthic update\nversion 1.2.3\nsha256 ab\n")
+        release = (ROOT / "macos" / "make_release.sh").read_text(encoding="utf-8")
+        self.assertIn('f"Benthic update\\nversion {version}\\nsha256 {h.hexdigest()}\\n"', release)
+        swift = (ROOT / "macos" / "BenthicApp.swift").read_text(encoding="utf-8")
+        self.assertIn('"Benthic update\\nversion \\(version)\\nsha256 \\(sha256)\\n"', swift)
+
+    def test_release_key_is_built_in(self):
+        """Ohne öffentlichen Schlüssel könnte die App kein Update installieren (build_app.sh bricht dann ab)."""
+        import base64
+        import re
+        swift = (ROOT / "macos" / "BenthicApp.swift").read_text(encoding="utf-8")
+        key = re.search(r'^let releaseUpdateKey = "([^"]*)"$', swift, re.M).group(1)
+        self.assertEqual(len(base64.b64decode(key, validate=True)), 32)
+
     def test_version_compare(self):
         from benthic.updates import parse_version
         self.assertGreater(parse_version("1.10.0"), parse_version("1.9.3"))
@@ -144,12 +177,13 @@ class Updates(unittest.TestCase):
 class UpdateDownload(unittest.TestCase):
     """Aktualisieren aus der App: laden, Prüfsumme, Herkunft (lokaler Server statt benthic.isoglu.com)."""
     PAYLOAD = b"fake dmg " * 5000
+    SIGNATURE = "A" * 86 + "=="  # nur die Form; echt prüft sie erst die App (BenthicApp.swift)
 
     def setUp(self):
         import hashlib
         test = self
         self.manifest = {"version": "9.0.0", "notes": ["Neu"], "size": len(self.PAYLOAD),
-                         "sha256": hashlib.sha256(self.PAYLOAD).hexdigest()}
+                         "sha256": hashlib.sha256(self.PAYLOAD).hexdigest(), "signature": self.SIGNATURE}
 
         class H(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -174,7 +208,7 @@ class UpdateDownload(unittest.TestCase):
         os.environ["BENTHIC_DATA_DIR"] = self.tmp.name
         from benthic import app as appmod, updates
         updates._set(state="idle")
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
         self.client.post("/api/settings", json={"update_url": self.base + "release.json"})
 
     def tearDown(self):
@@ -199,6 +233,17 @@ class UpdateDownload(unittest.TestCase):
         self.assertEqual(path.parent, Path(self.tmp.name) / "updates")
         self.assertEqual(path.read_bytes(), self.PAYLOAD)
         self.assertEqual(st["version"], "9.0.0")
+        self.assertEqual(st["signature"], self.SIGNATURE)  # geht an die App, die sie prüft
+
+    def test_unsigned_manifest_is_refused(self):
+        for bad in (None, "", "abc", "A" * 88):
+            with self.subTest(signature=bad):
+                self.manifest.pop("signature", None)
+                if bad is not None:
+                    self.manifest["signature"] = bad
+                st = self.client.post("/api/update/download").get_json()
+                self.assertEqual(st["state"], "error")
+                self.assertFalse((Path(self.tmp.name) / "updates" / "Benthic-9.0.0.dmg").exists())
 
     def test_wrong_checksum_is_discarded(self):
         self.manifest["sha256"] = "0" * 64

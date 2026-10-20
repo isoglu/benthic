@@ -50,6 +50,12 @@ MONTHS = {"de": ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "
 STATIC = Path(__file__).resolve().parent / "static"
 
 
+def _web(url: object) -> str:
+    """Links aus fremden Daten nur mit http oder https (kein javascript:, file: oder Schema einer App)."""
+    text = str(url or "").strip()
+    return text if re.match(r"(?i)https?://", text) else ""
+
+
 def _e(value: object) -> str:
     return html.escape(str(value if value is not None else ""))
 
@@ -354,8 +360,8 @@ def _attention_card(r: Dict, shared_note: Optional[str] = None) -> str:
     web = r.get("web") or {}
     if web.get("url"):
         bits = [f'<span class="mono">{_e(web["url"])}</span>']
-        if web.get("archive_url"):
-            bits.append(f'<a href="{_e(web["archive_url"])}">{_e(tr("Im Internet Archive ({date})", date=web.get("archive_date") or ""))}</a>')
+        if _web(web.get("archive_url")):
+            bits.append(f'<a href="{_e(_web(web["archive_url"]))}">{_e(tr("Im Internet Archive ({date})", date=web.get("archive_date") or ""))}</a>')
         try:
             accessed = time.mktime(time.strptime(str(web.get("accessed") or ""), "%Y-%m-%d"))
             bits.append(_e(tr("Abgerufen am {date}", date=_date(accessed, clock=False))))

@@ -10,6 +10,8 @@ from unittest import mock
 
 from benthic import latex
 
+from tests import ui_client
+
 MAIN = r"""\documentclass{article}
 \addbibresource{refs.bib}
 \begin{document}
@@ -85,7 +87,7 @@ class Route(unittest.TestCase):
                                                      "status": "verified", "note": "", "score": 100, "flags": []}
         self.patch = mock.patch.object(verify, "verify_ref", side_effect=fake)
         self.patch.start()
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         self.patch.stop()

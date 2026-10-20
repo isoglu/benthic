@@ -9,6 +9,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from tests import ui_client
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -17,7 +19,7 @@ class Projects(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["BENTHIC_DATA_DIR"] = self.tmp.name
         from benthic import app as appmod
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         os.environ.pop("BENTHIC_DATA_DIR", None)

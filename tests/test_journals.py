@@ -6,6 +6,8 @@ import unittest
 
 from benthic import journals
 
+from tests import ui_client
+
 
 class Normalisierung(unittest.TestCase):
     def test_issn(self):
@@ -189,7 +191,7 @@ class Schnittstelle(unittest.TestCase):
         journals.venues_for_dois = lambda dois, email="": {d: (dict(journals.ARXIV_SOURCE) if d.startswith("10.48550/") else nature) for d in dois}
         journals.jufo_level = lambda issns: 3
         from benthic import app as appmod
-        self.client = appmod.app.test_client()
+        self.client = ui_client(appmod.app)
 
     def tearDown(self):
         journals.venues_for_dois, journals.jufo_level = self.orig

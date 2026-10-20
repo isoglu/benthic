@@ -76,13 +76,17 @@ def slugify(text: str, max_len: int = 80) -> str:
 
 
 def build_filename(doi: str, metadata: Optional[Dict[str, str]]) -> str:
-    """Baut einen lesbaren Dateinamen aus Crossref-Metadaten bzw. DOI."""
+    """Baut einen lesbaren Dateinamen aus Crossref-Metadaten bzw. DOI.
+
+    Jeder Teil geht durch slugify: Autor:in, Jahr und Titel stammen aus fremden Metadaten (Crossref, OpenAlex)
+    und dürfen weder Pfadteile wie ../ noch Schrägstriche in den Namen bringen.
+    """
     if metadata:
-        parts = [p for p in [metadata.get("author", ""), metadata.get("year", ""), slugify(metadata.get("title", ""))] if p]
-        if parts:
-            stem = "_".join(parts)
-            if stem:
-                return f"{stem}.pdf"
+        parts = [slugify(str(metadata.get("author") or ""), 40), slugify(str(metadata.get("year") or ""), 8),
+                 slugify(str(metadata.get("title") or ""))]
+        stem = "_".join(p for p in parts if p)
+        if stem:
+            return f"{stem}.pdf"
 
     # Fallback: DOI als Basis
-    return f"{slugify(doi)}.pdf"
+    return f"{slugify(doi) or 'paper'}.pdf"

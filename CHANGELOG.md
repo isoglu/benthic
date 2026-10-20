@@ -5,6 +5,28 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.2
+
+A security update after a review of 1.1.1: Benthic now guards its local service
+and its updates more strictly. The app also plays an intro when it starts.
+
+- **Web pages can no longer use the app.** Benthic's local service answers only
+  the app, its AI connection and the Zotero plug-in. A web page open in your
+  browser can no longer read your settings, start checks or change your library.
+  The settings show API keys only masked.
+- **Signed updates.** Every update now carries a signature, and the app
+  installs it only if the signature matches the key built into Benthic.
+- **Careful with foreign data.** Names of downloaded PDFs, links from metadata,
+  very large or packed files and spreadsheet exports can no longer write outside
+  the download folder, open other apps, stall Benthic or run formulas. Links in
+  references are opened only when they lead to the public internet.
+- **An intro when the app starts.** While Benthic starts, it dives from the
+  surface down to the lit deepest point, with sound, and lands on the logo in
+  the sidebar. The first start shows the whole dive, later starts a short
+  version. Escape skips it; with reduced motion turned on, there is none.
+- **No stray link at the top.** The "Skip to content" link from 1.1.0 is hidden
+  again and only appears when you press Tab.
+
 ## 1.1.1
 
 A fix for the update inside the app.

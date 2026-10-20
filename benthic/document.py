@@ -24,6 +24,9 @@ from xml.etree import ElementTree
 from . import refs
 
 MAX_BYTES = 60 * 1024 * 1024
+# Entpackt höchstens so viel aus einer Word-Datei oder einem LaTeX-Archiv: Ein Zip von wenigen KB kann sonst
+# Hunderte MB XML oder Text ergeben. Gezählt wird die Größe, die das Archiv angibt; zipfile liest nie mehr.
+MAX_UNPACKED = 200 * 1024 * 1024
 TYPES = (".pdf", ".docx", ".txt", ".md", ".markdown")
 
 # Überschriften des Literaturverzeichnisses, auf einer eigenen Zeile (auch nummeriert: "7 Literatur").
@@ -87,6 +90,15 @@ def _caps_styles(z: zipfile.ZipFile) -> set:
     return result
 
 
+def unpacked_size(z: zipfile.ZipFile, names) -> int:
+    """Summe der entpackten Größen dieser Einträge; ValueError("size") über MAX_UNPACKED."""
+    infos = {i.filename: i for i in z.infolist()}
+    total = sum(infos[n].file_size for n in names if n in infos)
+    if total > MAX_UNPACKED:
+        raise ValueError("size")
+    return total
+
+
 def _docx_text(data: bytes) -> str:
     """Absätze aus word/document.xml, dazu Fuß- und Endnoten (dort stehen oft die Zitate).
 
@@ -98,6 +110,7 @@ def _docx_text(data: bytes) -> str:
     ns = _W
     parts = []
     with zipfile.ZipFile(io.BytesIO(data)) as z:
+        unpacked_size(z, ("word/styles.xml", "word/footnotes.xml", "word/endnotes.xml", "word/document.xml"))
         caps_styles = _caps_styles(z)
         for name in ("word/footnotes.xml", "word/endnotes.xml", "word/document.xml"):
             if name not in z.namelist():
@@ -198,6 +211,10 @@ def extract_text(name: str, data: bytes) -> str:
         text = data.decode("utf-8", errors="replace")
         return clean_markdown(text) if suffix in (".md", ".markdown") or looks_like_markdown(text) else text
     except (zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        raise ValueError("unreadable") from exc
+    except ValueError as exc:
+        if str(exc) == "size":  # entpackt zu groß (unpacked_size)
+            raise
         raise ValueError("unreadable") from exc
     except Exception as exc:  # pypdf meldet beschädigte Dateien mit vielen eigenen Fehlern
         raise ValueError("unreadable") from exc

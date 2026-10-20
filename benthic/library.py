@@ -208,6 +208,8 @@ def import_from_file(path: str) -> Dict:
         raise FileNotFoundError(tr("Datei nicht gefunden: {path}", path=path))
     if p.suffix.lower() in (".sqlite", ".db"):
         return import_zotero(p)
+    if p.stat().st_size > 60 * 1024 * 1024:  # Text wird ganz gelesen; eine Literaturliste ist weit kleiner
+        raise ValueError(tr("Die Datei ist größer als 60 MB."))
     text = p.read_text(encoding="utf-8", errors="replace")
     return import_from_text(text)
 

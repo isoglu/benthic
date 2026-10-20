@@ -6,6 +6,32 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.2
+
+Ein Sicherheitsupdate nach einer Prüfung von 1.1.1: Benthic schützt seinen
+lokalen Dienst und seine Updates jetzt strenger. Dazu spielt die App beim Start
+ein Intro.
+
+- **Webseiten können die App nicht mehr nutzen.** Der lokale Dienst von Benthic
+  antwortet nur noch der App, der KI-Anbindung und dem Zotero-Plug-in. Eine
+  Webseite im Browser kann keine Einstellungen mehr lesen, keine Prüfungen
+  starten und deine Bibliothek nicht ändern. API-Keys zeigen die Einstellungen
+  nur noch verdeckt.
+- **Signierte Updates.** Jedes Update trägt jetzt eine Signatur, und die App
+  installiert es nur, wenn sie zum eingebauten Schlüssel von Benthic passt.
+- **Vorsicht bei fremden Daten.** Namen geladener PDFs, Links aus Metadaten,
+  sehr große oder gepackte Dateien und Exporte für Tabellenprogramme können
+  nichts mehr außerhalb des Download-Ordners schreiben, keine anderen Apps
+  öffnen, Benthic nicht lahmlegen und keine Formeln ausführen. Links aus
+  Literaturangaben öffnet Benthic nur, wenn sie ins öffentliche Internet führen.
+- **Ein Intro beim Start.** Während Benthic startet, taucht die App von der
+  Oberfläche bis zum leuchtenden tiefsten Punkt ab, mit Ton, und landet auf dem
+  Zeichen in der Seitenleiste. Beim ersten Start läuft der ganze Abstieg, danach
+  eine kurze Fassung. Escape überspringt es; mit reduzierter Bewegung gibt es
+  keins.
+- **Kein Link mehr oben im Fenster.** Der Link „Zum Inhalt springen“ aus 1.1.0
+  ist wieder verborgen und erscheint erst, wenn man mit Tab dorthin springt.
+
 ## 1.1.1
 
 Eine Korrektur für das Update in der App.

@@ -319,7 +319,10 @@ class BenthicDownloader:
         filename = crossref.build_filename(identifier, meta)
         filename = self._dedupe_filename(filename)
         try:
-            (self.output_dir / filename).write_bytes(content)
+            target = (self.output_dir / filename).resolve()
+            if target.parent != self.output_dir.resolve():  # nie außerhalb des Zielordners schreiben
+                return None
+            target.write_bytes(content)
             return filename
         except OSError:
             return None
