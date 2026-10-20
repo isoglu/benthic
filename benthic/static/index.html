@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.1.2">
-  <link rel="stylesheet" href="/static/style.css?v=1.1.2">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.1.3">
+  <link rel="stylesheet" href="/static/style.css?v=1.1.3">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
@@ -52,6 +52,8 @@
       <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
       <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+      <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/></symbol>
     </defs>
   </svg>
 
@@ -627,6 +629,14 @@
           <p class="hint">Ein kleiner Dumbo-Oktopus aus der Tiefsee, der über allen Fenstern schwebt: Er hält Bildschirmfotos, Links und Textstellen fest, merkt sich den offenen Browser-Tab und begleitet dich Schritt für Schritt durch eine Arbeit. Ein Klick öffnet ihn, ziehen verschiebt ihn, ein Rechtsklick blendet ihn aus.</p>
         </div>
 
+        <div data-section="general" class="card">
+          <div class="card-head"><h2>Rundgang</h2></div>
+          <p class="hint card-lead">Zwei Minuten durch alles Wichtige, an der echten Oberfläche: vom ersten Prüfbericht bis zum Grund des Challengertiefs.</p>
+          <div class="actions tight">
+            <button class="btn" id="tour-start-btn" type="button"><svg class="ic"><use href="#i-route"/></svg>Rundgang starten</button>
+          </div>
+        </div>
+
         <div data-section="general" class="card" id="update-card">
           <div class="card-head"><h2>Updates</h2><span class="hint" id="upd-current"></span></div>
           <div class="actions tight">
@@ -771,35 +781,26 @@
 
   <div class="tip" id="tip" role="tooltip" hidden></div>
 
-  <!-- Ersteinrichtung -->
-  <div class="setup" id="setup" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+  <!-- Ersteinrichtung: ein Tauchgang von der Oberfläche bis ins Abyssal. Beim ersten Start landet das
+       Intro der App auf .setup-mark; der Tiefenmesser (#gauge) zählt mit, der Rundgang (#tour) taucht weiter. -->
+  <div class="setup" id="setup" data-step="0" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <canvas class="sea" id="sea" aria-hidden="true"></canvas>
+    <div class="segmented setup-lang" id="su-lang" role="radiogroup" aria-label="Sprache">
+      <button type="button" role="radio" data-lang="en" lang="en" aria-checked="true">English</button>
+      <button type="button" role="radio" data-lang="de" lang="de" aria-checked="false">Deutsch</button>
+    </div>
     <div class="setup-card">
-      <ol class="setup-dots" id="setup-dots" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li></ol>
-
-      <section class="setup-step" data-step="0">
-        <img class="setup-mark" src="/static/favicon.svg" width="64" height="64" alt="">
-        <h2 id="setup-title">Wähle deine Sprache</h2>
-        <p class="lead">In dieser Sprache zeigt dir Benthic alles an. Du kannst sie später in den Einstellungen ändern.</p>
-        <div class="choices lang-choices" id="su-lang" role="radiogroup" aria-label="Sprache">
-          <button type="button" class="choice" role="radio" data-lang="en" lang="en" aria-checked="true"><span class="lang-code" aria-hidden="true">EN</span><span class="t"><strong>English</strong><span>Interface in English</span></span></button>
-          <button type="button" class="choice" role="radio" data-lang="de" lang="de" aria-checked="false"><span class="lang-code" aria-hidden="true">DE</span><span class="t"><strong>Deutsch</strong><span>Oberfläche auf Deutsch</span></span></button>
-        </div>
-      </section>
-
-      <section class="setup-step" data-step="1">
-        <h2>Willkommen bei Benthic</h2>
-        <p class="lead">LLMs nennen dir in Sekunden dutzende Quellen. Benthic macht daraus eine verlässliche Bibliothek.</p>
-        <ul class="setup-points">
-          <li><svg class="ic"><use href="#i-verify"/></svg><span><strong>Prüfen.</strong> Gibt es die Quelle wirklich, passt sie zur Angabe, ist sie zurückgezogen?</span></li>
-          <li><svg class="ic"><use href="#i-legal"/></svg><span><strong>Laden.</strong> Open Access zuerst, sonst über deinen Hochschulzugang.</span></li>
-          <li><svg class="ic"><use href="#i-library"/></svg><span><strong>Sammeln.</strong> Was du schon hast, lädt Benthic nicht doppelt.</span></li>
-        </ul>
+      <section class="setup-step active" data-step="0">
+        <img class="setup-mark" src="/static/favicon.svg" width="104" height="104" alt="">
+        <h2 id="setup-title">Willkommen bei Benthic</h2>
+        <p class="lead">Ein Chatbot nennt dir in Sekunden zwanzig Quellen. Manche gibt es. Manche gab es nie.</p>
+        <p class="lead">Benthic taucht für dich auf den Grund der Fachliteratur und bringt nur herauf, was dort wirklich liegt.</p>
         <p class="hint">Die Einrichtung dauert etwa eine Minute. Alles lässt sich später in den Einstellungen ändern.</p>
       </section>
 
-      <section class="setup-step" data-step="2">
-        <h2>Über dich</h2>
-        <p class="lead">Damit Open-Access-Dienste und deine Bibliothek dich erkennen.</p>
+      <section class="setup-step" data-step="1">
+        <h2>Wer taucht hier?</h2>
+        <p class="lead">Open-Access-Dienste möchten wissen, wer fragt. Und der Link deiner Bibliothek ist deine Leine zu allem hinter einer Paywall.</p>
         <div class="setup-form">
           <label for="su-email">E-Mail <span class="opt">empfohlen</span></label>
           <input type="text" id="su-email" autocomplete="email" placeholder="name@hochschule.de">
@@ -815,9 +816,9 @@
         </div>
       </section>
 
-      <section class="setup-step" data-step="3">
-        <h2>Ablage</h2>
-        <p class="lead">Hier speichert Benthic die PDFs.</p>
+      <section class="setup-step" data-step="2">
+        <h2>Wohin der Fang kommt</h2>
+        <p class="lead">Jedes PDF, das Benthic heraufholt, landet in diesem Ordner.</p>
         <div class="setup-form">
           <label for="su-folder">Zielordner</label>
           <div class="inline">
@@ -828,9 +829,9 @@
         </div>
       </section>
 
-      <section class="setup-step" data-step="4">
-        <h2>Deine Bibliothek</h2>
-        <p class="lead">Benthic merkt sich, was du schon hast, und lädt es nicht doppelt.</p>
+      <section class="setup-step" data-step="3">
+        <h2>Was du schon hast</h2>
+        <p class="lead">Benthic merkt sich deine Bibliothek und holt nichts zweimal herauf.</p>
         <div class="choices" id="su-choices" role="radiogroup" aria-label="Bibliothek"></div>
         <div class="setup-form" id="su-file-row" hidden>
           <label for="su-file">Datei</label>
@@ -842,9 +843,9 @@
         </div>
       </section>
 
-      <section class="setup-step" data-step="5">
+      <section class="setup-step" data-step="4">
         <div class="setup-done"><svg class="ic"><use href="#i-legal"/></svg></div>
-        <h2>Alles bereit</h2>
+        <h2>Bereit zum Abtauchen</h2>
         <p class="lead" id="su-summary">Benthic ist eingerichtet.</p>
         <ul class="setup-recap" id="su-recap"></ul>
       </section>
@@ -853,14 +854,47 @@
       <footer class="setup-foot">
         <button class="btn ghost" id="su-back" type="button">Zurück</button>
         <span class="spacer"></span>
-        <button class="btn ghost" id="su-sample" type="button" hidden>Mit Beispiel starten</button>
+        <button class="btn ghost" id="su-explore" type="button" hidden>Selbst erkunden</button>
         <button class="btn primary" id="su-next" type="button">Weiter</button>
       </footer>
     </div>
   </div>
 
+  <!-- Tiefenmesser für Einrichtung und Rundgang, wie auf benthic.isoglu.com: eine Lotleine bis zum Grund
+       des Challengertiefs, mit Angaben an ihrer echten Tiefe. -->
+  <div class="gauge" id="gauge" hidden aria-hidden="true">
+    <div class="gauge-track"><i class="gauge-fill" id="gauge-fill"></i></div>
+    <ol class="gauge-zones" id="gauge-zones"></ol>
+    <div class="gauge-pearl" id="gauge-pearl"><b><span id="gauge-read">0 m</span><small id="gauge-zone"></small></b><span class="gauge-fact" id="gauge-fact"></span></div>
+  </div>
+  <button class="sea-sound" id="sea-sound" type="button" hidden aria-pressed="true" title="Ton aus">
+    <svg class="ic"><use href="#i-sound"/></svg><span class="sr-only">Ton</span>
+  </button>
+
+  <!-- Rundgang: ein Lichtkegel wandert über die echte Oberfläche, Ansicht für Ansicht -->
+  <div class="tour" id="tour" hidden>
+    <div class="tour-veil" id="tour-veil"></div>
+    <div class="tour-hole" id="tour-hole"></div>
+    <div class="tour-bloom" id="tour-bloom"></div>
+    <section class="tour-card" id="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title" aria-describedby="tour-text">
+      <button class="btn ghost icon tour-close" id="tour-close" type="button" title="Rundgang beenden" aria-label="Rundgang beenden"><svg class="ic"><use href="#i-x"/></svg></button>
+      <img class="tour-mark" id="tour-mark" src="/static/favicon.svg" width="76" height="76" alt="" hidden>
+      <h2 id="tour-title"></h2>
+      <p id="tour-text"></p>
+      <p class="tour-fact" id="tour-fact" hidden></p>
+      <footer class="tour-foot">
+        <span class="tour-depth" id="tour-depth"></span>
+        <span class="spacer"></span>
+        <button class="btn ghost small" id="tour-back" type="button">Zurück</button>
+        <button class="btn ghost small" id="tour-skip" type="button" hidden>Überspringen</button>
+        <button class="btn primary small" id="tour-next" type="button">Weiter</button>
+      </footer>
+      <div class="tour-progress" aria-hidden="true"><i id="tour-fill"></i></div>
+    </section>
+  </div>
+
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.1.2"></script>
+  <script src="/static/app.js?v=1.1.3"></script>
 </body>
 </html>

@@ -392,12 +392,19 @@ final class PetPanel: NSPanel {
 ///   show, hide und state (Einstellungen).
 /// Intro beim Start (benthic/static/intro.html): liegt als durchsichtiger WKWebView über dem Hauptfenster,
 /// spielt den Abstieg, solange das Backend startet, und wartet über dem Meeresgrund, bis die Oberfläche
-/// geladen ist. Dann landet das Symbol auf dem Zeichen in der Seitenleiste und das Intro verschwindet.
+/// geladen ist. Dann landet das Symbol auf dem Zeichen in der Seitenleiste (beim ersten Start auf dem der Begrüßung)
+/// und das Intro verschwindet.
 /// Ob und wie es spielt (erster Start, spätere Starts, Ton), entscheidet die Seite selbst.
 final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    /// Nach dem Ausblenden lässt das Intro Klicks zur Oberfläche durch, solange sein Ton nachklingt.
+    final class IntroWebView: WKWebView {
+        var passThrough = false
+        override func hitTest(_ point: NSPoint) -> NSView? { passThrough ? nil : super.hitTest(point) }
+    }
+
     static let seenKey = "BenthicIntroSeen"
     var log: ((String) -> Void)?
-    private var view: WKWebView?
+    private var view: IntroWebView?
     private weak var main: WKWebView?
     private var loaded = false
     private var pendingReady: String?
@@ -416,7 +423,7 @@ final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         config.userContentController.addUserScript(WKUserScript(
             source: "window.benthicIntroConfig = {first: \(first), lang: \"\(lang)\"};",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let wv = WKWebView(frame: container.bounds, configuration: config)
+        let wv = IntroWebView(frame: container.bounds, configuration: config)
         wv.setValue(false, forKey: "drawsBackground")  // durchsichtig: am Ende scheint die Oberfläche durch
         wv.autoresizingMask = [.width, .height]
         wv.navigationDelegate = self
@@ -425,7 +432,8 @@ final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         view = wv
     }
 
-    /// Die Oberfläche ist geladen: Zeichen in der Seitenleiste verbergen, seine Lage messen, dem Intro melden.
+    /// Die Oberfläche ist geladen: Zeichen verbergen, seine Lage messen, dem Intro melden. Beim ersten Start ist das
+    /// Zeichen der Begrüßung das Ziel, sonst das in der Seitenleiste.
     func mainReady(_ webView: WKWebView) {
         guard view != nil, !readySent else { return }
         readySent = true
@@ -433,7 +441,7 @@ final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         let measure = """
             (function () {
               document.documentElement.classList.add('intro-on');
-              var e = document.querySelector('.brand-mark');
+              var e = document.querySelector('.setup:not([hidden]) .setup-step.active .setup-mark') || document.querySelector('.brand-mark');
               if (!e) return null;
               var r = e.getBoundingClientRect();
               return r.width > 0 && r.right > 0 ? [r.left, r.top, r.width, r.height] : null;
@@ -472,17 +480,22 @@ final class IntroController: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         }
     }
 
-    /// Blendet das Intro aus und gibt das Zeichen in der Seitenleiste frei. Der Ton darf noch `tail` Sekunden nachklingen.
+    /// Blendet das Intro aus und gibt das Zeichen in der Seitenleiste frei. Der Ton darf noch `tail` Sekunden nachklingen;
+    /// so lange bleibt die Seite unsichtbar liegen. Verborgen (isHidden) gälte sie als nicht sichtbar und hielte ihren
+    /// Ton sofort an, mitten im Schlussakkord.
     func finish(tail: Double) {
         guard let view = view else { return }
         self.view = nil
         log?("Intro beendet")
         main?.evaluateJavaScript("document.documentElement.classList.remove('intro-on')", completionHandler: nil)
+        view.passThrough = true
+        if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+            view.window?.makeFirstResponder(main)
+        }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.25
             view.animator().alphaValue = 0
         }, completionHandler: {
-            view.isHidden = true
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0, tail)) {
                 view.configuration.userContentController.removeScriptMessageHandler(forName: "benthicIntro")
                 view.removeFromSuperview()

@@ -389,8 +389,11 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
 def index():
     # In der eingestellten Sprache ausliefern und immer neu validieren: sonst zeigt die
     # WebView nach einem Update oder Sprachwechsel die alte Seite.
-    page = (Path(app.static_folder) / "index.html").read_text(encoding="utf-8")
-    resp = Response(i18n.translate_html(page), mimetype="text/html")
+    page = i18n.translate_html((Path(app.static_folder) / "index.html").read_text(encoding="utf-8"))
+    if not config.load_settings().get("setup_complete"):
+        # Erster Start: die Begrüßung steht schon beim ersten Bild da (das Intro der App landet auf ihr).
+        page = re.sub(r'(<html lang="[a-z]{2}")', r'\1 class="first-run"', page, count=1)
+    resp = Response(page, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 

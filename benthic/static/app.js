@@ -3287,7 +3287,291 @@ function pickPath(kind, types, start) {
   });
 }
 
-const setup = { step: 0, choice: "empty", path: "", suggestions: { sources: [] }, sample: false };
+// ---------------------------------------------------------------------------
+// Tauchgang: Einrichtung und Rundgang erzählen einen Abstieg von der Oberfläche
+// bis zum Grund des Challengertiefs. Tiefenmesser, Zonen und Angaben wie auf
+// benthic.isoglu.com (Lage = (Tiefe / Grund)^(1/2,6)); das Wasser (#sea) wird mit
+// der Tiefe dunkler, ab der Mitternachtszone leuchten Tiere. Ton gibt es nur zweimal:
+// ein Rauschen beim Abtauchen und am Grund ein Klang wie im Intro; #sea-sound schaltet ihn ab.
+// Ein Ton bei jedem Schritt war zu viel.
+// ---------------------------------------------------------------------------
+const FLOOR = 10935;
+const DEPTH_ZONES = [[0, T("Sonnenlichtzone")], [200, T("Dämmerzone")], [1000, T("Mitternachtszone")],
+  [4000, T("Abyssal")], [6000, T("Hadal")], [FLOOR, T("Challengertief")]];
+const DEPTH_FACTS = {
+  0: T("Meeresspiegel. Bis zum tiefsten Punkt des Meeres sind es 10.935 m."),
+  564: T("So tief taucht ein Kaiserpinguin. Kein Vogel wurde tiefer gemessen."),
+  1000: T("Kein Sonnenlicht mehr. Licht machen die Tiere hier selbst."),
+  2086: T("Stünde der Mount Everest im Challengertief, läge sein Gipfel hier."),
+  3800: T("Hier liegt die Titanic, seit 1912."),
+  5000: T("Auf den Tiefsee-Ebenen liegen Manganknollen. Sie wachsen wenige Millimeter in einer Million Jahren."),
+  6865: T("Das tiefste je gefundene Wrack: der Geleitzerstörer USS Samuel B. Roberts, entdeckt 2022."),
+  // Jamieson & Vecchione 2020, Marine Biology 167:82: Grimpoteuthis bei 6.957 m im Indischen Ozean.
+  6957: T("Der tiefste je gefilmte Krake: ein Dumbo-Oktopus im Indischen Ozean. Grimpo ist einer von ihnen."),
+  8336: T("Der tiefste je gefilmte Fisch: ein junger Scheibenbauch, 2022."),
+  10000: T("Rund 1.000 bar: Auf jedem Quadratzentimeter lastet etwa eine Tonne."),
+  [FLOOR]: T("Grund. 1960 kamen Jacques Piccard und Don Walsh hier als Erste an, im Bathyskaph Trieste."),
+};
+const depthAt = (m) => Math.pow(Math.min(FLOOR, Math.max(0, m)) / FLOOR, 1 / 2.6);
+const fmtDepth = (m) => `${fmtNum(Math.round(m))} m`;
+const zoneOf = (m) => DEPTH_ZONES.filter(([d]) => m >= d - .5).pop()[1];
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const smooth01 = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
+const easeInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+
+// Die Tiefe, die Tiefenmesser, Wasser und Rundgang gerade zeigen; diveTo fährt sie weich an.
+const descent = { now: 0, from: 0, to: 0, vel: 0, raf: 0 };
+
+function diveTo(m) {
+  cancelAnimationFrame(descent.raf);
+  descent.from = descent.now;
+  descent.to = m;
+  $("#gauge-fact").classList.remove("on");
+  if (reduceMotion || Math.abs(m - descent.now) < 1) { descent.now = m; descent.vel = 0; diveArrive(); return; }
+  const start = performance.now(), dur = Math.min(2400, 1000 + Math.abs(m - descent.from) * .3);
+  let prev = depthAt(descent.now), last = start;
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    descent.now = descent.from + (descent.to - descent.from) * easeInOut(p);
+    const at = depthAt(descent.now);
+    descent.vel = clamp01(Math.abs(at - prev) / Math.max(1, now - last) * 1000 / .35);  // Anteil der Lotleine je Sekunde
+    prev = at;
+    last = now;
+    renderGauge();
+    if (p < 1) descent.raf = requestAnimationFrame(step);
+    else { descent.vel = 0; diveArrive(); }
+  };
+  descent.raf = requestAnimationFrame(step);
+}
+
+function diveArrive() {
+  renderGauge();
+  const fact = DEPTH_FACTS[descent.to] || "";
+  $("#gauge-fact").textContent = fact;
+  $("#gauge-fact").classList.toggle("on", !!fact);
+  if (reduceMotion) seaDraw();  // ohne Bewegung ein stilles Bild je Tiefe
+}
+
+function renderGauge() {
+  if (tour.on) $("#tour-depth").textContent = fmtDepth(descent.now);
+  if ($("#gauge").hidden) return;
+  const y = depthAt(descent.now) * $("#gauge").clientHeight;
+  $("#gauge-pearl").style.transform = `translateY(${y}px)`;
+  $("#gauge-fill").style.height = `${y}px`;
+  $("#gauge-read").textContent = fmtDepth(descent.now);
+  $("#gauge-zone").textContent = zoneOf(descent.now);
+}
+
+function showGauge(on) {
+  $("#gauge").hidden = !on;
+  $("#sea-sound").hidden = !on;
+  if (!on) return;
+  const ticks = $("#gauge-zones");
+  if (!ticks.children.length) {
+    DEPTH_ZONES.forEach(([d]) => {
+      const li = document.createElement("li");
+      li.style.top = `${depthAt(d) * 100}%`;
+      ticks.appendChild(li);
+    });
+  }
+  renderSeaSound();
+  renderGauge();
+}
+
+// Das Wasser hinter der Einrichtung: Licht von oben bis etwa 1.000 m, Meeresschnee, der beim
+// Abtauchen nach oben vorbeizieht, und darunter Tiere, die selbst leuchten.
+const sea = { on: false, raf: 0, ctx: null, W: 1, H: 1, dpr: 1, t: 0, last: 0, flakes: [], lights: [] };
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mixRgb = (a, b, t) => { const x = hexRgb(a), y = hexRgb(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(",")})`; };
+
+function seaLayout() {
+  const cv = $("#sea");
+  sea.W = Math.max(1, innerWidth);
+  sea.H = Math.max(1, innerHeight);
+  sea.dpr = Math.min(2, window.devicePixelRatio || 1, Math.sqrt(3.2e6 / (sea.W * sea.H)));
+  cv.width = Math.round(sea.W * sea.dpr);
+  cv.height = Math.round(sea.H * sea.dpr);
+  sea.ctx = cv.getContext("2d");
+}
+
+function seaStart() {
+  if (sea.on) return;
+  sea.on = true;
+  seaLayout();
+  if (!sea.flakes.length) {
+    for (let i = 0; i < 160; i++) sea.flakes.push({ x: Math.random(), y: Math.random(), z: .2 + Math.random() * .8, s: .5 + Math.random() });
+    for (let i = 0; i < 26; i++) sea.lights.push({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, p: Math.random() * 6.28, w: .5 + Math.random() * 1.3 });
+  }
+  seaDraw();
+  if (reduceMotion) return;
+  sea.last = performance.now();
+  const loop = (now) => {
+    if (!sea.on) return;
+    const dt = Math.min(.05, (now - sea.last) / 1000);
+    sea.last = now;
+    sea.t += dt;
+    seaMove(dt);
+    seaDraw();
+    sea.raf = requestAnimationFrame(loop);
+  };
+  sea.raf = requestAnimationFrame(loop);
+}
+
+function seaStop() {
+  sea.on = false;
+  cancelAnimationFrame(sea.raf);
+}
+
+function seaMove(dt) {
+  // Meeresschnee sinkt langsam; beim Abtauchen zieht das Wasser nach oben vorbei, beim Auftauchen nach unten.
+  const rush = descent.vel * 2.2 * (descent.to < descent.from ? -1 : 1);
+  const drift = (p, sink) => {
+    p.y += dt * (sink * p.z - rush * p.z);
+    p.x += dt * .006 * Math.sin(sea.t * .3 + p.z * 9);
+    if (p.y < -.05) p.y += 1.1; else if (p.y > 1.05) p.y -= 1.1;
+    if (p.x < -.05) p.x += 1.1; else if (p.x > 1.05) p.x -= 1.1;
+  };
+  sea.flakes.forEach((f) => drift(f, .012));
+  sea.lights.forEach((l) => drift(l, .004));
+}
+
+function seaDraw() {
+  const c = sea.ctx;
+  if (!c) return;
+  const { W, H } = sea, m = descent.now, f = depthAt(m);
+  c.setTransform(sea.dpr, 0, 0, sea.dpr, 0, 0);
+  c.globalAlpha = 1;
+  c.globalCompositeOperation = "source-over";
+  const g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, mixRgb("#0f4a7c", "#050c1d", smooth01(f / .6)));
+  g.addColorStop(1, mixRgb("#06213f", "#01040b", smooth01(f / .55)));
+  c.fillStyle = g;
+  c.fillRect(0, 0, W, H);
+  const sun = 1 - smooth01(m / 1000), ox = W * .56, oy = -H * .28;
+  if (sun > 0) {
+    const s = c.createRadialGradient(ox, oy, 0, ox, oy, H * 1.3);
+    s.addColorStop(0, `rgba(96,200,245,${.5 * sun})`);
+    s.addColorStop(.55, `rgba(46,140,220,${.14 * sun})`);
+    s.addColorStop(1, "rgba(46,140,220,0)");
+    c.fillStyle = s;
+    c.fillRect(0, 0, W, H);
+    c.globalCompositeOperation = "lighter";
+    const ray = c.createRadialGradient(ox, oy, H * .2, ox, oy, H * 1.5);  // Strahlen verlieren sich nach unten
+    ray.addColorStop(0, "rgba(190,235,255,1)");
+    ray.addColorStop(1, "rgba(190,235,255,0)");
+    c.fillStyle = ray;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI / 2 + (i - 3) * .17 + Math.sin(sea.t * .22 + i) * .03, w = .022 + .014 * Math.abs(Math.sin(i * 2.1));
+      c.globalAlpha = .05 * sun * (.6 + .4 * Math.sin(sea.t * .6 + i * 1.7));
+      c.beginPath(); c.moveTo(ox, oy); c.arc(ox, oy, H * 1.8, a - w, a + w); c.closePath(); c.fill();
+    }
+    c.globalCompositeOperation = "source-over";
+  }
+  const k = Math.min(W, H) / 700, streak = descent.vel * 70 * k * (descent.to < descent.from ? -1 : 1);
+  c.strokeStyle = "#d8f4ff";
+  c.lineCap = "round";
+  for (const p of sea.flakes) {
+    const x = p.x * W, y = p.y * H;
+    c.globalAlpha = (.1 + .42 * p.z) * (1 - .35 * f);
+    c.lineWidth = Math.max(.7, (.7 + 1.5 * p.z * p.s) * k);
+    c.beginPath(); c.moveTo(x, y + streak * p.z); c.lineTo(x, y + .01); c.stroke();
+  }
+  const bio = smooth01((m - 700) / 1600);
+  if (bio > 0) {
+    c.globalCompositeOperation = "lighter";
+    for (const l of sea.lights) {
+      const a = bio * Math.pow(.5 + .5 * Math.sin(sea.t * l.w + l.p), 6);
+      if (a < .02) continue;
+      const x = l.x * W, y = l.y * H, r = (5 + 12 * l.z) * k;
+      const lg = c.createRadialGradient(x, y, 0, x, y, r);
+      lg.addColorStop(0, `rgba(200,250,255,${.9 * a})`);
+      lg.addColorStop(.25, `rgba(92,211,242,${.45 * a})`);
+      lg.addColorStop(1, "rgba(92,211,242,0)");
+      c.globalAlpha = 1;
+      c.fillStyle = lg;
+      c.fillRect(x - r, y - r, 2 * r, 2 * r);
+    }
+    c.globalCompositeOperation = "source-over";
+  }
+  c.globalAlpha = 1;
+}
+
+// Klang: Rauschen beim Abtauchen, am Grund ein D-Dur-Klang wie die Landung des Intros, und ein leiser
+// Sonar-Ping (E6 wie im Intro), wenn man den Ton einschaltet. Alles live mit Web Audio, erst nach einem Klick.
+let seaSoundOn = true;
+try { seaSoundOn = localStorage.getItem("benthic-sea-sound") !== "off"; } catch (e) { /* ohne Speicher */ }
+const seaAudio = { ac: null, out: null, echo: null, noise: null };
+
+function seaAc() {
+  if (!seaSoundOn) return null;
+  try {
+    if (!seaAudio.ac) {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const out = ac.createGain(), echo = ac.createGain(), dl = ac.createDelay(1), lp = ac.createBiquadFilter(), fb = ac.createGain(), wet = ac.createGain();
+      out.gain.value = .9;
+      out.connect(ac.destination);
+      dl.delayTime.value = .34; lp.type = "lowpass"; lp.frequency.value = 1800; fb.gain.value = .38; wet.gain.value = .5;
+      echo.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(wet); wet.connect(out);
+      const noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), d = noise.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      Object.assign(seaAudio, { ac, out, echo, noise });
+    }
+    if (seaAudio.ac.state === "suspended") seaAudio.ac.resume().catch(() => {});
+    return seaAudio.ac;
+  } catch (e) { return null; }
+}
+
+function seaTone(f, at, lvl, dec, echo = .8) {
+  const { ac, out } = seaAudio, o = ac.createOscillator(), g = ac.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(f, at);
+  o.frequency.exponentialRampToValueAtTime(f * .99, at + dec);
+  g.gain.setValueAtTime(.0001, at);
+  g.gain.exponentialRampToValueAtTime(lvl, at + .008);
+  g.gain.exponentialRampToValueAtTime(.0001, at + dec);
+  o.connect(g); g.connect(out);
+  if (echo) { const e = ac.createGain(); e.gain.value = echo; g.connect(e); e.connect(seaAudio.echo); }
+  o.start(at); o.stop(at + dec + .05);
+}
+
+function seaPing(f = 1318.5) {
+  const ac = seaAc();
+  if (!ac) return;
+  const at = ac.currentTime + .02;
+  seaTone(f, at, .05, 1.7);
+  seaTone(f * 2.01, at, .006, .4, 0);
+}
+
+function seaSweep() {
+  const ac = seaAc();
+  if (!ac) return;
+  const at = ac.currentTime + .01, s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = seaAudio.noise; s.loop = true;
+  fl.type = "bandpass"; fl.Q.value = .9;
+  fl.frequency.setValueAtTime(900, at);
+  fl.frequency.exponentialRampToValueAtTime(220, at + 1.1);
+  g.gain.setValueAtTime(.0001, at);
+  g.gain.exponentialRampToValueAtTime(.05, at + .35);
+  g.gain.exponentialRampToValueAtTime(.0001, at + 1.3);
+  s.connect(fl); fl.connect(g); g.connect(seaAudio.out);
+  s.start(at); s.stop(at + 1.4);
+}
+
+function seaBloom() {
+  const ac = seaAc();
+  if (!ac) return;
+  const at = ac.currentTime + .03;
+  [62, 69, 74, 78, 81, 86].forEach((m, i) => seaTone(440 * Math.pow(2, (m - 69) / 12), at + i * .07, i < 2 ? .035 : .025, 3 - i * .2));
+}
+
+function renderSeaSound() {
+  const b = $("#sea-sound");
+  b.setAttribute("aria-pressed", String(seaSoundOn));
+  b.title = seaSoundOn ? T("Ton ausschalten") : T("Ton einschalten");
+  b.querySelector("use").setAttribute("href", seaSoundOn ? "#i-sound" : "#i-mute");
+}
+
+const setup = { step: 0, choice: "empty", path: "", suggestions: { sources: [] } };
 
 async function openSetup(force) {
   let j;
@@ -3314,7 +3598,19 @@ async function openSetup(force) {
   renderChoices();
   renderLangChoice();
   $("#setup").hidden = false;
-  goStep(0);  // nach einem Sprachwechsel (force) wieder bei der Sprachwahl, jetzt in der neuen Sprache
+  seaStart();
+  showGauge(true);
+  goStep(0);  // nach einem Sprachwechsel (force) wieder bei der Begrüßung, jetzt in der neuen Sprache
+}
+
+function closeSetup() {
+  $("#setup").hidden = true;
+  document.documentElement.classList.remove("first-run");
+  seaStop();
+  if (!tour.on) showGauge(false);
+  loadSettings();
+  loadLibrary();
+  loadFiles();
 }
 
 // ---------------------------------------------------------------------------
@@ -3375,30 +3671,35 @@ function renderChoices() {
   $("#su-file-row").hidden = setup.choice !== "file";
 }
 
-// Schritte: 0 Sprache, 1 Willkommen, 2 Über dich, 3 Ablage, 4 Bibliothek, 5 Fertig.
-const SETUP_NEXT = [T("Weiter"), T("Los geht’s"), T("Weiter"), T("Weiter"), T("Einrichten"), T("Benthic starten")];
+// Schritte: 0 Willkommen (mit Sprache), 1 Über dich, 2 Ablage, 3 Bibliothek, 4 Bereit. Jeder liegt tiefer,
+// bei einer Angabe des Tiefenmessers; der Rundgang taucht von dort weiter bis zum Grund.
+const SETUP_NEXT = [T("Abtauchen"), T("Weiter"), T("Weiter"), T("Einrichten"), T("Rundgang starten")];
+const SETUP_DEPTHS = [0, 564, 1000, 2086, 3800];
 const SETUP_DONE = SETUP_NEXT.length - 1;
 
-function goStep(n, back = false) {
+function goStep(n, back = false, sound = false) {
   setup.step = n;
+  $("#setup").dataset.step = n;
   document.querySelectorAll(".setup-step").forEach((s) => {
     const on = Number(s.dataset.step) === n;
     s.classList.toggle("active", on);
     s.classList.toggle("back", on && back);
   });
-  document.querySelectorAll("#setup-dots li").forEach((d, i) => d.classList.toggle("on", i <= n));
+  $("#su-lang").hidden = n !== 0;
   $("#su-back").hidden = n === 0 || n === SETUP_DONE;
-  $("#su-sample").hidden = n !== SETUP_DONE;
+  $("#su-explore").hidden = n !== SETUP_DONE;
   $("#su-next").textContent = SETUP_NEXT[n];
   $("#su-next").disabled = false;
   $("#su-error").textContent = "";
-  const first = document.querySelector(`.setup-step[data-step="${n}"] input, .setup-step[data-step="${n}"] [aria-checked="true"]`);
-  if (first) setTimeout(() => first.focus(), 60);
+  if (sound && n === 1 && !back) seaSweep();  // nur der erste Schritt unter die Oberfläche rauscht
+  diveTo(SETUP_DEPTHS[n]);
+  const first = document.querySelector(`.setup-step[data-step="${n}"] input, .setup-step[data-step="${n}"] [aria-checked="true"]`) || $("#su-next");
+  setTimeout(() => first.focus({ preventScroll: true }), 60);
 }
 
 function setupFail(msg, field) {
   $("#su-error").textContent = msg;
-  const map = { email: ["#su-email", 2], proxy: ["#su-proxy", 2], folder: ["#su-folder", 3], library: ["#su-file", 4] };
+  const map = { email: ["#su-email", 1], proxy: ["#su-proxy", 1], folder: ["#su-folder", 2], library: ["#su-file", 3] };
   const hit = map[field];
   if (hit) {
     if (setup.step !== hit[1]) goStep(hit[1], true);
@@ -3412,29 +3713,22 @@ async function setupNext() {
   document.querySelectorAll(".setup-form input").forEach((i) => i.classList.remove("invalid"));
   $("#su-error").textContent = "";
   const step = setup.step;
-  if (step === 2) {
+  if (step === 1) {
     const email = $("#su-email").value.trim();
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setupFail(T("Die E-Mail-Adresse sieht unvollständig aus."), "email");
     const proxy = $("#su-proxy").value.trim();
     if (proxy && !/^https?:\/\//.test(proxy)) return setupFail(T("Der Proxy-Link muss mit https:// beginnen."), "proxy");
   }
-  if (step === 3 && !/^(\/|~)/.test($("#su-folder").value.trim())) {
+  if (step === 2 && !/^(\/|~)/.test($("#su-folder").value.trim())) {
     return setupFail(T("Bitte einen vollständigen Ordnerpfad angeben, z. B. ~/Documents/Benthic."), "folder");
   }
-  if (step === 4) return submitSetup();
+  if (step === SETUP_DONE - 1) return submitSetup();
   if (step === SETUP_DONE) {
-    $("#setup").hidden = true;
-    loadSettings();
-    loadLibrary();
-    loadFiles();
-    showView("verify");
-    if (setup.sample) {
-      $("#verify-input").value = SAMPLE;
-      runPreview();
-    }
+    closeSetup();
+    startTour();
     return;
   }
-  goStep(step + 1);
+  goStep(step + 1, false, true);
 }
 
 async function submitSetup() {
@@ -3462,7 +3756,7 @@ async function submitSetup() {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     $("#su-next").disabled = false;
-    $("#su-next").textContent = SETUP_NEXT[4];
+    $("#su-next").textContent = SETUP_NEXT[SETUP_DONE - 1];
     return setupFail(j.error || T("Einrichtung fehlgeschlagen."), j.field);
   }
   const s = j.settings || {};
@@ -3488,9 +3782,228 @@ async function submitSetup() {
     li.append(a, b);
     recap.appendChild(li);
   });
-  $("#su-summary").textContent = T("Füge jetzt eine Literaturliste ein, zum Beispiel aus ChatGPT oder Claude, und lass sie prüfen.");
-  goStep(SETUP_DONE);
+  $("#su-summary").textContent = T("Noch {m} bis zum Grund. Der Rundgang führt dich in zwei Minuten hinab und zeigt dir unterwegs, was Benthic kann.",
+    { m: fmtDepth(FLOOR - SETUP_DEPTHS[SETUP_DONE]) });
+  goStep(SETUP_DONE, false, true);
 }
+
+// ---------------------------------------------------------------------------
+// Rundgang: ein Lichtkegel mit Sonar-Ringen wandert über die echte Oberfläche, Ansicht für Ansicht,
+// und der Tiefenmesser taucht dabei vom Abyssal bis zum Grund. Startet am Ende der Einrichtung,
+// aus ⌘K und aus den Einstellungen. Der erste Halt lässt das Beispiel wirklich prüfen.
+// ---------------------------------------------------------------------------
+const verifyRunning = () => $("#verify-bar").classList.contains("running");
+const sampleShown = () => $("#verify-input").value === SAMPLE;
+
+const TOUR = [
+  { depth: 4200, view: "verify", target: () => $("#view-verify > .card"), interactive: true,
+    enter: () => { if (!$("#verify-input").value.trim()) { $("#verify-input").value = SAMPLE; runPreview(); } },
+    title: () => T("Hier beginnt jede Prüfung"),
+    text: () => (sampleShown()
+      ? T("Hier liegt ein Beispiel: acht Quellen, wie sie ein Chatbot nennt, darunter eine erfundene Arbeit, falsche DOIs und eine zurückgezogene Studie. Prüf es und sieh zu, wie Benthic sie findet.")
+      : T("Füge eine Literaturliste ein oder zieh eine ganze Arbeit als PDF oder Word-Datei hierher. Benthic findet jede Quelle und meldet, was nicht stimmt.")),
+    primary: () => (sampleShown() ? T("Das Beispiel prüfen") : T("Prüfen")),
+    run: () => startVerify(),
+    leaveWhen: () => verifyRunning() },
+  { depth: 5000, view: "verify", when: () => !$("#verify-results").hidden,
+    target: () => (verifyRunning() ? $("#verify-progress") : $("#verify-results")),
+    state: () => (verifyRunning() ? "dive" : "done"),
+    title: () => (verifyRunning() ? T("Benthic taucht") : T("Jede Quelle bekommt ein Urteil")),
+    text: () => (verifyRunning()
+      ? T("Jede Angabe geht an Crossref, OpenAlex, Semantic Scholar und arXiv. Benthic vergleicht Titel, Autor:innen und Jahr und fragt die Datenbank von Retraction Watch.")
+      : T("Bestätigt, passt nicht, nicht auffindbar, zurückgezogen: Jede Zeile zeigt, was Benthic gefunden hat und wo. Die bestätigten Quellen lädst du mit einem Klick, schickst sie an Zotero oder sicherst den Bericht als PDF.")) },
+  { depth: 5600, view: "find", target: () => $("#view-find > .card"),
+    title: () => T("Eine Aussage, echte Quellen"),
+    text: () => T("Du hast einen Satz, aber noch keine Quelle? Frag keinen Chat, der sie womöglich erfindet. Benthic sucht echte Arbeiten und zeigt den Satz aus ihrem Abstract, der deiner Aussage am nächsten kommt.") },
+  { depth: 6000, view: "batch", target: () => $("#view-batch > .card"),
+    title: () => T("Ein ganzer Stapel auf einmal"),
+    text: () => T("Für Lehrende: Prüf einen Ordner mit Abgaben oder den Export aus Moodle oder ILIAS. Je Arbeit eine Zeile und ein eigener Bericht. Die Arbeiten bleiben auf diesem Mac.") },
+  { depth: 6865, view: "projects", target: () => $("#view-projects > .card"),
+    title: () => T("Eine Frage, ein Projekt"),
+    text: () => T("Sammle Quellen, Prüfungen und Downloads je Forschungsfrage. Benthic schreibt dir das Literaturverzeichnis in APA, Harvard, Chicago, IEEE oder DIN und schaut auf Wunsch jeden Tag nach, ob eine deiner Quellen zurückgezogen wurde.") },
+  { depth: 6957, view: "settings", section: "general", when: () => !!petBridge, target: () => $("#pet-card"),
+    title: () => T("Grimpo, dein Begleiter aus der Tiefe"),
+    text: () => T("Ein kleiner Dumbo-Oktopus, der über allen Fenstern schwebt. Leg Links und Text auf ihm ab, halte Stellen als Bildschirmfoto fest, und er führt dich je Projekt in neun Schritten vom Thema bis zur Abgabe."),
+    primary: () => ($("#pet-toggle").checked ? null : T("Grimpo zeigen")),
+    run: () => { if (!$("#pet-toggle").checked) { $("#pet-toggle").checked = true; petBridge.postMessage({ action: "show" }); } } },
+  { depth: 7600, view: "download", target: () => $("#view-download .route"),
+    title: () => T("Der Weg nach unten"),
+    text: () => T("Erst deine Bibliothek, dann Open Access, dann der Zugang deiner Hochschule. Benthic umgeht keine Paywall: Was nicht frei verfügbar ist, öffnet es über den Proxy deiner Bibliothek.") },
+  { depth: 8336, view: "library", target: () => $("#zotero-card"),
+    title: () => T("Nichts doppelt, nichts übersehen"),
+    text: () => T("Was schon in deiner Bibliothek liegt, lädt Benthic nicht noch einmal. Und es prüft deine ganze Zotero-Bibliothek auf Rückzüge und Korrekturen, ohne in Zotero etwas zu ändern.") },
+  { depth: 9000, view: "settings", section: "ai", target: () => $("#ai-card"),
+    title: () => T("Dein KI-Assistent taucht mit"),
+    text: () => T("Claude, Codex oder Gemini CLI können Benthic als Werkzeug nutzen: Literaturlisten prüfen, Open-Access-Fassungen laden, Artikel lesen. Wähl hier deinen Assistenten, Benthic zeigt dir jeden Schritt.") },
+  { depth: 9500, view: "settings", section: "apps", target: () => $("#send-card"),
+    title: () => T("Prüfen aus jeder App"),
+    text: () => T("Markier Literaturangaben in einer beliebigen App und wähl im Kontextmenü Dienste › „Check References with Benthic“. Im Browser hilft das Lesezeichen.") },
+  { depth: 10000, view: "verify", target: () => $("#cmdk-btn"),
+    title: () => T("Alles auf einen Griff"),
+    text: () => T("Mit ⌘K findest du jeden Befehl, jede Ansicht, jedes Projekt und jede Quelle. Auch diesen Rundgang.") },
+  { depth: FLOOR, floor: true,
+    title: () => T("Grund erreicht"),
+    text: () => T("10.935 m, tiefer geht es auf der Erde nicht. Ab hier bringt Benthic für dich herauf, was wirklich da ist.") },
+];
+
+const tour = { on: false, i: 0, list: [], state: "", placed: "", raf: 0, busy: false };
+
+function startTour() {
+  if (tour.on) return;
+  closePalette();
+  if (!$("#setup").hidden) closeSetup();
+  tour.on = true;
+  tour.list = TOUR;
+  document.documentElement.classList.add("touring");
+  $("#tour").hidden = false;
+  showGauge(true);
+  if (descent.now < SETUP_DEPTHS[SETUP_DONE]) diveTo(SETUP_DEPTHS[SETUP_DONE]);
+  tourGo(0, 1, true);
+  tourLoop();
+}
+
+function tourGo(i, dir, sound) {
+  while (i > 0 && i < tour.list.length && tour.list[i].when && !tour.list[i].when()) i += dir;
+  if (i >= tour.list.length) { endTour(true); return; }
+  tour.i = Math.max(0, i);
+  const s = tour.list[tour.i];
+  if (s.view) showView(s.view);
+  if (s.section) showSettingsSection(s.section);
+  if (s.enter) s.enter();
+  $(".app-shell").inert = !s.interactive;
+  tour.state = s.state ? s.state() : "";
+  renderTourCard();
+  requestAnimationFrame(() => { const el = s.target && s.target(); if (el) tourReveal(el); });
+  diveTo(s.depth);
+  if (s.floor && sound) seaBloom();
+  setTimeout(() => { if (tour.on) $("#tour-next").focus({ preventScroll: true }); }, 80);
+}
+
+function renderTourCard() {
+  const s = tour.list[tour.i], last = tour.i === tour.list.length - 1, card = $("#tour-card");
+  const primary = s.primary ? s.primary() : null, fact = DEPTH_FACTS[s.depth] || "";
+  $("#tour-title").textContent = s.title();
+  $("#tour-text").textContent = s.text();
+  $("#tour-fact").textContent = fact;
+  $("#tour-fact").hidden = !fact;
+  $("#tour-mark").hidden = !s.floor;
+  $("#tour").classList.toggle("floor", !!s.floor);
+  $("#tour-back").hidden = tour.i === 0 || !!s.floor;
+  $("#tour-skip").hidden = !primary;
+  $("#tour-next").textContent = primary || (last ? T("Los geht’s") : T("Weiter"));
+  $("#tour-fill").style.width = `${((tour.i + 1) / tour.list.length) * 100}%`;
+  card.classList.remove("swap");
+  void card.offsetWidth;  // die Einblendung neu starten
+  card.classList.add("swap");
+  tour.placed = "";
+}
+
+async function tourNext(useAction = true) {
+  if (!tour.on || tour.busy) return;
+  const s = tour.list[tour.i];
+  if (useAction && s.run && s.primary && s.primary()) {
+    tour.busy = true;
+    try { await s.run(); } catch (e) { console.error(e); }
+    tour.busy = false;
+  }
+  if (tour.i >= tour.list.length - 1) endTour(true);
+  else tourGo(tour.i + 1, 1, true);
+}
+
+function endTour(done) {
+  if (!tour.on) return;
+  tour.on = false;
+  cancelAnimationFrame(tour.raf);
+  $("#tour").hidden = true;
+  $("#tour").classList.remove("floor");
+  $(".app-shell").inert = false;
+  document.documentElement.classList.remove("touring");
+  showGauge(false);
+  if (!done) return;  // abgebrochen: bleiben, wo man gerade ist
+  showView("verify");
+  if (!$("#verify-results").hidden) scrollMainTo($("#verify-results"), false);
+}
+
+// Holt das Ziel in den sichtbaren Teil der Ansicht, falls es darunter oder darüber liegt.
+function tourReveal(el) {
+  const main = $(".main");
+  if (!main.contains(el)) return;
+  const r = el.getBoundingClientRect(), m = main.getBoundingClientRect();
+  if (r.top < m.top + 12 || r.bottom > m.bottom - 12) scrollMainTo(el);
+}
+
+// Lichtkegel um das Ziel, Karte daneben (rechts, links, darunter, darüber oder im Ziel), Tiefenmesser frei.
+function tourPlace() {
+  const s = tour.list[tour.i];
+  const W = innerWidth, H = innerHeight, right = $("#gauge").hidden ? 16 : 96;
+  const card = $("#tour-card"), cw = card.offsetWidth, ch = card.offsetHeight;
+  const el = !s.floor && s.target ? s.target() : null;
+  let hole, x, y;
+  if (el && el.getClientRects().length) {
+    const r = el.getBoundingClientRect(), pad = 10, gap = 18;
+    const x1 = Math.max(6, r.left - pad), y1 = Math.max(6, r.top - pad);
+    const x2 = Math.min(W - 6, r.right + pad), y2 = Math.min(H - 6, r.bottom + pad);
+    hole = [x1, y1, Math.max(0, x2 - x1), Math.max(0, y2 - y1)];
+    const fitY = (v) => Math.min(Math.max(16, v), H - ch - 16), fitX = (v) => Math.min(Math.max(16, v), W - right - cw);
+    // Rechts, links, darunter, darüber; passt nichts ganz, die Lage, die am wenigsten vom Ziel verdeckt.
+    const spots = [[x2 + gap, fitY(y1)], [x1 - gap - cw, fitY(y1)], [fitX(x1), y2 + gap], [fitX(x1), y1 - gap - ch]]
+      .map(([cx, cy]) => [fitX(cx), fitY(cy)]);
+    const cover = ([cx, cy]) => Math.max(0, Math.min(cx + cw, x2) - Math.max(cx, x1)) * Math.max(0, Math.min(cy + ch, y2) - Math.max(cy, y1));
+    [x, y] = spots.reduce((best, p) => (cover(p) < cover(best) ? p : best));
+  } else {
+    hole = [W / 2, H * .44, 0, 0];
+    x = (W - cw) / 2;
+    y = Math.max(16, (H - ch) / 2);
+  }
+  const key = hole.concat([x, y, s.interactive ? 1 : 0]).map(Math.round).join();
+  if (key === tour.placed) return;
+  tour.placed = key;
+  const [hx, hy, hw, hh] = hole;
+  Object.assign($("#tour-hole").style, { left: `${hx}px`, top: `${hy}px`, width: `${hw}px`, height: `${hh}px` });
+  Object.assign(card.style, { left: `${Math.round(x)}px`, top: `${Math.round(y)}px` });
+  // Klicks gehen nur im Lichtkegel durch, und nur dort, wo man etwas ausprobieren soll.
+  $("#tour-veil").style.clipPath = s.interactive && el
+    ? `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${hx}px ${hy}px, ${hx + hw}px ${hy}px, ${hx + hw}px ${hy + hh}px, ${hx}px ${hy + hh}px, ${hx}px ${hy}px)`
+    : "none";
+}
+
+function tourLoop() {
+  if (!tour.on) return;
+  const s = tour.list[tour.i];
+  if (s.leaveWhen && s.leaveWhen()) tourGo(tour.i + 1, 1, true);
+  else if (s.state && s.state() !== tour.state) {
+    tour.state = s.state();
+    renderTourCard();
+    const el = s.target();
+    if (el) tourReveal(el);
+  }
+  tourPlace();
+  tour.raf = requestAnimationFrame(tourLoop);
+}
+
+$("#tour-next").onclick = () => tourNext(true);
+$("#tour-skip").onclick = () => tourNext(false);
+$("#tour-back").onclick = () => tourGo(tour.i - 1, -1, true);
+$("#tour-close").onclick = () => endTour(false);
+$("#tour-start-btn").onclick = () => startTour();
+$("#sea-sound").onclick = () => {
+  seaSoundOn = !seaSoundOn;
+  try { localStorage.setItem("benthic-sea-sound", seaSoundOn ? "on" : "off"); } catch (e) { /* ohne Speicher */ }
+  renderSeaSound();
+  if (seaSoundOn) seaPing();
+};
+document.addEventListener("keydown", (e) => {
+  if (!tour.on) return;
+  if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); endTour(false); return; }
+  if ((e.metaKey || e.ctrlKey) && /^[k1-9]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); return; }  // keine Ansichtswechsel unterwegs
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (e.key === "ArrowRight") { e.preventDefault(); tourNext(true); }
+  else if (e.key === "ArrowLeft" && !$("#tour-back").hidden) { e.preventDefault(); tourGo(tour.i - 1, -1, true); }
+}, true);
+window.addEventListener("resize", () => {
+  if (sea.on) { seaLayout(); seaDraw(); }
+  renderGauge();
+});
 
 // ---------------------------------------------------------------------------
 // Projekte
@@ -5033,6 +5546,7 @@ function paletteCommands() {
       run: () => { syncToggle("extra_routes", !settings.extra_routes); persistSetting({ extra_routes: !settings.extra_routes }); } }] : []),
     { group: act, label: T("KI-Assistent verbinden"), icon: "i-plug", run: () => { showView("settings"); scrollMainTo($("#ai-card")); } },
     { group: act, label: T("Bibliothek scannen"), icon: "i-book", run: () => { showView("library"); scanLibrarySources(); } },
+    { group: act, label: T("Rundgang starten"), hint: T("zwei Minuten"), icon: "i-route", run: () => startTour() },
     { group: act, label: T("Einrichtung erneut starten"), icon: "i-user", run: () => openSetup(true) },
   );
   if (activeProject) {
@@ -5503,8 +6017,8 @@ document.querySelectorAll("#ov-range button").forEach((b) => {
 });
 $("#ov-start").onclick = () => { showView("verify"); $("#verify-input").value = SAMPLE; runPreview(); startVerify(); };
 $("#su-next").onclick = setupNext;
-$("#su-back").onclick = () => goStep(Math.max(0, setup.step - 1), true);
-$("#su-sample").onclick = () => { setup.sample = true; setupNext(); };
+$("#su-back").onclick = () => goStep(Math.max(0, setup.step - 1), true, true);
+$("#su-explore").onclick = () => { closeSetup(); showView("verify"); };
 $("#su-proxy-test").onclick = () => {
   const p = $("#su-proxy").value.trim();
   if (!/^https?:\/\//.test(p)) return setupFail(T("Bitte zuerst einen Proxy-Link eintragen."), "proxy");
@@ -5581,6 +6095,12 @@ if (!initialView) {
 }
 let resumeSetup = false;
 try { resumeSetup = sessionStorage.getItem("pd-setup-resume") === "1"; sessionStorage.removeItem("pd-setup-resume"); } catch (e) { /* ohne Speicher */ }
+// Erster Start: die Begrüßung steht sofort da, damit das Intro der App auf ihrem Zeichen landen kann.
+if (document.documentElement.classList.contains("first-run")) {
+  $("#setup").hidden = false;
+  seaStart();
+  showGauge(true);
+}
 openSetup(resumeSetup);
 tellShellLanguage();
 document.querySelectorAll("#su-lang [data-lang]").forEach((b) => { b.onclick = () => switchLanguage(b.dataset.lang, true); });
