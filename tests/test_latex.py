@@ -76,6 +76,40 @@ class Projekt(unittest.TestCase):
         with self.assertRaises(ValueError):
             latex.analyse({"refs.bib": BIB})
 
+    def test_export_cleaned_bib(self):
+        results = [
+            {
+                "order": 0,
+                "bib_key": "harris2020",
+                "verdict": "verified",
+                "ref": {"bib_key": "harris2020", "bib_type": "article"},
+                "found": {
+                    "title": "Array programming with NumPy",
+                    "authors": ["Harris, C. R.", "Millman, K. J."],
+                    "year": "2020",
+                    "venue": "Nature",
+                    "doi": "10.1038/s41586-020-2649-2",
+                },
+            },
+            {
+                "order": 1,
+                "bib_key": "fake2024",
+                "verdict": "not_found",
+                "note": "Nicht in Registern gefunden",
+                "ref": {
+                    "bib_key": "fake2024",
+                    "bib_type": "article",
+                    "raw": "@article{fake2024,\n  title={Hallucinated title},\n  author={Smith, J.},\n  year={2024}\n}",
+                },
+            },
+        ]
+        bib = latex.export_cleaned_bib(results)
+        self.assertIn("@article{harris2020,", bib)
+        self.assertIn("doi = {10.1038/s41586-020-2649-2}", bib)
+        self.assertIn("% [Benthic WARNUNG: not_found] Nicht in Registern gefunden", bib)
+        self.assertIn("% @article{fake2024,", bib)
+        self.assertIn("%   title={Hallucinated title},", bib)
+
 
 class Route(unittest.TestCase):
     def setUp(self):
@@ -84,7 +118,11 @@ class Route(unittest.TestCase):
         self.env.start()
         from benthic import app as appmod, verify
         fake = lambda ref, email="", on_event=None: {"identifier": ref.get("label"), "verdict": "verified",
-                                                     "status": "verified", "note": "", "score": 100, "flags": []}
+                                                     "status": "verified", "note": "", "score": 100, "flags": [],
+                                                     "bib_key": ref.get("bib_key") or ref.get("key"),
+                                                     "bib_type": ref.get("bib_type"),
+                                                     "found": {"title": ref.get("title"), "authors": ref.get("authors"),
+                                                               "year": ref.get("year"), "doi": ref.get("doi")}}
         self.patch = mock.patch.object(verify, "verify_ref", side_effect=fake)
         self.patch.start()
         self.client = ui_client(appmod.app)
@@ -95,6 +133,7 @@ class Route(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_upload_tex_and_bib(self):
+        import time
         data = {"file": [(io.BytesIO(MAIN.replace(r"\input{chapters/two}", TWO).encode()), "main.tex"),
                          (io.BytesIO(BIB.encode()), "refs.bib")]}
         r = self.client.post("/api/document", data=data, content_type="multipart/form-data")
@@ -103,6 +142,16 @@ class Route(unittest.TestCase):
         self.assertEqual(j["total"], 4)
         self.assertEqual(j["document"]["name"], "main.tex")
         self.assertEqual(len(j["document"]["quotes"]), 2)
+        job_id = j["job_id"]
+        for _ in range(100):
+            if self.client.get(f"/api/jobs/{job_id}").get_json()["status"] != "running":
+                break
+            time.sleep(0.05)
+        bib_resp = self.client.get(f"/api/jobs/{job_id}/cleaned.bib")
+        self.assertEqual(bib_resp.status_code, 200)
+        bib_text = bib_resp.get_data(as_text=True)
+        self.assertIn("@article{harris2020,", bib_text)
+        self.assertIn("@inproceedings{he2016,", bib_text)
 
     def test_tex_without_bib(self):
         r = self.client.post("/api/document", data={"file": [(io.BytesIO(MAIN.encode()), "main.tex")]},

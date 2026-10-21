@@ -20,6 +20,7 @@ import time
 import unicodedata
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
+import xml.etree.ElementTree as ET
 
 from . import netguard, oa, quota, refs
 from .i18n import each_lang, join_list, note_part, tr, tr_parts
@@ -107,6 +108,38 @@ def crossref_work(doi: str, email: str = "") -> Optional[Dict]:
     return found  # type: ignore[return-value]
 
 
+def _from_datacite(attr: Dict) -> Dict:
+    titles = attr.get("titles") or []
+    creators = attr.get("creators") or []
+    names = [c.get("familyName") or oa._surname(c.get("name") or "") for c in creators]
+    types = attr.get("types") or {}
+    return {
+        "doi": attr.get("doi"),
+        "title": (titles[0].get("title") if titles else "") or "",
+        "authors": [n for n in names if n][:12],
+        "year": str(attr.get("publicationYear") or "") or None,
+        "venue": attr.get("publisher"),
+        "type": types.get("resourceTypeGeneral", "dataset").lower(),
+        "volume": None, "issue": None, "pages": None,
+        "author_count": len(creators),
+        "retracted": False, "cited_by": attr.get("citationCount"),
+        "is_oa": True, "source": "DataCite",
+    }
+
+
+def datacite_work(doi: str) -> Optional[Dict]:
+    def fetch():
+        resp = oa._api_get(f"https://api.datacite.org/dois/{quote(doi, safe='/')}", timeout=12.0)
+        j = oa._json(resp)
+        if j is None and (resp is None or resp.status_code != 404):
+            return _FAILED
+        attr = ((j or {}).get("data") or {}).get("attributes")
+        return _from_datacite(attr) if attr and attr.get("titles") else None
+    found = _cached("dc:" + doi.lower(), fetch)
+    _t("DataCite", "doi", found=bool(found))
+    return found  # type: ignore[return-value]
+
+
 def doi_exists(doi: str) -> Optional[bool]:
     """Fragt den DOI-Resolver direkt (deckt auch DataCite, Zenodo, arXiv ab)."""
     def fetch():
@@ -158,7 +191,7 @@ def _arxiv_query(params: Dict[str, str]) -> List[Dict]:
             out.append({
                 "doi": refs.arxiv_doi(ident.group(1)),
                 "title": re.sub(r"\s+", " ", title.group(1)).strip(),
-                "authors": [oa._surname(n) for n in names][:12],
+                "authors": [refs._surname(n) for n in names][:12],
                 "year": year.group(1) if year else None,
                 "venue": "arXiv", "type": "preprint", "retracted": False,
                 "cited_by": None, "is_oa": True, "source": "arXiv",
@@ -254,6 +287,9 @@ def lookup(doi: str, email: str = "") -> Optional[Dict]:
     m = crossref_work(doi, email)
     if m:
         return _from_crossref(m)
+    dc = datacite_work(doi)
+    if dc:
+        return dc
     return None
 
 
@@ -307,6 +343,60 @@ def compare(claimed: Dict, actual: Dict) -> Tuple[int, List[str], float]:
             flags.append("authors")
     score = round(100 * got / weights) if weights else 100
     return score, flags, sim
+
+
+def field_diffs(claimed: Dict, actual: Optional[Dict]) -> Dict[str, Dict]:
+    """Einzelvergleich je Feld (title, authors, year, venue) für die Oberfläche und den Bericht."""
+    if not actual:
+        return {}
+    out: Dict[str, Dict] = {}
+    ct, at = str(claimed.get("title") or "").strip(), str(actual.get("title") or "").strip()
+    if ct and at:
+        sim = title_similarity(ct, at)
+        out["title"] = {
+            "claimed": ct,
+            "found": at,
+            "status": "ok" if sim >= TITLE_OK else ("warn" if sim >= TITLE_MAYBE else "fail"),
+            "similarity": round(sim, 2),
+        }
+    cy, ay = str(claimed.get("year") or "").strip(), str(actual.get("year") or "").strip()
+    if cy and ay:
+        try:
+            diff = abs(int(cy[:4]) - int(ay[:4]))
+            st = "ok" if diff == 0 else ("warn" if diff == 1 else "fail")
+        except ValueError:
+            st = "ok" if cy == ay else "fail"
+        out["year"] = {"claimed": cy, "found": ay, "status": st}
+    ca = [str(a) for a in (claimed.get("authors") or []) if a]
+    aa = [str(a) for a in (actual.get("authors") or []) if a]
+    if ca and aa:
+        c_norm, a_norm = {_norm_name(n) for n in ca}, {_norm_name(n) for n in aa}
+        overlap = len(c_norm & a_norm)
+        st = "ok" if overlap == len(c_norm) else ("warn" if overlap > 0 else "fail")
+        out["authors"] = {"claimed": ", ".join(ca[:4]), "found": ", ".join(aa[:4]), "status": st}
+    cv, av = str(claimed.get("venue") or "").strip(), str(actual.get("venue") or "").strip()
+    if cv and av:
+        vsim = title_similarity(cv, av)
+        out["venue"] = {"claimed": cv, "found": av, "status": "ok" if vsim >= 0.75 else "warn"}
+    return out
+
+
+def _chimera_hint(claimed: Dict, best: Optional[Dict], best_sim: float) -> Optional[Dict]:
+    if not best or not best.get("title") or not claimed.get("authors"):
+        return None
+    ca = {_norm_name(a) for a in (claimed.get("authors") or []) if a}
+    ba = {_norm_name(a) for a in (best.get("authors") or []) if a}
+    if (ca & ba) and 0.35 <= best_sim < TITLE_MAYBE:
+        author_name = claimed["authors"][0]
+        title_snippet = str(best.get("title") or "")[:120]
+        year_str = str(best.get("year") or "") or "–"
+        return note_part(
+            "Kein Werk mit diesem Titel gefunden. Von {author} gibt es aber „{title}“ ({year}): Sprachmodelle vermischen oft echte Autor:innen mit einem erfundenen Titel.",
+            author=author_name,
+            title=title_snippet,
+            year=year_str,
+        )
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -395,6 +485,183 @@ def _search_openlibrary(title: str, authors: List[str]) -> List[Dict]:
     return hits or []  # type: ignore[return-value]
 
 
+def _search_dblp(title: str) -> List[Dict]:
+    def fetch():
+        resp = oa._api_get("https://dblp.org/search/publ/api", params={"q": title[:200], "format": "json", "h": "5"}, timeout=12.0)
+        j = oa._json(resp)
+        if j is None and (resp is None or resp.status_code != 404):
+            return _FAILED
+        hits = (((j or {}).get("result") or {}).get("hits") or {}).get("hit") or []
+        out = []
+        for h in hits:
+            info = h.get("info") or {}
+            raw_title = str(info.get("title") or "").rstrip(".")
+            if not raw_title:
+                continue
+            authors_val = (info.get("authors") or {}).get("author") or []
+            if not isinstance(authors_val, list):
+                authors_val = [authors_val]
+            authors = []
+            for a in authors_val:
+                name = (a.get("text") or a.get("#text") or a.get("name") or "") if isinstance(a, dict) else str(a)
+                s = refs._surname(name)
+                if s:
+                    authors.append(s)
+            doi = refs.clean_doi(info.get("doi") or "")
+            out.append({
+                "doi": doi,
+                "title": raw_title,
+                "authors": authors[:12],
+                "year": str(info.get("year") or "") or None,
+                "venue": info.get("venue"),
+                "type": str(info.get("type") or "article").lower(),
+                "volume": None, "issue": None, "pages": None,
+                "author_count": len(authors),
+                "retracted": False, "cited_by": None,
+                "is_oa": None, "source": "DBLP",
+                "url": info.get("url"),
+            })
+        return out
+    hits = _cached("dblp:" + title[:100].lower(), fetch)
+    _t("DBLP", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def _parse_dnb_marc21(xml_text: str) -> List[Dict]:
+    if not xml_text:
+        return []
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return []
+    records = []
+    for rec in root.iter():
+        if rec.tag.split("}")[-1] != "record":
+            continue
+        record_id = None
+        title_a, title_b = "", ""
+        authors = []
+        year = None
+        venue = None
+        for child in rec:
+            tag_name = child.tag.split("}")[-1]
+            t = child.attrib.get("tag")
+            if tag_name == "controlfield" and t == "001":
+                record_id = (child.text or "").strip()
+            elif tag_name == "datafield":
+                if t == "245":
+                    for sf in child:
+                        code = sf.attrib.get("code")
+                        if code == "a":
+                            title_a = (sf.text or "").strip().rstrip(" /:")
+                        elif code == "b":
+                            title_b = (sf.text or "").strip().rstrip(" /:")
+                elif t in ("100", "700"):
+                    for sf in child:
+                        if sf.attrib.get("code") == "a" and sf.text:
+                            authors.append(refs._surname(sf.text.strip().rstrip(",")))
+                elif t in ("260", "264"):
+                    for sf in child:
+                        code = sf.attrib.get("code")
+                        if code == "c" and sf.text and not year:
+                            m_y = refs._YEAR_RE.search(sf.text)
+                            if m_y:
+                                year = m_y.group(1)
+                        elif code == "b" and sf.text and not venue:
+                            venue = sf.text.strip().rstrip(",")
+        full_title = f"{title_a}: {title_b}" if (title_a and title_b) else (title_a or title_b)
+        if full_title:
+            records.append({
+                "doi": None,
+                "title": full_title,
+                "authors": [a for a in authors if a][:12],
+                "year": year,
+                "venue": venue,
+                "type": "book",
+                "author_count": len(authors),
+                "retracted": False,
+                "cited_by": None,
+                "is_oa": None,
+                "source": "Deutsche Nationalbibliothek",
+                "url": f"https://d-nb.info/{record_id}" if record_id else None,
+            })
+    return records
+
+
+def _search_dnb(title: str = "", authors: Optional[List[str]] = None, isbn: Optional[str] = None) -> List[Dict]:
+    authors = authors or []
+    if isbn:
+        query_str = f"NUM={isbn}"
+        cache_key = f"dnb:isbn:{isbn}"
+    else:
+        clean_t = re.sub(r'["\\]', "", title)[:80].strip()
+        if not clean_t:
+            return []
+        if authors:
+            clean_a = re.sub(r'["\\]', "", authors[0]).strip()
+            query_str = f'TIT="{clean_t}" and PER="{clean_a}"'
+        else:
+            query_str = f'TIT="{clean_t}"'
+        cache_key = f"dnb:t:{(authors or [''])[0]}:{clean_t.lower()}"
+
+    def fetch():
+        resp = oa._api_get(
+            "https://services.dnb.de/sru/dnb",
+            params={
+                "version": "1.1",
+                "operation": "searchRetrieve",
+                "recordSchema": "MARC21-xml",
+                "maximumRecords": "3",
+                "query": query_str,
+            },
+            timeout=12.0,
+        )
+        if resp is None and (resp is None or resp.status_code != 404):
+            return _FAILED
+        return _parse_dnb_marc21(resp.text if resp else "")
+
+    hits = _cached(cache_key, fetch)
+    _t("Deutsche Nationalbibliothek", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+def _lookup_openlibrary_isbn(isbn: str) -> Optional[Dict]:
+    def fetch():
+        resp = oa._api_get(
+            "https://openlibrary.org/search.json",
+            params={"isbn": isbn, "fields": "key,title,subtitle,author_name,first_publish_year,publisher", "limit": "3"},
+            timeout=12.0,
+        )
+        j = oa._json(resp)
+        if j is None and (resp is None or resp.status_code != 404):
+            return _FAILED
+        docs = (j or {}).get("docs") or []
+        if not docs:
+            return None
+        d = docs[0]
+        full = d.get("title") or ""
+        if d.get("subtitle"):
+            full += ": " + d["subtitle"]
+        names = d.get("author_name") or []
+        return {
+            "doi": None,
+            "title": full,
+            "authors": [refs._surname(n) for n in names][:12],
+            "year": str(d["first_publish_year"]) if d.get("first_publish_year") else None,
+            "venue": (d.get("publisher") or [None])[0],
+            "type": "book",
+            "author_count": len(names),
+            "retracted": False,
+            "cited_by": None,
+            "is_oa": None,
+            "source": "Open Library",
+            "url": "https://openlibrary.org" + str(d.get("key") or ""),
+        }
+    found = _cached("ol_isbn:" + isbn, fetch)
+    _t("Open Library", "isbn", found=bool(found))
+    return found  # type: ignore[return-value]
+
+
 def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
     """Bester Treffer für eine Angabe ohne (passende) DOI: (Werk, Score, Titelähnlichkeit)."""
     query = str(claimed.get("title") or claimed.get("query") or claimed.get("raw") or "").strip()
@@ -422,11 +689,15 @@ def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
     # Preprints (Informatik, Physik): arXiv selbst fragen, wenn nichts eindeutig passt.
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_arxiv(str(claimed["title"])))
-    # Magazine (HBR), Buchkapitel, Konferenzen ohne DOI: Semantic Scholar; Bücher: Open Library
+    # Magazine (HBR), Buchkapitel, Konferenzen ohne DOI: Semantic Scholar; Bücher: Open Library, DNB; Informatik: DBLP
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_semanticscholar(str(claimed["title"])))
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_dblp(str(claimed["title"])))
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_openlibrary(str(claimed["title"]), list(claimed.get("authors") or [])))
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_dnb(str(claimed["title"]), list(claimed.get("authors") or [])))
     if best:
         _t(best.get("source") or "", "best", title=best.get("title"), similarity=round(best_sim, 2), score=max(best_score, 0))
     if best and best["source"] == "Crossref":
@@ -474,6 +745,8 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         "identifier": label,
         "input": str(ref.get("raw") or "")[:400],
         "format": ref.get("format"),
+        "bib_key": ref.get("bib_key") or ref.get("key"),
+        "bib_type": ref.get("bib_type"),
         "claimed": {k: claimed.get(k) for k in ("title", "authors", "year", "venue")},
         "doi": ref.get("doi"),
         "claimed_doi": ref.get("doi"),
@@ -519,6 +792,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
             else:
                 parts.append(note_part("{names} war nicht verfügbar; geprüft mit den übrigen Quellen.", names=names))
         result.update(verdict=verdict, note=tr_parts(parts), note_parts=parts, found=found, score=score, flags=flags or [])
+        result["field_diffs"] = field_diffs(claimed, found) if found else {}
         result["trace"] = list(getattr(_trace, "steps", []) or [])
         result["sources_failed"] = failed
         if found and found.get("doi"):
@@ -527,6 +801,32 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         result["status"] = verdict
         emit("done", status=verdict)
         return result
+
+    # ISBN ohne DOI: über Open Library und DNB auflösen.
+    if not doi and ref.get("isbn"):
+        isbn = str(ref["isbn"])
+        result["isbn"] = isbn
+        emit("lookup", source="openlibrary")
+        hit = _lookup_openlibrary_isbn(isbn)
+        if not hit:
+            emit("lookup", source="dnb")
+            dnb_hits = _search_dnb(isbn=isbn)
+            if dnb_hits:
+                hit = dnb_hits[0]
+        if hit:
+            score, flags, sim = compare(claimed, hit)
+            if sim >= TITLE_FOUND and "year" not in compare(claimed, hit)[1]:
+                result["resolved_by"] = "isbn"
+                if flags:
+                    return finish("partial", _diff_note(flags, via_title=True), hit, score, flags)
+                src_label = each_lang(lambda l: tr(hit.get("source") or "Open Library", l)) if hit.get("source") in ("Open Library", "Deutsche Nationalbibliothek") else (hit.get("source") or "Open Library")
+                return finish("verified", note_part("Über die ISBN gefunden ({source}).", source=src_label), hit, score)
+            elif sim >= TITLE_MAYBE:
+                result["resolved_by"] = "isbn"
+                return finish("uncertain", note_part("Ähnlichster Treffer zur ISBN: „{title}“ ({year}). Bitte prüfen.",
+                                                     title=hit["title"],
+                                                     year=hit.get("year") or each_lang(lambda lang: tr("o. J.", lang))),
+                              hit, score)
 
     if doi:
         emit("lookup", source="openalex")
@@ -537,9 +837,11 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
                 emit("search")
                 best, bscore, bsim = search(claimed, email)
                 if best and bsim >= TITLE_FOUND and best.get("doi") and best["doi"].lower() != str(doi).lower():
+                    result["pattern"] = "wrong_doi"
                     return finish("corrected",
                                   note_part("Die angegebene DOI gehört zu „{title}“. Das genannte Werk hat die DOI {doi}.",
                                             title=actual["title"], doi=best["doi"]), best, bscore)
+                result["pattern"] = "wrong_doi"
                 return finish("mismatch", note_part("Die DOI existiert, gehört aber zu „{title}“.", title=actual["title"]),
                               actual, score, flags)
             if flags:
@@ -560,6 +862,11 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
             if best and bsim >= TITLE_FOUND:
                 return finish("corrected", note_part("Die angegebene DOI existiert nicht. Das Werk hat die DOI {doi}.", doi=best["doi"]),
                               best, bscore)
+        if (claimed.get("title") or claimed.get("query")) and best:
+            ch_hint = _chimera_hint(claimed, best, bsim)
+            if ch_hint:
+                result["pattern"] = "chimera"
+                return finish("not_found", ch_hint, found=best)
         return finish("not_found", note_part("Die DOI existiert nicht und kein passendes Werk wurde gefunden. Vermutlich erfunden."))
 
     # Keine Kennung: über den Titel bzw. die ganze Angabe suchen.
@@ -570,7 +877,8 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         _score, flags, _sim = compare(claimed, best)
         if flags:
             return finish("partial", _diff_note(flags, via_title=True), best, bscore, flags)
-        via = best.get("source") if best.get("source") in ("Semantic Scholar", "Open Library") else None
+        known_sources = ("Semantic Scholar", "Open Library", "DBLP", "DataCite", "Deutsche Nationalbibliothek")
+        via = each_lang(lambda l: tr(best.get("source"), l)) if best.get("source") in ("Open Library", "Deutsche Nationalbibliothek") else best.get("source") if best.get("source") in known_sources else None
         return finish("verified", note_part("Über den Titel gefunden ({source}).", source=via) if via
                       else note_part("Über den Titel gefunden."), best, bscore)
     if best and bsim >= TITLE_MAYBE:
@@ -585,6 +893,10 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
     grey = _grey_literature(str(ref.get("raw") or ""))
     if grey:
         return finish(*grey)
+    ch_hint = _chimera_hint(claimed, best, bsim)
+    if ch_hint:
+        result["pattern"] = "chimera"
+        return finish("not_found", ch_hint, found=best)
     return finish("not_found", note_part("Kein passendes Werk gefunden. Vermutlich erfunden oder sehr ungenau angegeben."))
 
 

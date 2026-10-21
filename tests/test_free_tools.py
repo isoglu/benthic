@@ -109,5 +109,169 @@ class Werkzeuge(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
 
 
+class RegistryCoverage(unittest.TestCase):
+    def test_datacite_work(self):
+        from benthic import verify
+        fake_json = {
+            "data": {
+                "attributes": {
+                    "doi": "10.5281/zenodo.12345",
+                    "titles": [{"title": "Open Source Research Dataset"}],
+                    "creators": [{"name": "Smith, Alice", "familyName": "Smith"}],
+                    "publicationYear": 2023,
+                    "publisher": "Zenodo",
+                    "types": {"resourceTypeGeneral": "Dataset"},
+                    "citationCount": 5,
+                }
+            }
+        }
+        resp = mock.Mock(status_code=200, json=lambda: fake_json)
+        with mock.patch("benthic.oa._api_get", return_value=resp):
+            work = verify.datacite_work("10.5281/zenodo.12345")
+        self.assertIsNotNone(work)
+        self.assertEqual(work["title"], "Open Source Research Dataset")
+        self.assertEqual(work["year"], "2023")
+        self.assertEqual(work["source"], "DataCite")
+        self.assertEqual(work["authors"], ["Smith"])
+
+    def test_search_dblp(self):
+        from benthic import verify
+        fake_json = {
+            "result": {
+                "hits": {
+                    "hit": [{
+                        "info": {
+                            "title": "Deep Learning at Scale.",
+                            "authors": {"author": [{"text": "Yann LeCun"}, {"text": "Yoshua Bengio"}]},
+                            "year": "2015",
+                            "venue": "Nature",
+                            "doi": "10.1038/nature14539",
+                            "url": "https://dblp.org/rec/journals/nature/LeCunBH15",
+                        }
+                    }]
+                }
+            }
+        }
+        resp = mock.Mock(status_code=200, json=lambda: fake_json)
+        with mock.patch("benthic.oa._api_get", return_value=resp):
+            hits = verify._search_dblp("Deep Learning at Scale")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["title"], "Deep Learning at Scale")
+        self.assertEqual(hits[0]["source"], "DBLP")
+        self.assertEqual(hits[0]["authors"], ["LeCun", "Bengio"])
+
+    def test_dnb_marc21_parsing(self):
+        from benthic import verify
+        sample_marc = """<?xml version="1.0" encoding="UTF-8"?>
+<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">
+  <records>
+    <record>
+      <recordData>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <controlfield tag="001">123456789</controlfield>
+          <datafield tag="100" ind1="1" ind2=" ">
+            <subfield code="a">Müller, Hans</subfield>
+          </datafield>
+          <datafield tag="245" ind1="1" ind2="0">
+            <subfield code="a">Einführung in die Informatik</subfield>
+            <subfield code="b">Ein Lehrbuch</subfield>
+          </datafield>
+          <datafield tag="264" ind1=" " ind2="1">
+            <subfield code="b">Springer</subfield>
+            <subfield code="c">2021</subfield>
+          </datafield>
+        </record>
+      </recordData>
+    </record>
+  </records>
+</searchRetrieveResponse>"""
+        parsed = verify._parse_dnb_marc21(sample_marc)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["title"], "Einführung in die Informatik: Ein Lehrbuch")
+        self.assertEqual(parsed[0]["authors"], ["Müller"])
+        self.assertEqual(parsed[0]["year"], "2021")
+        self.assertEqual(parsed[0]["source"], "Deutsche Nationalbibliothek")
+        self.assertEqual(parsed[0]["url"], "https://d-nb.info/123456789")
+
+    def test_verify_ref_with_isbn(self):
+        from benthic import verify
+        ref = {
+            "format": "text",
+            "raw": "Knuth, D. E. (1984). The TeXbook. Addison-Wesley. ISBN 0-201-13447-0.",
+            "title": "The TeXbook",
+            "authors": ["Knuth"],
+            "year": "1984",
+            "isbn": "0201134470",
+            "doi": None,
+        }
+        hit = {
+            "title": "The TeXbook",
+            "authors": ["Knuth"],
+            "year": "1984",
+            "source": "Open Library",
+            "type": "book",
+        }
+        with mock.patch("benthic.verify._lookup_openlibrary_isbn", return_value=hit):
+            res = verify.verify_ref(ref)
+        self.assertEqual(res["verdict"], "verified")
+        self.assertEqual(res["resolved_by"], "isbn")
+
+    def test_field_diffs(self):
+        from benthic import verify
+        claimed = {"title": "Attention Is All You Need", "authors": ["Vaswani", "Müller"], "year": "2017", "venue": "NeurIPS"}
+        actual = {"title": "Attention is all you need", "authors": ["Vaswani", "Shazeer"], "year": "2018", "venue": "NIPS"}
+        diffs = verify.field_diffs(claimed, actual)
+        self.assertEqual(diffs["title"]["status"], "ok")
+        self.assertEqual(diffs["year"]["status"], "warn")
+        self.assertEqual(diffs["authors"]["status"], "warn")
+
+    def test_chimera_detection(self):
+        from benthic import verify
+        ref = {
+            "format": "text",
+            "raw": "Vaswani, A. (2021). Quantum Computing for Protein Folding.",
+            "title": "Quantum Computing for Protein Folding",
+            "authors": ["Vaswani"],
+            "year": "2021",
+            "doi": None,
+        }
+        best = {
+            "title": "Attention is all you need",
+            "authors": ["Vaswani", "Shazeer"],
+            "year": "2017",
+            "source": "OpenAlex",
+            "doi": "10.48550/arXiv.1706.03762",
+        }
+        with mock.patch("benthic.verify.search", return_value=(best, 45, 0.40)):
+            res = verify.verify_ref(ref)
+        self.assertEqual(res["verdict"], "not_found")
+        self.assertEqual(res.get("pattern"), "chimera")
+        self.assertIn("blend real authors with an invented title", res["note"])
+        self.assertIn("Sprachmodelle vermischen oft", res["note_parts"][0]["msg"])
+
+    def test_wrong_doi_pattern(self):
+        from benthic import verify
+        ref = {
+            "format": "text",
+            "raw": "Smith, J. (2020). Made up paper title. 10.1038/nature14539",
+            "title": "Made up paper title",
+            "authors": ["Smith"],
+            "year": "2020",
+            "doi": "10.1038/nature14539",
+        }
+        actual = {
+            "title": "Deep learning",
+            "authors": ["LeCun", "Bengio", "Hinton"],
+            "year": "2015",
+            "venue": "Nature",
+            "doi": "10.1038/nature14539",
+        }
+        with mock.patch("benthic.verify.lookup", return_value=actual), \
+                mock.patch("benthic.verify.search", return_value=(None, 0, 0.0)):
+            res = verify.verify_ref(ref)
+        self.assertEqual(res["verdict"], "mismatch")
+        self.assertEqual(res.get("pattern"), "wrong_doi")
+
+
 if __name__ == "__main__":
     unittest.main()

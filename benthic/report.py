@@ -370,6 +370,16 @@ def _attention_card(r: Dict, shared_note: Optional[str] = None) -> str:
         lines.append('<p class="found">' + " · ".join(bits) + "</p>")
     if r.get("note") and r.get("note") != shared_note:
         lines.append(f'<p class="note {COLOR.get(v, "")}">{_e(r["note"])}</p>')
+    diffs = r.get("field_diffs") or {}
+    diff_pills = []
+    _LBL = {"title": tr("Titel"), "authors": tr("Autor:innen"), "year": tr("Jahr"), "venue": tr("Zeitschrift")}
+    for field, d in diffs.items():
+        if d.get("status") != "ok":
+            diff_pills.append(f'<span class="pill-diff {d.get("status")}">{_e(_LBL.get(field, field))}: {_e(d.get("claimed", ""))} → {_e(d.get("found", ""))}</span>')
+    if diff_pills:
+        lines.append(f'<p class="field-diffs">{" ".join(diff_pills)}</p>')
+    if r.get("pattern") == "chimera":
+        lines.append(f'<p class="chimera-tag"><span class="pill fail">{_e(tr("Mischangabe (echte Autor:innen, erfundener Titel)"))}</span></p>')
     pub = r.get("published_version")
     if pub:
         lines.append('<p class="note">' + _e(tr("Inzwischen veröffentlicht:")) + " "
@@ -585,6 +595,12 @@ footer.run .pno { margin-left: auto; color: #4a5a75; font-variant-numeric: tabul
 .cards.compact .card .cited { -webkit-line-clamp: 2; }
 .cards.compact .card .main p { margin-bottom: .3mm; }
 .cards.compact .card .found, .cards.compact .card .note { font-size: 7.4pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .field-diffs { display: flex; flex-wrap: wrap; gap: 1.4mm; margin-top: .8mm; font-size: 7.2pt; }
+.card .pill-diff { display: inline-flex; align-items: center; padding: .1mm 1.6mm; border-radius: 2mm; font-size: 7.2pt; }
+.card .pill-diff.warn { background: #fdf2dc; color: #8a5a00; border: .2mm solid #e5c378; }
+.card .pill-diff.fail { background: #fbeeed; color: #b3302a; border: .2mm solid #f0a8a5; }
+.card .pill-diff.ok { background: #eaf6f8; color: #08697d; border: .2mm solid #a8d5dc; }
+.card .chimera-tag { margin-top: .6mm; }
 
 /* Listen */
 .list .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6mm; }
@@ -828,7 +844,18 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
             sec.append('<div class="split list">' + "".join(
                 '<div class="row">' + "".join(f'<div class="item">{_e(u["label"])}</div>' for u in pair) + "</div>"
                 for pair in pairs) + "</div>")
-        if doc.get("cross_check") and not missing and not uncited and not years:
+        sec_cites = doc.get("secondary_citations") or []
+        if sec_cites:
+            sec.append(_sub(tr("Zitate aus zweiter Hand (zit. nach / cited in)")))
+            sec.append('<div class="split list one">' + "".join(
+                f'<div class="row"><div class="item"><b class="warn">{_e(s["match"])}</b>'
+                f'<div class="meta">{_e(s.get("sentence", ""))}</div></div></div>' for s in sec_cites[:20]) + "</div>")
+        unclaims = doc.get("uncited_claims") or []
+        if unclaims:
+            sec.append(_sub(tr("Aussagen mit Zahlen oder Studienbezug ohne Zitat")))
+            sec.append('<div class="split list one">' + "".join(
+                f'<div class="row"><div class="item"><b class="warn">{_e(u["sentence"])}</b></div></div>' for u in unclaims[:20]) + "</div>")
+        if doc.get("cross_check") and not missing and not uncited and not years and not sec_cites and not unclaims:
             sec.append(f'<div class="keep"><p class="allgood">{CHECK_ICON}{_e(tr("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert."))}</p></div>')
     if quotes:
         sec.append(_heading("sec-quotes", tr("Wörtliche Zitate"), tr("{n} geprüft", n=len(quotes))))

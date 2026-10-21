@@ -45,9 +45,10 @@ in Proc. CVPR, 2016, pp. 770-778.
 
 
 def docx(paragraphs, footnotes=()):
+    import html
     w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
-    body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
-    notes = "".join(f"<w:footnote><w:p><w:r><w:t>{p}</w:t></w:r></w:p></w:footnote>" for p in footnotes)
+    body = "".join(f"<w:p><w:r><w:t>{html.escape(p)}</w:t></w:r></w:p>" for p in paragraphs)
+    notes = "".join(f"<w:footnote><w:p><w:r><w:t>{html.escape(p)}</w:t></w:r></w:p></w:footnote>" for p in footnotes)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("word/document.xml", f'<w:document {w}><w:body>{body}</w:body></w:document>')
@@ -186,6 +187,39 @@ class Route(unittest.TestCase):
         self.assertEqual([m["label"] for m in job["document"]["missing_in_list"]], ["Brown (2017)"])
         self.assertEqual(sorted(r["order"] for r in job["results"]), [0, 1, 2, 3, 4])  # Eintragsnummern
 
+    def test_annotated_docx_route(self):
+        from unittest import mock
+        from benthic import verify
+
+        def fake_with_diff(ref, email="", on_event=None):
+            label = ref.get("label") or ""
+            if "Invented" in label:
+                return {
+                    "identifier": label,
+                    "verdict": "mismatch",
+                    "status": "mismatch",
+                    "note": "Jahr weicht ab.",
+                    "score": 40,
+                    "flags": ["year_mismatch"],
+                    "field_diffs": {"year": {"claimed": "2019", "found": "2020", "status": "diff"}},
+                }
+            return {"identifier": label, "verdict": "verified", "status": "verified", "note": "", "score": 100, "flags": []}
+
+        raw_docx = docx(THESIS.splitlines())
+        with mock.patch.object(verify, "verify_ref", side_effect=fake_with_diff):
+            r = self.client.post("/api/document", data={"file": (io.BytesIO(raw_docx), "thesis.docx")},
+                                 content_type="multipart/form-data")
+            self.assertEqual(r.status_code, 200, r.get_json())
+            job_id = r.get_json()["job_id"]
+            self.wait(job_id)
+        resp = self.client.get(f"/api/jobs/{job_id}/annotated.docx")
+        self.assertEqual(resp.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(resp.data)) as z:
+            self.assertIn("word/comments.xml", z.namelist())
+            comments = z.read("word/comments.xml").decode("utf-8")
+            self.assertIn("Brown (2017)", comments)
+            self.assertIn("year: 2019 -&gt; 2020", comments)
+
     def test_errors(self):
         r = self.client.post("/api/document", data={"file": (io.BytesIO(b"x"), "a.odt")}, content_type="multipart/form-data")
         self.assertEqual(r.status_code, 400)
@@ -194,6 +228,52 @@ class Route(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         r = self.client.post("/api/document", json={"path": "/nonexistent/thesis.pdf"})
         self.assertEqual(r.status_code, 400)
+
+
+class WritingSignals(unittest.TestCase):
+    def test_secondary_citations(self):
+        text = "This phenomenon was observed early (Müller, 2010, zit. nach Schmidt, 2020). Later work confirmed this."
+        signals = document.find_writing_signals(text, [])
+        self.assertEqual(len(signals["secondary_citations"]), 1)
+        self.assertIn("zit. nach", signals["secondary_citations"][0]["match"])
+
+    def test_uncited_claims(self):
+        # 1. Uncited empirical sentence with percentages
+        body = "Studies show that over 65% of students rely on language assistants. They find them helpful."
+        signals = document.find_writing_signals(body, [])
+        self.assertEqual(len(signals["uncited_claims"]), 1)
+        self.assertIn("65%", signals["uncited_claims"][0]["sentence"])
+
+        # 2. Self data should be ignored
+        body_self = "In Table 3 our survey shows that 65% of students agreed with the statement."
+        signals_self = document.find_writing_signals(body_self, [])
+        self.assertEqual(len(signals_self["uncited_claims"]), 0)
+
+        # 3. Cited sentence should not be flagged
+        body_cited = "Studies show that 65% of students agree (Smith, 2020). Other results differ."
+        cites = [{"kind": "author-year", "surname": "Smith", "year": "2020", "pos": 41}]
+        signals_cited = document.find_writing_signals(body_cited, cites)
+        self.assertEqual(len(signals_cited["uncited_claims"]), 0)
+
+    def test_annotate_docx(self):
+        doc_bytes = docx([
+            "First paragraph with an empirical claim.",
+            "Second paragraph mentioning Lee et al. (2021).",
+        ])
+        notes = [
+            {"needle": "Lee et al. (2021)", "text": "[RETRACTED] This paper was retracted.", "author": "Benthic"},
+            {"needle": "empirical claim", "text": "Missing citation", "author": "Benthic"},
+        ]
+        annotated = document.annotate_docx(doc_bytes, notes)
+        self.assertGreater(len(annotated), len(doc_bytes))
+        with zipfile.ZipFile(io.BytesIO(annotated)) as z:
+            self.assertIn("word/comments.xml", z.namelist())
+            comments_xml = z.read("word/comments.xml").decode("utf-8")
+            self.assertIn("This paper was retracted", comments_xml)
+            self.assertIn("Missing citation", comments_xml)
+            doc_xml = z.read("word/document.xml").decode("utf-8")
+            self.assertIn("commentRangeStart", doc_xml)
+            self.assertIn("commentReference", doc_xml)
 
 
 if __name__ == "__main__":

@@ -1335,7 +1335,7 @@ async function runPreview() {
   if (s.with_doi) parts.push(T("{n} mit DOI", { n: s.with_doi }));
   if (s.with_pmid) parts.push(T("{n} mit PMID", { n: s.with_pmid }));
   if (s.title_only) parts.push(T("{n} nur Titel", { n: s.title_only }));
-  const fmt = { bibtex: "BibTeX", ris: "RIS" }[s.format];
+  const fmt = { bibtex: "BibTeX", ris: "RIS", endnote_xml: "EndNote XML" }[s.format];
   if (fmt) parts.push(fmt);
   el.textContent = parts.join(" · ");
   el.classList.add("ready");
@@ -1951,6 +1951,18 @@ function renderStyle(report) {
     b.append(icon("i-fix"), document.createTextNode(T("Korrigiertes Verzeichnis ({style})", { style: name })));
     b.onclick = () => correctedList(b, report.style);
     box.appendChild(b);
+    const hasBib = (verifyDoc && (verifyDoc.style === "latex" || (verifyDoc.name || "").toLowerCase().endsWith(".bib")))
+      || (verifyResults || []).some((r) => r.format === "bibtex");
+    if (hasBib) {
+      const bibBtn = document.createElement("button");
+      bibBtn.type = "button";
+      bibBtn.className = "btn small";
+      bibBtn.append(icon("i-download"), document.createTextNode(T("Bereinigte .bib-Datei laden")));
+      bibBtn.onclick = () => {
+        window.location.href = `/api/jobs/${encodeURIComponent(verifyJobId)}/cleaned.bib`;
+      };
+      box.appendChild(bibBtn);
+    }
   }
 }
 
@@ -2105,6 +2117,16 @@ function renderDocument(doc) {
   meta.textContent = [doc.name, TN(doc.entries, "{n} Eintrag", "{n} Einträge"), TN(doc.citations, "{n} Zitat im Text", "{n} Zitate im Text")]
     .filter(Boolean).join(" · ");
   head.append(icon("i-file"), h, meta);
+  if (verifyJobId && (doc.name || "").toLowerCase().endsWith(".docx")) {
+    const docxBtn = document.createElement("button");
+    docxBtn.type = "button";
+    docxBtn.className = "btn small";
+    docxBtn.append(icon("i-download"), document.createTextNode(T("Kommentiertes Word-Dokument laden")));
+    docxBtn.onclick = () => {
+      window.location.href = `/api/jobs/${encodeURIComponent(verifyJobId)}/annotated.docx`;
+    };
+    head.appendChild(docxBtn);
+  }
   box.appendChild(head);
   if ((doc.claims || []).length) {
     const tip = document.createElement("p");
@@ -2129,7 +2151,9 @@ function renderDocument(doc) {
     p.className = "dc-ok";
     p.append(icon("i-legal"), document.createTextNode(T("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert.")));
     box.appendChild(p);
+    box.appendChild(writingSignalsSection(doc));
     box.appendChild(quotesSection(doc));
+    box.appendChild(overlapSection(doc));
     return;
   }
   const cols = document.createElement("div");
@@ -2180,8 +2204,77 @@ function renderDocument(doc) {
     }),
   );
   box.appendChild(cols);
+  box.appendChild(writingSignalsSection(doc));
   box.appendChild(quotesSection(doc));
   box.appendChild(overlapSection(doc));
+}
+
+function writingSignalsSection(doc) {
+  const uncited = doc.uncited_claims || [];
+  const secondary = doc.secondary_citations || [];
+  if (!uncited.length && !secondary.length) return document.createDocumentFragment();
+  const sec = document.createElement("div");
+  sec.className = "dc-signals dc-col warn";
+  const h = document.createElement("h4");
+  h.textContent = T("Hinweise zum Belegen im Text");
+  sec.appendChild(h);
+
+  if (uncited.length) {
+    const sub = document.createElement("div");
+    sub.className = "dc-sig-block";
+    const st = document.createElement("strong");
+    st.textContent = T("Aussagen mit Zahlen oder Studienbezug ohne Zitat") + ` (${uncited.length})`;
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = T("Aussagen mit empirischen Behauptungen oder Prozentzahlen sollten mit einer Quelle belegt werden.");
+    const ul = document.createElement("ul");
+    uncited.slice(0, 15).forEach((u) => {
+      const li = document.createElement("li");
+      const p = document.createElement("p");
+      p.className = "dc-sentence";
+      p.textContent = u.sentence;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn small ghost";
+      btn.textContent = T("Quellen suchen");
+      btn.onclick = () => {
+        showView("find");
+        const ta = $("#find-claim");
+        if (ta) {
+          ta.value = u.sentence;
+          ta.focus();
+        }
+      };
+      li.append(p, btn);
+      ul.appendChild(li);
+    });
+    sub.append(st, hint, ul);
+    sec.appendChild(sub);
+  }
+
+  if (secondary.length) {
+    const sub = document.createElement("div");
+    sub.className = "dc-sig-block";
+    const st = document.createElement("strong");
+    st.textContent = T("Zitate aus zweiter Hand (zit. nach / cited in)") + ` (${secondary.length})`;
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = T("Zitate aus zweiter Hand sollten vermieden werden. Prüfe und zitiere nach Möglichkeit das Original.");
+    const ul = document.createElement("ul");
+    secondary.slice(0, 15).forEach((s) => {
+      const li = document.createElement("li");
+      const b = document.createElement("strong");
+      b.textContent = s.match;
+      const p = document.createElement("p");
+      p.className = "dc-sentence";
+      p.textContent = s.sentence;
+      li.append(b, p);
+      ul.appendChild(li);
+    });
+    sub.append(st, hint, ul);
+    sec.appendChild(sub);
+  }
+  return sec;
 }
 
 // Gleicher Name, anderes Jahr im Text und im Verzeichnis (document.analyse: year_mismatch).
@@ -2608,6 +2701,39 @@ function verifyRow(res) {
     main.appendChild(f);
   }
 
+  const diffs = res.field_diffs || {};
+  const diffKeys = Object.keys(diffs);
+  const hasDiffs = diffKeys.some((key) => diffs[key].status !== "ok");
+  if (hasDiffs && ["corrected", "mismatch", "uncertain", "partial", "retracted"].includes(res.verdict)) {
+    const dBox = document.createElement("div");
+    dBox.className = "field-diffs";
+    const labels = {
+      title: T("Titel"),
+      authors: T("Autor:innen"),
+      year: T("Jahr"),
+      venue: T("Zeitschrift"),
+    };
+    diffKeys.forEach((key) => {
+      const fd = diffs[key];
+      const pill = document.createElement("span");
+      pill.className = "diff-pill " + fd.status;
+      if (fd.status === "ok") {
+        pill.textContent = labels[key] + " ✓";
+      } else {
+        pill.textContent = labels[key] + ": " + (fd.claimed || "–") + " → " + (fd.found || "–");
+      }
+      dBox.appendChild(pill);
+    });
+    main.appendChild(dBox);
+  }
+
+  if (res.pattern === "chimera") {
+    const ch = document.createElement("div");
+    ch.className = "chimera-badge";
+    ch.textContent = T("Mischangabe (echte Autor:innen, erfundener Titel)");
+    main.appendChild(ch);
+  }
+
   const meta = document.createElement("div");
   meta.className = "res-meta";
   if (res.doi) {
@@ -2620,7 +2746,7 @@ function verifyRow(res) {
     a.title = res.doi;
     meta.appendChild(a);
   }
-  const via = { title: T("über Titel"), arxiv: T("über arXiv"), pmid: T("über PMID") }[res.resolved_by];
+  const via = { title: T("über Titel"), arxiv: T("über arXiv"), pmid: T("über PMID"), isbn: T("über ISBN") }[res.resolved_by];
   if (via) {
     const t = document.createElement("span");
     t.className = "via";

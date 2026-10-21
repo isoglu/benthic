@@ -543,6 +543,21 @@ details:not([open]) > summary { margin-bottom: 0; }
 .found-line .k { color: var(--muted); white-space: nowrap; }
 .via { font-size: var(--fs-xs); color: var(--muted); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 0 7px; }
 .res-note.warn { color: var(--state-warn); }
+.field-diffs {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-size: var(--fs-xs);
+}
+.diff-pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--panel-2);
+}
+.diff-pill.ok { color: var(--state-legal); border-color: color-mix(in srgb, var(--state-legal) 30%, transparent); background: color-mix(in srgb, var(--state-legal) 8%, transparent); }
+.diff-pill.warn { color: var(--state-warn); border-color: color-mix(in srgb, var(--state-warn) 35%, transparent); background: color-mix(in srgb, var(--state-warn) 10%, transparent); }
+.diff-pill.fail { color: var(--state-fail); border-color: color-mix(in srgb, var(--state-fail) 35%, transparent); background: color-mix(in srgb, var(--state-fail) 10%, transparent); }
+.chimera-badge {
+  display: inline-block; font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--state-fail) 12%, transparent); color: var(--state-fail);
+  border: 1px solid color-mix(in srgb, var(--state-fail) 30%, transparent); margin-top: 4px;
+}
 tr.reveal { animation: rowin .4s var(--ease-out) both; }
 @keyframes rowin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -1181,6 +1196,15 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .dc-cols { grid-template-columns: minmax(0, 1fr); } }
 .dc-tip { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: var(--fs-sm); }
 .dc-tip .ic { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.dc-signals { margin-top: 14px; }
+.dc-sig-block { margin-top: 12px; }
+.dc-sig-block:first-of-type { margin-top: 6px; }
+.dc-sig-block strong { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.dc-sig-block p.hint { margin: 2px 0 8px; font-size: var(--fs-xs); color: var(--muted); }
+.dc-sig-block li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.dc-sig-block li:last-child { border-bottom: none; }
+.dc-sig-block li .dc-sentence { margin: 0; flex: 1; }
+.dc-sig-block li .btn { flex-shrink: 0; margin-top: 2px; }
 
 /* Belegstellen im Volltext */
 .results tbody tr.support-row:hover td { background: none; }
