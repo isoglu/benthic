@@ -18,6 +18,7 @@ import io
 import re
 import unicodedata
 import zipfile
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
@@ -47,6 +48,25 @@ _ENTRY_AUTHOR = re.compile(r"^\s*(?:" + _PARTICLES + r"\s+)*" + _NAME + r"(?:\s+
                            r"(?:[A-ZÄÖÜ]\.|[A-ZÄÖÜ][a-zäöüß]+)")
 _ENTRY_NUMBER = re.compile(r"^\s*(?:\[(\d{1,3})\]|(\d{1,3})[.)])\s+")
 _YEAR = re.compile(r"\b(1[89]\d{2}|20\d{2})[a-z]?\b")
+
+_SECONDARY_RE = re.compile(
+    r"\((?:[^()]{0,120}?\b(?:zit\.?\s*nach|zitiert\s+nach|cited\s+in|quoted\s+in|as\s+cited\s+in)\b[^()]{0,120})\)",
+    re.IGNORECASE,
+)
+_EMPIRICAL_CLAIM_RE = re.compile(
+    r"(?:\b(?:studien\s+(?:zeigen|belegen|weisen\s+darauf\s+hin)|forschung(?:en)?\s+(?:zeigt|belegt)|"
+    r"untersuchungen\s+(?:zeigen|ergaben)|laut\s+einer\s+(?:studie|umfrage|erhebung)|"
+    r"studies\s+(?:show|demonstrate|indicate|have\s+shown)|research\s+(?:shows|indicates|suggests)|"
+    r"empirical\s+evidence\s+(?:shows|suggests)|meta-analys[ei]s\s+show)\b|"
+    r"\b\d+(?:[.,]\d+)?\s*(?:%|Prozent|percent|per\s+cent)\b|"
+    r"\bp\s*[<=]\s*0?[.,]\d+\b)",
+    re.IGNORECASE,
+)
+_SELF_DATA_RE = re.compile(
+    r"\b(?:tabelle|abbildung|kapitel|abschnitt|stichprobe|eigene\s+erhebung|unsere\s+befragung|"
+    r"table|figure|section|chapter|our\s+sample|our\s+survey|in\s+this\s+thesis|in\s+dieser\s+arbeit)\b",
+    re.IGNORECASE,
+)
 
 
 # --------------------------------------------------------------------------
@@ -474,6 +494,46 @@ def find_quotes(text: str, citations: List[Dict]) -> List[Dict]:
     return out[:300]
 
 
+def find_writing_signals(body: str, citations: List[Dict]) -> Dict[str, List[Dict]]:
+    """Findet Zweitzitate und empirische/statistische Aussagen ohne Beleg."""
+    text = _normalised(body)
+    secondary: List[Dict] = []
+    seen_sec = set()
+    for m in _SECONDARY_RE.finditer(text):
+        s = _sentence(text, m.start())
+        if s not in seen_sec:
+            seen_sec.add(s)
+            secondary.append({"match": m.group(0), "sentence": s})
+        if len(secondary) >= 50:
+            break
+
+    uncited: List[Dict] = []
+    seen_uncited = set()
+    cite_positions = [c["pos"] for c in citations if "pos" in c]
+
+    cur_start = 0
+    for m in _END.finditer(text):
+        if not _is_end(text, m.start()):
+            continue
+        cur_end = m.start()
+        sent = text[cur_start:cur_end + 1].strip()
+        sent_clean = re.sub(r"\s+", " ", sent)
+        if len(sent_clean.split()) >= 6 and _EMPIRICAL_CLAIM_RE.search(sent_clean):
+            if not _SELF_DATA_RE.search(sent_clean):
+                has_cite = any(cur_start - 20 <= pos <= cur_end + 120 for pos in cite_positions)
+                if not has_cite and sent_clean not in seen_uncited:
+                    seen_uncited.add(sent_clean)
+                    uncited.append({"sentence": sent_clean[:400]})
+                    if len(uncited) >= 30:
+                        break
+        cur_start = m.end()
+
+    return {
+        "secondary_citations": secondary,
+        "uncited_claims": uncited,
+    }
+
+
 # --------------------------------------------------------------------------
 # Abgleich
 # --------------------------------------------------------------------------
@@ -555,6 +615,7 @@ def analyse(text: str) -> Dict:
     # Hochgestellte Zahlen (Nature, Science) liest kein PDF-Text als Zitat; dann lieber nichts
     # behaupten als fast jeden Eintrag "nie zitiert" nennen.
     readable = bool(parsed) and len(cited_entries) >= max(1, round(0.3 * len(parsed)))
+    signals = find_writing_signals(body, citations) if readable else {"secondary_citations": [], "uncited_claims": []}
     return {
         "has_bibliography": bool(entries),
         "style": style,
@@ -564,8 +625,183 @@ def analyse(text: str) -> Dict:
         "missing_in_list": sorted(missing.values(), key=lambda m: -m["count"])[:200] if readable else [],
         "year_mismatch": year_mismatch[:200] if readable else [],
         "uncited": uncited[:200] if readable else [],
+        "secondary_citations": signals["secondary_citations"],
+        "uncited_claims": signals["uncited_claims"],
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": find_quotes(_normalised(body), citations),
         "refs_text": "\n".join(e["text"] for e in entries),
         "refs": parsed,  # ein Eintrag je Zeile des Verzeichnisses, in dieser Reihenfolge geprüft
     }
+
+
+def annotate_docx(data: bytes, notes: List[Dict[str, str]]) -> bytes:
+    """Fügt Word-Randkommentare in eine .docx-Datei ein, ohne Formatierungen zu ändern.
+
+    Jede Notiz in ``notes`` hat die Felder ``needle`` (Suchtext im Fließtext)
+    und ``text`` (Inhalt des Kommentars), optional ``author`` (Standard: "Benthic").
+    """
+    if not data or not notes:
+        return data
+    try:
+        if not zipfile.is_zipfile(io.BytesIO(data)):
+            return data
+    except Exception:
+        return data
+
+    ElementTree.register_namespace("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
+    ElementTree.register_namespace("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships")
+
+    try:
+        in_zip = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return data
+
+    namelist = in_zip.namelist()
+    if "word/document.xml" not in namelist:
+        return data
+
+    try:
+        doc_root = ElementTree.fromstring(in_zip.read("word/document.xml"))
+    except Exception:
+        return data
+
+    has_comments_file = "word/comments.xml" in namelist
+    if has_comments_file:
+        try:
+            comments_root = ElementTree.fromstring(in_zip.read("word/comments.xml"))
+        except Exception:
+            comments_root = ElementTree.Element(_W + "comments")
+            has_comments_file = False
+    else:
+        comments_root = ElementTree.Element(_W + "comments")
+
+    existing_ids = []
+    for c in comments_root.findall(_W + "comment"):
+        cid = c.get(_W + "id")
+        if cid and cid.isdigit():
+            existing_ids.append(int(cid))
+    next_id = max(existing_ids, default=-1) + 1
+
+    paras = list(doc_root.iter(_W + "p"))
+    para_texts = []
+    for p in paras:
+        txt = "".join(el.text for el in p.iter(_W + "t") if el.text)
+        para_texts.append(re.sub(r"\s+", " ", txt).lower())
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    added = 0
+
+    for note in notes:
+        needle = (note.get("needle") or "").strip()
+        text = (note.get("text") or "").strip()
+        author = note.get("author") or "Benthic"
+        if not needle or not text:
+            continue
+        needle_clean = re.sub(r"\s+", " ", needle).lower()
+        if not needle_clean:
+            continue
+
+        matched_idx = -1
+        for idx, pt in enumerate(para_texts):
+            if needle_clean in pt or (len(needle_clean) > 30 and needle_clean[:30] in pt):
+                matched_idx = idx
+                break
+
+        if matched_idx < 0:
+            continue
+
+        p = paras[matched_idx]
+        cid = str(next_id)
+        next_id += 1
+        added += 1
+
+        insert_idx = 1 if len(p) > 0 and p[0].tag == (_W + "pPr") else 0
+        range_start = ElementTree.Element(_W + "commentRangeStart", {_W + "id": cid})
+        p.insert(insert_idx, range_start)
+
+        range_end = ElementTree.Element(_W + "commentRangeEnd", {_W + "id": cid})
+        p.append(range_end)
+
+        run = ElementTree.Element(_W + "r")
+        comment_ref = ElementTree.Element(_W + "commentReference", {_W + "id": cid})
+        run.append(comment_ref)
+        p.append(run)
+
+        c_elem = ElementTree.SubElement(comments_root, _W + "comment", {
+            _W + "id": cid,
+            _W + "author": author,
+            _W + "date": now_iso,
+        })
+        cp = ElementTree.SubElement(c_elem, _W + "p")
+        cr = ElementTree.SubElement(cp, _W + "r")
+        ct = ElementTree.SubElement(cr, _W + "t")
+        ct.text = text
+
+    if not added:
+        return data
+
+    content_types_xml = None
+    if not has_comments_file and "[Content_Types].xml" in namelist:
+        try:
+            ct_root = ElementTree.fromstring(in_zip.read("[Content_Types].xml"))
+            override_tag = "{http://schemas.openxmlformats.org/package/2006/content-types}Override"
+            if not any(el.get("PartName") == "/word/comments.xml" for el in ct_root.iter(override_tag)):
+                ct_root.append(ElementTree.Element(override_tag, {
+                    "PartName": "/word/comments.xml",
+                    "ContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
+                }))
+                content_types_xml = ElementTree.tostring(ct_root, encoding="utf-8", xml_declaration=True)
+        except Exception:
+            pass
+
+    rels_xml = None
+    rels_path = "word/_rels/document.xml.rels"
+    if not has_comments_file:
+        if rels_path in namelist:
+            try:
+                rels_root = ElementTree.fromstring(in_zip.read(rels_path))
+                rel_tag = "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+                has_rel = any("comments" in el.get("Type", "") for el in rels_root.iter(rel_tag))
+                if not has_rel:
+                    rids = []
+                    for el in rels_root.iter(rel_tag):
+                        m = re.match(r"^rId(\d+)$", el.get("Id", ""))
+                        if m:
+                            rids.append(int(m.group(1)))
+                    next_rid = f"rId{max(rids, default=0) + 1}"
+                    rels_root.append(ElementTree.Element(rel_tag, {
+                        "Id": next_rid,
+                        "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+                        "Target": "comments.xml",
+                    }))
+                    rels_xml = ElementTree.tostring(rels_root, encoding="utf-8", xml_declaration=True)
+            except Exception:
+                pass
+        else:
+            rels_xml = (
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+                b'  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>\n'
+                b'</Relationships>'
+            )
+
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zip:
+        for item in in_zip.infolist():
+            if item.filename == "word/document.xml":
+                out_zip.writestr(item, ElementTree.tostring(doc_root, encoding="utf-8", xml_declaration=True))
+            elif item.filename == "word/comments.xml":
+                out_zip.writestr(item, ElementTree.tostring(comments_root, encoding="utf-8", xml_declaration=True))
+            elif item.filename == "[Content_Types].xml" and content_types_xml:
+                out_zip.writestr(item, content_types_xml)
+            elif item.filename == rels_path and rels_xml:
+                out_zip.writestr(item, rels_xml)
+            else:
+                out_zip.writestr(item, in_zip.read(item.filename))
+
+        if not has_comments_file:
+            out_zip.writestr("word/comments.xml", ElementTree.tostring(comments_root, encoding="utf-8", xml_declaration=True))
+            if rels_path not in namelist and rels_xml:
+                out_zip.writestr(rels_path, rels_xml)
+
+    return out_buf.getvalue()

@@ -6,6 +6,34 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.2.0
+
+Sechs Datenbanken in der Prüfkaskade, kommentierte Word-Dateien und bereinigte
+`.bib`-Dateien für Abschlussarbeiten sowie Import aus EndNote und Citavi.
+
+- **Sechs Datenbanken bei jeder Prüfung.** Neben Crossref, OpenAlex, DataCite
+  und dem Internet Archive fragt Benthic jetzt auch PubMed und Semantic Scholar
+  über den Titel an, wenn eine medizinische oder informatiknahe Arbeit ohne DOI
+  oder PMID zitiert ist.
+- **Kommentierte Word-Dateien.** Nach der Prüfung einer `.docx`-Arbeit speichert
+  Benthic auf Wunsch eine Kopie mit echten Word-Randkommentaren direkt an den
+  zitierten Sätzen, fehlerhaften Einträgen, Jahresabweichungen und unbelegten
+  Zahlenangaben, ohne die Formatierung zu verändern.
+- **Bereinigte `.bib`-Dateien und ein interaktiver LaTeX-Dateigraph.** Für
+  LaTeX-Projekte und `.bib`-Dateien exportiert Benthic eine bereinigte
+  `.bib`-Datei, die alle `\cite{key}`-Schlüssel behält, geprüfte DOIs ergänzt
+  und zurückgezogene oder unbelegte Einträge auskommentiert. Die Projektstruktur
+  zeigt `\input`- und `\include`-Dateien als interaktiven SVG-Graphen.
+- **Schreibhinweise für Abschlussarbeiten.** Die Dokumentprüfung weist auf
+  Zweitzitate („zit. nach“, „quoted in“) sowie auf empirische oder statistische
+  Aussagen ohne Quellenangabe hin.
+- **Klarere Textstellen in Volltexten.** Bei der Suche nach Belegstellen im
+  geladenen PDF hebt Benthic übereinstimmende Begriffe hervor, zeigt die
+  Seitenzahl als Abzeichen und kopiert die Stelle samt Zitat mit einem Klick.
+- **EndNote XML und Citavi.** Die Quellenprüfung und die lokale Bibliothek lesen
+  jetzt auch EndNote-XML-Dateien (`.xml`) sowie Projekte aus Citavi 6 (`.ctv6`
+  und `.ctv6archive`).
+
 ## 1.1.3
 
 Eine Begrüßung für neue Nutzer:innen und ein Rundgang, und der Ton des Intros

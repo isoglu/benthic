@@ -71,6 +71,18 @@ class Auffinden(unittest.TestCase):
         with mock.patch("benthic.biblio.pdf_path", return_value=None):
             self.assertEqual(quotes.check("10.1/x", "some quoted words here")["status"], "no_pdf")
 
+    def test_strip_running_headers(self):
+        from benthic import support
+        test_pages = [
+            {"page": 1, "text": "Nature Reviews 2024 · Page 1\nIntroduction to methods.\n1"},
+            {"page": 2, "text": "Nature Reviews 2024 · Page 2\nSecond page text here.\n2"},
+            {"page": 3, "text": "Nature Reviews 2024 · Page 3\nThird page conclusion.\n3"},
+        ]
+        stripped = support._strip_running_headers(test_pages)
+        self.assertEqual(stripped[0]["text"], "Introduction to methods.")
+        self.assertEqual(stripped[1]["text"], "Second page text here.")
+        self.assertEqual(stripped[2]["text"], "Third page conclusion.")
+
 
 class Route(unittest.TestCase):
     def setUp(self):

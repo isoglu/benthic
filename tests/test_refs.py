@@ -33,6 +33,22 @@ class CleanDoi(unittest.TestCase):
         self.assertIsNone(refs.clean_doi("no identifier here"))
 
 
+class CleanIsbn(unittest.TestCase):
+    def test_valid_isbn10(self):
+        self.assertEqual(refs.clean_isbn("0-306-40615-2"), "0306406152")
+        self.assertEqual(refs.clean_isbn("ISBN 0-8044-2957-X"), "080442957X")
+
+    def test_valid_isbn13(self):
+        self.assertEqual(refs.clean_isbn("978-0-306-40615-7"), "9780306406157")
+        self.assertEqual(refs.clean_isbn("ISBN-13: 978-3-16-148410-0"), "9783161484100")
+
+    def test_rejects_invalid_checksum(self):
+        self.assertIsNone(refs.clean_isbn("0-306-40615-3"))
+        self.assertIsNone(refs.clean_isbn("978-0-306-40615-1"))
+        self.assertIsNone(refs.clean_isbn("1234567890"))
+        self.assertIsNone(refs.clean_isbn(""))
+
+
 class Bibtex(unittest.TestCase):
     BIB = r"""
 @article{harris2020,
@@ -57,9 +73,23 @@ class Bibtex(unittest.TestCase):
         self.assertEqual(a["title"], "Array programming with NumPy")
         self.assertEqual(a["authors"][:3], ["Harris", "Millman", "van der Walt"])
         self.assertEqual(a["year"], "2020")
+        self.assertEqual(a["bib_key"], "harris2020")
+        self.assertEqual(a["bib_type"], "article")
         self.assertEqual(b["arxiv"], "1706.03762")
         self.assertEqual(b["doi"], "10.48550/arXiv.1706.03762")
         self.assertEqual(b["authors"], ["Vaswani", "Shazeer"])
+        self.assertEqual(b["bib_key"], "vaswani2017")
+
+    def test_bibtex_isbn(self):
+        bib = """@book{knuth1984,
+  title = {The TeXbook},
+  author = {Donald E. Knuth},
+  year = {1984},
+  isbn = {0-201-13447-0},
+}"""
+        r = refs.parse(bib)[0]
+        self.assertEqual(r["isbn"], "0201134470")
+        self.assertEqual(r["title"], "The TeXbook")
 
 
 class Ris(unittest.TestCase):
@@ -69,6 +99,12 @@ class Ris(unittest.TestCase):
         self.assertEqual([r["doi"] for r in out], ["10.1126/science.1065467", "10.1038/nature12373"])
         self.assertEqual(out[0]["authors"], ["Doe"])
         self.assertEqual(out[0]["year"], "2019")
+
+    def test_ris_isbn(self):
+        ris = "TY  - BOOK\nTI  - Deep Learning\nAU  - Goodfellow, Ian\nPY  - 2016\nSN  - 978-0-262-03561-3\nER  -\n"
+        r = refs.parse(ris)[0]
+        self.assertEqual(r["isbn"], "9780262035613")
+        self.assertEqual(r["title"], "Deep Learning")
 
 
 class FreeText(unittest.TestCase):
@@ -105,6 +141,13 @@ These should give you a solid start."""
     def test_ignores_prose(self):
         self.assertEqual(refs.parse("These should give you a solid start.\nThanks!"), [])
 
+    def test_text_isbn(self):
+        line = "Knuth, D. E. (1984). The TeXbook. Addison-Wesley. ISBN 0-201-13447-0."
+        r = refs.parse(line)[0]
+        self.assertEqual(r["isbn"], "0201134470")
+        self.assertEqual(r["year"], "1984")
+        self.assertIn("Knuth", r["authors"])
+
     def test_initials_first_entries(self):
         """IEEE und CVPR: "Y. Bengio, P. Simard, and P. Frasconi. Titel. Zeitschrift, 1994." """
         cases = {
@@ -126,6 +169,38 @@ These should give you a solid start."""
         self.assertEqual(s["with_doi"], 2)  # Harris, ResNet (über arXiv)
         self.assertEqual(s["with_pmid"], 1)
         self.assertEqual(s["title_only"], 2)
+
+    def test_parse_endnote_xml(self):
+        xml_data = """<?xml version="1.0" encoding="UTF-8" ?>
+<xml>
+  <records>
+    <record>
+      <contributors>
+        <authors>
+          <author><style face="normal">Harris, C. R.</style></author>
+          <author><style face="normal">Millman, K. J.</style></author>
+        </authors>
+      </contributors>
+      <titles>
+        <title><style face="normal">Array programming with NumPy</style></title>
+        <secondary-title><style face="normal">Nature</style></secondary-title>
+      </titles>
+      <dates>
+        <year><style face="normal">2020</style></year>
+      </dates>
+      <electronic-resource-num><style face="normal">10.1038/s41586-020-2649-2</style></electronic-resource-num>
+    </record>
+  </records>
+</xml>"""
+        parsed = refs.parse(xml_data)
+        self.assertEqual(len(parsed), 1)
+        r = parsed[0]
+        self.assertEqual(r["title"], "Array programming with NumPy")
+        self.assertEqual(r["authors"], ["Harris", "Millman"])
+        self.assertEqual(r["year"], "2020")
+        self.assertEqual(r["venue"], "Nature")
+        self.assertEqual(r["doi"], "10.1038/s41586-020-2649-2")
+        self.assertEqual(r["format"], "endnote_xml")
 
 
 if __name__ == "__main__":

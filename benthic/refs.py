@@ -14,6 +14,7 @@ import re
 import unicodedata
 from typing import Dict, List, Optional
 from urllib.parse import unquote
+from xml.etree import ElementTree
 
 Ref = Dict[str, object]
 
@@ -29,8 +30,29 @@ _ARXIV_RE = re.compile(
     re.IGNORECASE,
 )
 _PMID_RE = re.compile(r"\bPMID:?\s*(\d{5,9})\b", re.IGNORECASE)
+_ISBN_RE = re.compile(
+    r"\b(?:ISBN(?:-1[03])?:?\s*)?((?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx])\b",
+    re.IGNORECASE,
+)
 _YEAR_RE = re.compile(r"\b(1[89]\d{2}|20\d{2})[a-z]?\b")
 _TRAILING = ".,;:'\"”’»)]}>"
+
+
+def clean_isbn(value: str) -> Optional[str]:
+    """Extrahiert und prüft eine ISBN-10 oder ISBN-13 (Prüfziffer muss stimmen, damit Telefonnummern oder Seitenbereiche nicht matchen)."""
+    if not value:
+        return None
+    for m in _ISBN_RE.finditer(value):
+        digits = re.sub(r"[^0-9Xx]", "", m.group(1)).upper()
+        if len(digits) == 13 and digits.startswith(("978", "979")) and digits.isdigit():
+            s = sum((1 if i % 2 == 0 else 3) * int(d) for i, d in enumerate(digits[:12]))
+            if (10 - (s % 10)) % 10 == int(digits[12]):
+                return digits
+        elif len(digits) == 10 and digits[:9].isdigit():
+            s = sum((10 - i) * (10 if d == "X" else int(d)) for i, d in enumerate(digits))
+            if s % 11 == 0:
+                return digits
+    return None
 
 
 def clean_doi(value: str) -> Optional[str]:
@@ -105,7 +127,7 @@ def _surnames_from_text(segment: str) -> List[str]:
 
 def _empty(fmt: str, raw: str) -> Ref:
     return {"format": fmt, "raw": raw.strip()[:400], "doi": None, "arxiv": None, "pmid": None,
-            "title": None, "authors": [], "year": None, "venue": None}
+            "isbn": None, "title": None, "authors": [], "year": None, "venue": None}
 
 
 # --------------------------------------------------------------------------
@@ -179,6 +201,10 @@ def parse_bibtex(text: str) -> List[Ref]:
             r["arxiv"] = m.group(1) if m else None
         pmid = f.get("pmid", "")
         r["pmid"] = pmid if pmid.isdigit() else None
+        r["isbn"] = clean_isbn(f.get("isbn", ""))
+        m_key = re.match(r"@\s*(\w+)\s*[{(]\s*([^,\s]+)\s*,", entry)
+        r["bib_type"] = m_key.group(1).lower() if m_key else "article"
+        r["bib_key"] = m_key.group(2).strip() if m_key else None
         refs.append(r)
     return refs
 
@@ -215,10 +241,75 @@ def parse_ris(text: str) -> List[Ref]:
             cur["venue"] = val
         elif tag == "AN" and val.isdigit():
             cur["pmid"] = val
+        elif tag == "SN":
+            cur["isbn"] = clean_isbn(val) or cur.get("isbn")
         if tag == "ER":
             cur["raw"] = "\n".join(lines)[:400]
             refs.append(cur)
             cur = None
+    return refs
+
+
+# --------------------------------------------------------------------------
+# EndNote XML
+# --------------------------------------------------------------------------
+def parse_endnote_xml(text: str) -> List[Ref]:
+    """Liest Literaturangaben aus EndNote-XML (<records><record>)."""
+    if not text or "<record" not in text.lower():
+        return []
+    try:
+        root = ElementTree.fromstring(text)
+    except Exception:
+        m = re.search(r"<records\b[^>]*>.*?</records>", text, re.DOTALL | re.IGNORECASE)
+        if not m:
+            return []
+        try:
+            root = ElementTree.fromstring(m.group(0))
+        except Exception:
+            return []
+
+    refs: List[Ref] = []
+    for rec in root.iter():
+        tag = rec.tag.split("}")[-1].lower()
+        if tag != "record":
+            continue
+
+        r = _empty("endnote_xml", "")
+        for el in rec.iter():
+            ltag = el.tag.split("}")[-1].lower()
+            if ltag == "title" and not r["title"]:
+                t_val = "".join(el.itertext()).strip()
+                if t_val:
+                    r["title"] = t_val
+            elif ltag in ("secondary-title", "full-title") and not r["venue"]:
+                v_val = "".join(el.itertext()).strip()
+                if v_val:
+                    r["venue"] = v_val
+            elif ltag == "author":
+                a_val = "".join(el.itertext()).strip()
+                if a_val:
+                    r["authors"].append(_surname(a_val))
+            elif ltag == "year" and not r["year"]:
+                y_val = "".join(el.itertext()).strip()
+                ym = _YEAR_RE.search(y_val)
+                if ym:
+                    r["year"] = ym.group(1)
+            elif ltag == "electronic-resource-num":
+                val = "".join(el.itertext()).strip()
+                r["doi"] = clean_doi(val) or r.get("doi")
+                r["isbn"] = clean_isbn(val) or r.get("isbn")
+            elif ltag == "isbn" and not r.get("isbn"):
+                val = "".join(el.itertext()).strip()
+                r["isbn"] = clean_isbn(val)
+            elif ltag == "url" and not r.get("doi"):
+                val = "".join(el.itertext()).strip()
+                r["doi"] = clean_doi(val) or r.get("doi")
+
+        rec_str = ElementTree.tostring(rec, encoding="utf-8").decode("utf-8", errors="replace")
+        r["raw"] = rec_str[:400]
+        if r.get("title") or r.get("doi") or r.get("isbn") or r.get("authors"):
+            refs.append(r)
+
     return refs
 
 
@@ -279,9 +370,11 @@ def _text_ref(line: str) -> Optional[Ref]:
     p = _PMID_RE.search(body)
     if p:
         r["pmid"] = p.group(1)
+    r["isbn"] = clean_isbn(body)
 
     # Text ohne Kennungen und URLs: daraus Titel, Jahr und Autor:innen lesen.
-    plain = re.sub(r"https?://\S+|doi:\s*\S+|10\.\d{4,9}/\S+|PMID:?\s*\d+|arxiv:\s*\S+", " ", body, flags=re.IGNORECASE)
+    plain = re.sub(r"ISBN(?:-1[03])?:?\s*[0-9Xx\-\s]{10,17}", " ", body, flags=re.IGNORECASE)
+    plain = re.sub(r"https?://\S+|doi:\s*\S+|10\.\d{4,9}/\S+|PMID:?\s*\d+|arxiv:\s*\S+", " ", plain, flags=re.IGNORECASE)
     plain = re.sub(r"\s+", " ", plain).strip(" .,;:-–")
     # "Titel. arXiv." (APA für Preprints): der Server ist kein Teil des Titels.
     plain = re.sub(r"[.,]\s*(?:arXiv|bioRxiv|medRxiv|SSRN|PsyArXiv|SocArXiv|Preprints?)(?:\s+preprint)?\s*$", "", plain,
@@ -300,7 +393,7 @@ def _text_ref(line: str) -> Optional[Ref]:
         if title and not re.search(r"[\"“„«‘]", line):
             r["title"] = title
 
-    has_id = bool(r["doi"] or r["arxiv"] or r["pmid"])
+    has_id = bool(r["doi"] or r["arxiv"] or r["pmid"] or r["isbn"])
     looks_like_ref = bool(r["title"]) or (bool(r["year"]) and len(plain.split()) >= 6)
     if not has_id and not looks_like_ref:
         return None  # Überschrift, Fließtext, Leerzeile
@@ -354,6 +447,9 @@ def detect_format(text: str) -> str:
         return "bibtex"
     if re.search(r"^TY  - ", text, re.MULTILINE) and re.search(r"^ER  -", text, re.MULTILINE):
         return "ris"
+    lower_start = (text or "")[:1000].lower()
+    if ("<records" in lower_start or "<xml" in lower_start) and "<record" in (text or "").lower():
+        return "endnote_xml"
     return "text"
 
 
@@ -374,6 +470,8 @@ def parse(text: str) -> List[Ref]:
         found = parse_bibtex(text)
     elif fmt == "ris":
         found = parse_ris(text)
+    elif fmt == "endnote_xml":
+        found = parse_endnote_xml(text)
     else:
         found = parse_text(text or "")
     out, seen = [], set()

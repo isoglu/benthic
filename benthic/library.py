@@ -174,7 +174,7 @@ def import_from_text(text: str) -> Dict:
     fmt = refs.detect_format(text or "")
     with _lock:  # ein Lesen, ein Schreiben für den ganzen Import
         entries = load()
-        if fmt in ("bibtex", "ris"):
+        if fmt in ("bibtex", "ris", "endnote_xml"):
             for r in refs.parse(text):
                 if r.get("doi"):
                     found += 1
@@ -208,6 +208,8 @@ def import_from_file(path: str) -> Dict:
         raise FileNotFoundError(tr("Datei nicht gefunden: {path}", path=path))
     if p.suffix.lower() in (".sqlite", ".db"):
         return import_zotero(p)
+    if p.suffix.lower() in (".ctv6", ".ctv6archive"):
+        return import_citavi(p)
     if p.stat().st_size > 60 * 1024 * 1024:  # Text wird ganz gelesen; eine Literaturliste ist weit kleiner
         raise ValueError(tr("Die Datei ist größer als 60 MB."))
     text = p.read_text(encoding="utf-8", errors="replace")
@@ -260,6 +262,50 @@ def import_zotero(path: Path) -> Dict:
         if added:
             _save(entries)
     return {"added": added, "found": found, "format": "zotero", "items": len(items)}
+
+
+def import_citavi(path: Path) -> Dict:
+    """Liest DOIs und Titel aus einem Citavi-Projekt (.ctv6 oder .ctv6archive)."""
+    import shutil
+    import sqlite3
+    import tempfile
+    import zipfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "project.ctv6"
+        if path.suffix.lower() == ".ctv6archive" or zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                ctv_name = next((n for n in z.namelist() if n.lower().endswith(".ctv6")), None)
+                if not ctv_name:
+                    return {"added": 0, "found": 0, "format": "citavi", "items": 0}
+                copy.write_bytes(z.read(ctv_name))
+        else:
+            shutil.copy2(path, copy)
+        con = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        try:
+            tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "Reference" not in tables:
+                return {"added": 0, "found": 0, "format": "citavi", "items": 0}
+            cols = {r[1] for r in con.execute("PRAGMA table_info(Reference)")}
+            sel = [c for c in ("DOI", "Title", "OnlineAddress") if c in cols]
+            rows = con.execute(f"SELECT {', '.join(sel)} FROM Reference").fetchall() if sel else []
+        finally:
+            con.close()
+
+    added = found = 0
+    with _lock:
+        entries = load()
+        for row in rows:
+            rec = dict(zip(sel, row))
+            doi = refs.clean_doi(str(rec.get("DOI") or "")) or refs.clean_doi(str(rec.get("OnlineAddress") or ""))
+            if not doi:
+                continue
+            found += 1
+            if _merge(entries, doi, str(rec.get("Title") or "") or None, None, "citavi", {}):
+                added += 1
+        if added:
+            _save(entries)
+    return {"added": added, "found": found, "format": "citavi", "items": len(rows)}
 
 
 def clear() -> int:

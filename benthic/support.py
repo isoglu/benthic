@@ -61,6 +61,64 @@ def tokens(text: str) -> List[str]:
     return [_stem(w) for w in words if w not in _STOP and len(w) > 1]
 
 
+def _strip_running_headers(pages: List[Dict]) -> List[Dict]:
+    """Entfernt wiederkehrende Kopf- und Fußzeilen (sowie Seitenzahlen) aus PDF-Seiten."""
+    if len(pages) < 3:
+        return pages
+
+    def _norm_pat(line: str) -> str:
+        return re.sub(r"\d+", "#", re.sub(r"\s+", " ", line.strip()))
+
+    first_pats: Dict[str, int] = {}
+    last_pats: Dict[str, int] = {}
+    total = len(pages)
+
+    for p in pages:
+        lines = [l.strip() for l in (p.get("text") or "").splitlines() if l.strip()]
+        if lines:
+            if len(lines[0]) <= 120:
+                pat = _norm_pat(lines[0])
+                first_pats[pat] = first_pats.get(pat, 0) + 1
+            if len(lines[-1]) <= 120:
+                pat = _norm_pat(lines[-1])
+                last_pats[pat] = last_pats.get(pat, 0) + 1
+
+    threshold = max(2, total * 0.4)
+    bad_headers = {pat for pat, cnt in first_pats.items() if cnt >= threshold}
+    bad_footers = {pat for pat, cnt in last_pats.items() if cnt >= threshold}
+
+    out = []
+    for p in pages:
+        text = p.get("text") or ""
+        lines = text.splitlines()
+        start_idx = 0
+        while start_idx < len(lines):
+            l = lines[start_idx].strip()
+            if not l:
+                start_idx += 1
+                continue
+            if re.match(r"^\d{1,5}$", l) or _norm_pat(l) in bad_headers:
+                start_idx += 1
+                continue
+            break
+
+        end_idx = len(lines)
+        while end_idx > start_idx:
+            l = lines[end_idx - 1].strip()
+            if not l:
+                end_idx -= 1
+                continue
+            if re.match(r"^\d{1,5}$", l) or _norm_pat(l) in bad_footers:
+                end_idx -= 1
+                continue
+            break
+
+        cleaned_text = "\n".join(lines[start_idx:end_idx])
+        out.append({"page": p.get("page", 1), "text": cleaned_text})
+
+    return out
+
+
 def _pages(path: Path) -> List[Dict]:
     """Seiten eines PDFs als Text (zwischengespeichert, solange die Datei gleich bleibt)."""
     key = (str(path), path.stat().st_mtime_ns)
@@ -72,6 +130,7 @@ def _pages(path: Path) -> List[Dict]:
     logging.getLogger("pypdf").setLevel(logging.ERROR)
     reader = PdfReader(str(path))
     pages = [{"page": i, "text": (p.extract_text() or "")} for i, p in enumerate(reader.pages, start=1)]
+    pages = _strip_running_headers(pages)
     with _lock:
         if len(_cache) > 40:
             _cache.clear()

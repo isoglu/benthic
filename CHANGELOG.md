@@ -5,6 +5,33 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.2.0
+
+Six bibliographic databases in the check cascade, annotated Word documents and
+cleaned `.bib` files for theses, and imports from EndNote and Citavi.
+
+- **Six databases for every check.** Alongside Crossref, OpenAlex, DataCite and
+  the Internet Archive, Benthic now queries PubMed and Semantic Scholar by title
+  when a medical or computer-science paper is cited without a DOI or PMID.
+- **Annotated Word files.** When you check a `.docx` thesis, Benthic can export
+  a copy with native Word margin comments right on the cited sentences,
+  unreferenced entries, year mismatches and uncited statistical claims, without
+  touching your formatting.
+- **Cleaned `.bib` files and an interactive LaTeX file graph.** For LaTeX
+  projects and `.bib` files, Benthic exports a cleaned `.bib` file that keeps
+  your `\cite{key}` identifiers, fills in verified DOIs and comments out
+  retracted or unconfirmed entries. The project structure view now renders an
+  interactive SVG graph of `\input` and `\include` files.
+- **Writing signals for theses.** Document checks now point out secondary
+  citations ("quoted in", "zit. nach") and empirical or statistical statements
+  that carry no citation nearby.
+- **Clearer evidence in full texts.** When searching a downloaded PDF for a
+  claim, Benthic highlights overlapping words and shows the page badge and a
+  one-click copy button for the passage with its citation.
+- **EndNote XML and Citavi.** Reference checks and the local library now read
+  EndNote XML (`.xml`) as well as Citavi 6 projects (`.ctv6` and
+  `.ctv6archive`).
+
 ## 1.1.3
 
 A welcome for new users and a guided tour, and the intro's sound now ends

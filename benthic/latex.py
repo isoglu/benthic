@@ -318,3 +318,90 @@ def analyse(files: Dict[str, str]) -> Dict:
         "refs_text": "\n".join(entries[k] for k in to_check),
         "refs": parsed,
     }
+
+
+def export_cleaned_bib(results: List[Dict]) -> str:
+    """Erzeugt eine bereinigte .bib-Datei aus Prüfergebnissen.
+
+    Einträge mit passendem Treffer (verified, corrected, partial) werden mit den
+    geprüften Metadaten und korrigierter DOI ausgegeben. Der ursprüngliche cite-key
+    bleibt erhalten, damit \\cite{...}-Befehle im Dokument gültig bleiben.
+    Einträge mit Problem (retracted, not_found, mismatch) werden auskommentiert
+    und mit einem Benthic-Hinweis versehen.
+    """
+    if not results:
+        return ""
+    sorted_res = sorted(results, key=lambda r: r.get("order", 0))
+    entries = []
+    for i, res in enumerate(sorted_res):
+        key = (
+            res.get("bib_key")
+            or (res.get("ref") or {}).get("bib_key")
+            or (res.get("ref") or {}).get("key")
+            or res.get("cite_key")
+            or res.get("key")
+            or f"ref_{i + 1}"
+        )
+        bib_type = (res.get("ref") or {}).get("bib_type") or res.get("bib_type") or "article"
+        verdict = res.get("verdict", "")
+        found = res.get("found") or {}
+
+        if verdict in ("verified", "corrected", "partial") and found:
+            title = found.get("title") or (res.get("claimed") or {}).get("title") or (res.get("ref") or {}).get("title")
+            authors = found.get("authors") or (res.get("claimed") or {}).get("authors") or (res.get("ref") or {}).get("authors") or []
+            if isinstance(authors, list):
+                authors_str = " and ".join(str(a) for a in authors if a)
+            else:
+                authors_str = str(authors)
+            year = found.get("year") or (res.get("claimed") or {}).get("year") or (res.get("ref") or {}).get("year")
+            venue = found.get("venue") or (res.get("claimed") or {}).get("venue") or (res.get("ref") or {}).get("venue")
+            volume = found.get("volume")
+            issue = found.get("issue")
+            pages = found.get("pages")
+            doi = found.get("doi") or res.get("doi") or (res.get("claimed") or {}).get("doi")
+            isbn = found.get("isbn") or (res.get("claimed") or {}).get("isbn")
+
+            fields = []
+            if title:
+                fields.append(f"  title = {{{title}}}")
+            if authors_str:
+                fields.append(f"  author = {{{authors_str}}}")
+            if year:
+                fields.append(f"  year = {{{year}}}")
+            if venue:
+                if bib_type in ("book", "inbook"):
+                    fields.append(f"  publisher = {{{venue}}}")
+                elif bib_type in ("incollection", "inproceedings", "conference"):
+                    fields.append(f"  booktitle = {{{venue}}}")
+                else:
+                    fields.append(f"  journal = {{{venue}}}")
+            if volume:
+                fields.append(f"  volume = {{{volume}}}")
+            if issue:
+                fields.append(f"  number = {{{issue}}}")
+            if pages:
+                fields.append(f"  pages = {{{pages}}}")
+            if doi:
+                fields.append(f"  doi = {{{doi}}}")
+            elif isbn:
+                fields.append(f"  isbn = {{{isbn}}}")
+
+            entry_body = ",\n".join(fields)
+            pub = res.get("published_version") or {}
+            pub_comment = (
+                f"% [Benthic: Veröffentlichte Fassung verfügbar: {pub.get('doi')} ({pub.get('venue') or ''}, {pub.get('year') or ''})]\n"
+                if pub.get("doi") else ""
+            )
+            entries.append(f"{pub_comment}@{bib_type}{{{key},\n{entry_body}\n}}")
+        else:
+            raw = (res.get("ref") or {}).get("raw") or res.get("input") or ""
+            note = res.get("note") or verdict
+            warning_header = f"% [Benthic WARNUNG: {verdict}] {note}".strip()
+            if raw:
+                commented_lines = "\n".join("% " + l for l in raw.strip().splitlines())
+                entries.append(f"{warning_header}\n{commented_lines}")
+            else:
+                title = (res.get("claimed") or {}).get("title") or (res.get("ref") or {}).get("title") or ""
+                entries.append(f"{warning_header}\n% @{bib_type}{{{key},\n%   title = {{{title}}}\n% }}")
+
+    return "\n\n".join(entries) + "\n"

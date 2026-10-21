@@ -13,7 +13,7 @@ import threading
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, Response, has_request_context, jsonify, request, send_file, send_from_directory
 
@@ -377,7 +377,7 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
         logger.exception("Projekt-Übernahme fehlgeschlagen")
     summary = _summary(job, mode)
     summary.update({k: job.get(k) for k in ("origin", "project", "project_name", "document", "style",
-                                            "quote_check", "missing_works")})
+                                            "quote_check", "missing_works", "docx_path", "docx_name")})
     if not job.get("no_history"):  # Stapelprüfungen speichern ihre Läufe selbst (batch.py)
         history.append(summary)
 
@@ -680,7 +680,18 @@ def check_document():
     analysis.pop("refs_text", None)
     proj = projects.find(project) if project else None
     analysis.update(name=name, characters=size)
-    job_id, dir_note = _launch_job("verify", identifiers, config.load_settings(), proj, {"document": analysis})
+    extra: Dict = {"document": analysis}
+    if name.lower().endswith(".docx"):
+        extra["docx_name"] = name
+        if path is not None and path.is_file():
+            try:
+                extra["docx_bytes"] = path.read_bytes()
+            except Exception:
+                pass
+            extra["docx_path"] = str(path)
+        elif items and items[0][1]:
+            extra["docx_bytes"] = items[0][1]
+    job_id, dir_note = _launch_job("verify", identifiers, config.load_settings(), proj, extra)
     return jsonify({"job_id": job_id, "total": len(identifiers), "mode": "verify", "document": analysis,
                     "project": proj["id"] if proj else None})
 
@@ -1170,6 +1181,7 @@ def job_status(job_id: str):
         if job is None:
             return jsonify({"error": tr("Unbekannter Lauf")}), 404
         out = dict(job)
+        out.pop("docx_bytes", None)
     if out.get("status") == "running":  # pausierte Quellen, für den Hinweis im Fortschritt
         out["paused"] = [{"service": k, "name": quota.SERVICES[k]["name"], **v}
                          for k in ("openalex", "crossref", "semanticscholar", "unpaywall")
@@ -1584,6 +1596,142 @@ def export_job(job_id: str):
         data,
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=benthic-{job_id}.csv"},
+    )
+
+
+def _get_docx_bytes(job: Dict) -> Tuple[Optional[bytes], str]:
+    if job.get("docx_bytes"):
+        return job["docx_bytes"], job.get("docx_name") or "dokument.docx"
+    if job.get("docx_path"):
+        p = Path(job["docx_path"])
+        if p.is_file():
+            try:
+                return p.read_bytes(), p.name
+            except Exception:
+                pass
+    doc = job.get("document") or {}
+    name = doc.get("name") or "dokument.docx"
+    return None, name
+
+
+@app.route("/api/jobs/<job_id>/cleaned.bib")
+def export_cleaned_bib_route(job_id: str):
+    """Bereinigte .bib-Datei mit geprüften Metadaten und korrigierten DOIs."""
+    job = _job_record(job_id)
+    if not job:
+        return jsonify({"error": tr("Unbekannter Lauf")}), 404
+    results = job.get("results")
+    if results is None:
+        return jsonify({"error": tr("Unbekannter Lauf")}), 404
+    bib_text = latex.export_cleaned_bib(results)
+    return Response(
+        bib_text,
+        mimetype="application/x-bibtex",
+        headers={"Content-Disposition": f"attachment; filename=benthic-{job_id}-cleaned.bib"},
+    )
+
+
+@app.route("/api/jobs/<job_id>/annotated.docx")
+def export_annotated_docx(job_id: str):
+    """Kommentiertes Word-Dokument mit Hinweisen als native Word-Randkommentare."""
+    job = _job_record(job_id)
+    if not job:
+        return jsonify({"error": tr("Unbekannter Lauf")}), 404
+    data, name = _get_docx_bytes(job)
+    if not data:
+        return jsonify({"error": tr("Keine Word-Datei zu diesem Lauf vorhanden.")}), 404
+
+    doc = job.get("document") or {}
+    results = {r.get("order"): r for r in (job.get("results") or []) if r.get("order") is not None}
+    notes = []
+    commented_entries = set()
+
+    for claim in doc.get("claims") or []:
+        entry_idx = claim.get("entry")
+        res = results.get(entry_idx)
+        if res:
+            verdict = res.get("verdict")
+            if verdict in ("retracted", "not_found", "mismatch", "corrected", "partial"):
+                note_text = f"[{verdict.upper()}] {res.get('note') or ''}".strip()
+                diffs = res.get("field_diffs") or {}
+                if isinstance(diffs, dict):
+                    bad_diffs = [
+                        f"{k}: {v.get('claimed')} -> {v.get('found')}"
+                        for k, v in diffs.items()
+                        if isinstance(v, dict) and v.get("status") != "ok"
+                    ]
+                    if bad_diffs:
+                        note_text += f" ({'; '.join(bad_diffs)})"
+                notes.append({
+                    "needle": claim.get("sentence") or claim.get("label") or "",
+                    "text": note_text,
+                    "author": "Benthic",
+                })
+                commented_entries.add(entry_idx)
+
+    for order_idx, res in sorted(results.items()):
+        if order_idx in commented_entries:
+            continue
+        verdict = res.get("verdict")
+        if verdict in ("retracted", "not_found", "mismatch", "corrected", "partial"):
+            needle = (res.get("claimed") or {}).get("title") or res.get("input") or res.get("identifier") or ""
+            if needle:
+                notes.append({
+                    "needle": str(needle)[:80],
+                    "text": f"[{verdict.upper()}] {res.get('note') or ''}".strip(),
+                    "author": "Benthic",
+                })
+
+    for ym in doc.get("year_mismatch") or []:
+        notes.append({
+            "needle": ym.get("sentence") or ym.get("label") or "",
+            "text": f"Jahresabweichung: Im Text {ym.get('cited_year')}, im Verzeichnis {ym.get('list_year')} ({ym.get('list_label')})",
+            "author": "Benthic",
+        })
+
+    for m in doc.get("missing_in_list") or []:
+        notes.append({
+            "needle": m.get("sentence") or m.get("label") or "",
+            "text": f"Fehlt im Literaturverzeichnis: {m.get('label')}",
+            "author": "Benthic",
+        })
+
+    for uc in doc.get("uncited_claims") or []:
+        notes.append({
+            "needle": uc.get("sentence") or uc.get("claim") or "",
+            "text": "Aussage mit Zahlen oder Studienbezug ohne Zitat: Bitte mit einer Quelle belegen.",
+            "author": "Benthic",
+        })
+    for sc in doc.get("secondary_citations") or []:
+        notes.append({
+            "needle": sc.get("match") or sc.get("sentence") or sc.get("needle") or "",
+            "text": f"Zweitquelle ({sc.get('match', '')}): Nach Möglichkeit das Original prüfen und zitieren.",
+            "author": "Benthic",
+        })
+    for q in job.get("quote_check") or []:
+        if q.get("status") in ("close", "not_found") or q.get("page_ok") is False:
+            q_note = (
+                "Wörtliches Zitat weicht vom Original ab."
+                if q.get("status") == "close"
+                else (
+                    "Wörtliches Zitat im Volltext nicht gefunden."
+                    if q.get("status") == "not_found"
+                    else "Seitenzahl des Zitats weicht ab."
+                )
+            )
+            notes.append({
+                "needle": q.get("quote") or "",
+                "text": f"Zitatprüfung ({q.get('label', '')}): {q_note}",
+                "author": "Benthic",
+            })
+
+    annotated = document.annotate_docx(data, notes)
+    stem = Path(name).stem or "dokument"
+    return send_file(
+        io.BytesIO(annotated),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=f"{stem}-benthic-kommentiert.docx",
     )
 
 
