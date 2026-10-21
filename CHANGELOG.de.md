@@ -6,7 +6,7 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
-## 1.2.0
+## 1.1.4
 
 Sechs Datenbanken in der Prüfkaskade, kommentierte Word-Dateien und bereinigte
 `.bib`-Dateien für Abschlussarbeiten sowie Import aus EndNote und Citavi.

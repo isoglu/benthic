@@ -5,7 +5,7 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
-## 1.2.0
+## 1.1.4
 
 Six bibliographic databases in the check cascade, annotated Word documents and
 cleaned `.bib` files for theses, and imports from EndNote and Citavi.
