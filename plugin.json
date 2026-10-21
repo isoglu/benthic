@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "benthic",
   "description": "Check reference lists from language models for invented, misattributed and retracted sources, and fetch the real papers through open access, with the Benthic app for macOS.",
-  "version": "1.2.0",
+  "version": "1.1.4",
   "author": {
     "name": "Sinan Isoglu",
     "url": "https://isoglu.com"
