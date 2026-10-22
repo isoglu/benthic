@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import __version__
+from . import __version__, identity
 from .i18n import catalog, tr, tr_part
 
 PORT = int(os.environ.get("BENTHIC_PORT", "8327"))
@@ -185,6 +185,10 @@ VERDICT_EN = {
 }
 
 
+DIFF_EN = {"title": "title", "authors": "authors", "year": "year", "venue": "journal", "volume": "volume", "issue": "issue",
+           "pages": "pages", "author_count": "number of authors", "cited_page": "cited page"}
+
+
 def _fmt_verify(job: Dict) -> str:
     results = sorted(job.get("results") or [], key=lambda r: r.get("order", 0))
     counts: Dict[str, int] = {}
@@ -200,6 +204,8 @@ def _fmt_verify(job: Dict) -> str:
             bits.append(f"({found['year']})")
         if r.get("doi"):
             bits.append(f"doi:{r['doi']}")
+        elif found.get("url"):
+            bits.append(found["url"])  # ohne DOI: PubMed-, Open-Library- oder DNB-Seite
         line = " ".join(bits)
         if r.get("note"):
             line += f"\n   Note: {_en(r.get('note_parts') or r['note'])}"
@@ -207,6 +213,10 @@ def _fmt_verify(job: Dict) -> str:
         if pub:
             line += (f"\n   Published since: doi:{pub['doi']} ({pub.get('venue') or pub.get('type')}, {pub.get('year')}). "
                      "Prefer citing the published version.")
+        diffs = [f"{DIFF_EN.get(k, k)} {d.get('claimed')} -> {d.get('found')}" for k, d in (r.get("field_diffs") or {}).items()
+                 if isinstance(d, dict) and d.get("status") != "ok"] if v != "not_found" else []
+        if diffs:
+            line += "\n   Details differ (reference -> record): " + "; ".join(diffs)
         style_notes = ((job.get("style") or {}).get("entries") or {}).get(str(r.get("order", 0))) or []
         if style_notes:
             line += "\n   Citation style: " + " ".join(_en(i) for i in style_notes)
@@ -223,6 +233,8 @@ def _fmt_verify(job: Dict) -> str:
         name = (st.get("styles") or {}).get(st.get("style"), st.get("style"))
         out.append(f"Citation style: {name}" + (" (detected)." if st.get("detected") == st.get("style") else ".")
                    + "".join(" " + _en(i) for i in st.get("list") or []))
+    elif st.get("list"):
+        out.append("Notes on the list:" + "".join(" " + _en(i) for i in st["list"]))
     return "\n".join(out + [""] + lines)
 
 
@@ -255,6 +267,9 @@ def _fmt_download(job: Dict) -> str:
     lines = []
     for r in results:
         s = STATUS_EN.get(str(r.get("status")), str(r.get("status")).upper())
+        if r.get("wrong_file"):  # die freie Kopie ist ein anderes Werk: das zuerst, nicht „öffnen“
+            s = (f"DIFFERENT WORK, NOT SAVED: the free copy is doi:{r.get('file_doi')} \"{r.get('file_title')}\"; "
+                 "look for the cited paper on its landing page")
         line = f"- {r.get('identifier')}: {s}"
         if r.get("status") == "ok":
             line += f" via {r.get('source')}" + (f" ({r.get('version')})" if r.get("version") else "")
@@ -263,7 +278,7 @@ def _fmt_download(job: Dict) -> str:
         if r.get("status") in ("blocked", "absent", "error") and (r.get("landing_url") or r.get("proxy_url")):
             line += f". Link: {r.get('proxy_url') or r.get('landing_url')}"
         if r.get("status") in ("absent", "error") and r.get("error"):
-            line += f" ({_en(r['error'])})"
+            line += f" ({_en(r.get('error_parts') or r['error'])})"
         lines.append(line)
     out = [f"{len(results)} of {job.get('total', len(results))} done (open access only)."]
     if job.get("status") not in ("done", "cancelled"):
@@ -337,7 +352,15 @@ def t_check_document(a: Dict) -> str:
 
 QUOTE_EN = {"exact": "word for word", "close": "WORDING DIFFERS", "not_found": "NOT FOUND in the source",
             "no_pdf": "PDF not in the library", "no_source": "source not confirmed", "pending": "source not checked yet",
-            "unreadable": "PDF unreadable", "too_short": "too short to check", "no_text": "PDF has no text layer"}
+            "unreadable": "PDF unreadable", "too_short": "too short to check", "no_text": "PDF has no text layer",
+            "wrong_pdf": "WRONG PDF: the file in the library is a different work",
+            "incomplete": "not in this copy, which is not the whole work",
+            "misattributed": "NOT IN THE CITED SOURCE, but word for word in another one"}
+COPY_EN = {"working_paper": "working paper", "ssrn": "SSRN copy", "accepted": "accepted manuscript",
+           "preprint": "preprint", "teaser": "paywall preview", "summary": "summary or excerpt, not the whole work",
+           "no_text": "PDF without a text layer", "report": "technical report",
+           "commentary": "commentary or correction, not the work itself",
+           "thin": "little text per page: slides, a poster or a scan"}  # wie die Fassungen in der App
 
 
 def _fmt_quote(q: Dict) -> str:
@@ -351,6 +374,21 @@ def _fmt_quote(q: Dict) -> str:
             line += f" (cited page {q.get('stated_page')} is WRONG)"
     if q.get("status") == "close" and q.get("excerpt"):
         line += f". Source reads: \"{q['excerpt'][:300]}\""
+    if q.get("status") == "wrong_pdf":
+        line += f" (the file is doi:{q.get('file_doi')}" + (f", \"{q['file_title']}\")" if q.get("file_title") else ")")
+    if q.get("longest"):
+        lg = q["longest"]
+        line += f". Longest identical run: {lg['words']} of {lg['of']} words, p. {lg['page']}"
+    if q.get("found_in"):
+        fi = q["found_in"]
+        line += f". FOUND IN ANOTHER SOURCE: {fi['label']} (doi:{fi['doi']}, p. {fi['page']}), but cited to {q.get('label')}"
+    elif q.get("searched"):
+        line += (". Not in the other downloaded source either" if q["searched"] == 1
+                 else f". Not in any of the {q['searched']} other downloaded sources either")
+    if q.get("copy") in COPY_EN:
+        line += f". Version: {COPY_EN[q['copy']]}"
+    if q.get("status") in ("not_found", "incomplete") and q.get("identity") == "unprovable":
+        line += ". The PDF could not be shown to be the cited work (neither DOI nor title at its start)"
     return line
 
 
@@ -435,6 +473,10 @@ def t_check_folder(a: Dict) -> str:
         rows.append("Invented or misattributed references that appear in several submissions (a hint at a shared "
                     "chatbot answer or copied lists, not proof):")
         rows += [f"- \"{g['title']}\" in {len(g['files'])} submissions: {', '.join(g['files'])}" for g in shared[:20]]
+    conflicts = b.get("doi_conflicts") or []
+    if conflicts:
+        rows.append("References that contradict each other across submissions (one DOI is one work, so at most one is right):")
+        rows += [f"- {_en(c)}" for c in conflicts[:20]]
     return head + ("\n" + "\n".join(rows) if rows else "")
 
 
@@ -446,10 +488,19 @@ def t_find_support(a: Dict) -> str:
     status, data = _http("POST", "/api/support", {"doi": doi, "claim": claim, "k": int(a.get("k") or 3)})
     if status != 200 or not isinstance(data, dict):
         raise ValueError((data or {}).get("error") if isinstance(data, dict) else "request failed")
+    if data.get("wrong_file"):
+        return (f"No passages: the PDF in the library for {doi} is a different work (doi:{data.get('file_doi')}"
+                + (f", \"{data['file_title']}\"" if data.get("file_title") else "") + "). Replace it with the cited paper.")
     if not data.get("available"):
         return f"No passages: {data.get('error') or 'the PDF is not in the library'}. Call fetch_papers first."
     lines = [f"Closest passages in {data.get('file')} for the claim (Benthic ranks by wording; it does not judge "
              f"whether a passage supports the claim; read them):"]
+    if data.get("copy") in identity.INCOMPLETE:
+        lines.append(f"Note: searched an incomplete copy ({COPY_EN[data['copy']]}); a passage missing here may still be "
+                     "in the work.")
+    elif data.get("copy") in identity.VERSIONS:
+        lines.append(f"Note: searched a version other than the published one ({COPY_EN[data['copy']]}); wording and "
+                     "pages may differ.")
     for i, p in enumerate(data.get("passages") or [], start=1):
         lines.append(f"{i}. Page {p['page']} (coverage {round(p['coverage'] * 100)} % of the claim's key words): {p['text']}")
     if not data.get("passages"):
@@ -554,6 +605,8 @@ def t_project_status(a: Dict) -> str:
         rows.append(f"- {i.get('title') or '(no title)'} doi:{i['doi']} [{v}]{notes}" + (" [PDF]" if i.get("filename") else ""))
     head = (f"Project “{p['name']}”: {p['count']} sources, {p['verified']} verified, "
             f"{p['flagged']} flagged, {p['in_library']} in library.")
+    if p.get("conflicts"):
+        rows.append("Contradictions between runs (one DOI is one work): " + " ".join(_en(c) for c in p["conflicts"][:20]))
     return head + ("\n" + "\n".join(rows) if rows else "")
 
 
@@ -704,6 +757,9 @@ def t_check_overlap(a: Dict) -> str:
     if r.get("missing_pdfs"):
         lines.append(f"Not checked, PDF not in the library ({len(r['missing_pdfs'])}): " + ", ".join(r["missing_pdfs"][:20])
                      + ". fetch_papers can download open-access copies.")
+    if r.get("wrong_pdfs"):
+        lines.append(f"Not checked, the PDF in the library is a different work ({len(r['wrong_pdfs'])}): "
+                     + ", ".join(r["wrong_pdfs"][:20]) + ". Replace those files with the cited papers.")
     return "\n".join(lines)
 
 
@@ -765,7 +821,9 @@ TOOLS: List[Dict] = [
     {"name": "verify_references", "title": "Verify references",
      "description": "Check a reading list for hallucinated or wrong references. Accepts any text: an LLM answer, "
                     "a reference list, BibTeX, RIS or plain DOIs. For each reference: does it exist, do title, "
-                    "authors and year match, is the DOI correct (and which is the right one), was it retracted.",
+                    "authors and year match, is the DOI correct (and which is the right one), was it retracted. "
+                    "Field differences (first author, author order, volume, issue, pages) are listed without "
+                    "changing the verdict, and so is one DOI printed with different details in the list.",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string", "description": "The references."},
                                                       "project": _PROJECT, "wait_seconds": _WAIT},
                      "required": ["text"]},
@@ -775,7 +833,7 @@ TOOLS: List[Dict] = [
                     "project: the main .tex file or its folder, with the .bib files it uses): find its reference "
                     "list, cross-check it with the citations in the text (cited but missing from the list, listed "
                     "but never cited), list direct quotations with their source, then verify every entry like "
-                    "verify_references.",
+                    "verify_references, including cited pages that lie outside the article's page range.",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string", "description": "Absolute path or ~/… path of the file (or LaTeX project folder) on this Mac."},
          "project": _PROJECT, "wait_seconds": _WAIT}, "required": ["path"]},
@@ -784,7 +842,10 @@ TOOLS: List[Dict] = [
      "description": "Check whether direct quotations really appear word for word in the cited source, and on the "
                     "cited page. Give the job_id of a check_document run to check every quotation of a thesis, or "
                     "a doi with one quote (and optionally the page) to check a single quotation, for example one "
-                    "you are about to write. Needs the PDF in the library (fetch_papers).",
+                    "you are about to write. Needs the PDF in the library (fetch_papers). Each PDF is first checked to "
+                    "be the cited work (a different paper is reported, not used) and graded as a version (preprint, "
+                    "working paper, summary); a quotation missing from the cited source but found in another "
+                    "downloaded source of the run is reported as found there.",
      "inputSchema": {"type": "object", "properties": {
          "job_id": _S, "doi": _S, "quote": {"type": "string", "description": "The quoted words, without quotation marks."},
          "page": _S}},
@@ -798,7 +859,8 @@ TOOLS: List[Dict] = [
     {"name": "check_folder", "title": "Check a folder of submissions",
      "description": "For lecturers: check every submission in a folder on the user's Mac (PDF, Word, text, LaTeX as "
                     ".zip or project folder) like check_document, one after another, and return one summary line "
-                    "per submission. Long batches keep running; call again with the batch_id to see progress.",
+                    "per submission, plus invented references that several submissions share and DOIs printed "
+                    "with different details. Long batches keep running; call again with the batch_id to see progress.",
      "inputSchema": {"type": "object", "properties": {
          "folder": {"type": "string", "description": "Absolute path or ~/… path of the folder, or of an assignment's "
                                                         ".zip export from Moodle or ILIAS."},
@@ -808,7 +870,8 @@ TOOLS: List[Dict] = [
      "description": "In a downloaded paper (by DOI), find the passages that come closest to a claim, with page "
                     "numbers, so you can check whether the source really supports the sentence that cites it. "
                     "Ranking is by wording, not a judgement: read the passages before relying on them. Write the "
-                    "claim in the language of the paper (translate it first if needed).",
+                    "claim in the language of the paper (translate it first if needed). Says so when the downloaded "
+                    "copy is only a summary, a preview or another version of the work.",
      "inputSchema": {"type": "object", "properties": {
          "doi": _S, "claim": {"type": "string", "description": "The sentence or claim that cites the paper."},
          "k": {"type": "integer", "minimum": 1, "maximum": 8}}, "required": ["doi", "claim"]},
@@ -816,7 +879,8 @@ TOOLS: List[Dict] = [
     {"name": "fetch_papers", "title": "Fetch papers",
      "description": "Download open-access PDFs for DOIs into the user's library, only through open access "
                     "(arXiv, OpenAlex, Unpaywall, Europe PMC, Semantic Scholar, CORE, publisher APIs). Papers "
-                    "without an open-access copy are reported with a library or publisher link.",
+                    "without an open-access copy are reported with a library or publisher link. A downloaded file that "
+                    "turns out to be a different paper is not saved, and the result says so.",
      "inputSchema": {"type": "object", "properties": {"dois": _DOIS, "project": _PROJECT, "wait_seconds": _WAIT},
                      "required": ["dois"]},
      "annotations": {"readOnlyHint": False, "openWorldHint": True}, "handler": t_fetch_papers},
@@ -851,7 +915,9 @@ TOOLS: List[Dict] = [
                      "required": ["name"]},
      "annotations": {"readOnlyHint": False}, "handler": t_create_project},
     {"name": "project_status", "title": "Project status",
-     "description": "All sources of a project with their verification verdict and whether the PDF is in the library.",
+     "description": "All sources of a project with their verification verdict and whether the PDF is in the library, "
+                    "plus contradictions in the latest printed details, such as two works with the same pages in "
+                    "one volume.",
      "inputSchema": {"type": "object", "properties": {"project": _S}, "required": ["project"]},
      "annotations": {"readOnlyHint": True}, "handler": t_project_status},
     {"name": "retraction_watch", "title": "Retraction watch",
@@ -893,8 +959,8 @@ TOOLS: List[Dict] = [
      "description": "For a check_document run (job_id): compare every sentence that cites a source with that "
                     "source's downloaded full text, outside quotation marks, and list passages taken over word for "
                     "word, almost word for word, or as a long identical run of words, with page and source passage. "
-                    "Needs the PDFs in the library (fetch_papers). Present findings as passages to compare, not as "
-                    "proof of plagiarism.",
+                    "Needs the PDFs in the library (fetch_papers) and skips a PDF that turns out to be a different "
+                    "work. Present findings as passages to compare, not as proof of plagiarism.",
      "inputSchema": {"type": "object", "properties": {"job_id": _S}, "required": ["job_id"]},
      "annotations": {"readOnlyHint": True}, "handler": t_check_overlap},
     {"name": "suggest_alternatives", "title": "Suggest real papers for an invented reference",

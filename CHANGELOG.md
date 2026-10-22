@@ -5,6 +5,40 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.5
+
+Benthic now makes sure a downloaded PDF is the paper you cited, says which
+version of it you have, compares every detail of a reference with the record,
+and finds older PubMed articles by their title.
+
+- **The right PDF, or none.** Before Benthic checks a quotation or borrowed
+  wording against a downloaded PDF, it looks for the cited DOI or title on the
+  first pages. A file that turns out to be a different paper is not saved and
+  not used, and Benthic names the paper it actually is.
+- **Which version you are reading.** Preprints, working papers, accepted
+  manuscripts, technical reports, summaries and paywall previews are named as
+  such. A quotation missing from a summary, a preview or a slide deck reads
+  "Not in this copy" instead of counting as not found.
+- **Quotations found in another source.** When a quotation is not in the cited
+  paper but appears word for word in another paper of the same check, Benthic
+  says where it really comes from.
+- **Every detail compared.** First author, author order, volume, issue and pages
+  are compared with the record and shown next to the verdict, without changing
+  it, and so is a cited page outside the article's page range. Names in other
+  spellings, such as Müller and Mueller, count as the same.
+- **One DOI, one work.** In a reference list or a course folder, Benthic
+  points out a DOI printed with different details and two works given the same
+  pages in one volume.
+- **Better suggestions for a missing DOI.** Corrections, replies and retraction
+  notices are no longer offered as the work itself, and a journal article wins
+  over its working paper or dataset of the same title.
+- **PubMed by title.** The title search now asks Europe PMC, which holds all of
+  PubMed, so older medical articles without a DOI are found and linked to their
+  PubMed page. The notes for 1.1.4 already announced this search; it now runs.
+- **Fixes.** Smith 2020a and Smith 2020b no longer merge in the check of a
+  thesis, the report's list of databases now names every database Benthic asks,
+  and the depth gauge of the first start no longer stalls above the surface.
+
 ## 1.1.4
 
 Six bibliographic databases in the check cascade, annotated Word documents and

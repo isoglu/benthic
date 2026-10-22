@@ -61,6 +61,7 @@ def lookup(doi: str, timeout: float = 12.0) -> Optional[Dict[str, str]]:
         "title": title,
         "author": first_author,
         "year": str(year) if year else "",
+        "pages": msg.get("page") or None,
     }
 
 

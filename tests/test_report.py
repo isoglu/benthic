@@ -34,6 +34,16 @@ class Bericht(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
+    def test_source_list_names_every_service_the_check_asks(self):
+        """„Geprüft gegen“ nennt jede Quelle, die verify.py fragt (E-001: PubMed stand in den Notizen, nicht im Code)."""
+        import re
+        from pathlib import Path
+        from benthic import report, verify
+        asked = set(re.findall(r'_t\("([^"]+)", "(?:search|doi|isbn)"', Path(verify.__file__).read_text(encoding="utf-8")))
+        self.assertGreaterEqual(len(asked), 8)
+        for name in asked:
+            self.assertTrue(any(name in s for s in report.SOURCES), f"{name} fehlt in report.SOURCES")
+
     def test_page(self):
         r = self.client.get("/report/9907")
         self.assertEqual(r.status_code, 200)

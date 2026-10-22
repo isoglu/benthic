@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import config, library
+from . import config, library, style
 from .i18n import tr
 
 _lock = threading.RLock()
@@ -161,6 +161,10 @@ def add_items(pid: str, items: List[Dict], source: str = "manual") -> int:
             for field in ("title", "year", "verdict", "score", "status", "channel", "filename", "note"):
                 if it.get(field) not in (None, ""):
                     cur[field] = it[field]
+            # Wie das Werk zuletzt angegeben war (Titel, Jahr, Band, Heft, Seiten, Datei): nur die letzte Fassung, denn
+            # eine korrigierte Angabe, auch in einer neuen Datei (arbeit_v2.docx), ist kein Widerspruch.
+            if it.get("printed"):
+                cur["printed"] = {**it["printed"], "where": it.get("run") or None}
             cur["updated_at"] = now
             p["items"][key] = cur
             changed += 1
@@ -181,8 +185,8 @@ def remove_item(pid: str, doi: str) -> bool:
         return True
 
 
-def record_results(pid: Optional[str], mode: str, results: List[Dict], source: str = "ui") -> int:
-    """Übernimmt die Ergebnisse eines Laufs ins Projekt."""
+def record_results(pid: Optional[str], mode: str, results: List[Dict], source: str = "ui", run: str = "") -> int:
+    """Übernimmt die Ergebnisse eines Laufs ins Projekt; ``run`` ist die geprüfte Arbeit (Dateiname, sonst leer)."""
     if not pid or not find(pid):
         return 0
     items = []
@@ -192,9 +196,12 @@ def record_results(pid: Optional[str], mode: str, results: List[Dict], source: s
             claimed = r.get("claimed") or {}
             if not r.get("doi"):
                 continue  # erfundene Quellen ohne DOI bleiben im Prüfbericht, nicht im Projekt
+            printed = {k: claimed.get(k) for k in ("title", "journal", "year", "volume", "issue", "pages") if claimed.get(k)}
             items.append({"doi": r["doi"], "title": found.get("title") or claimed.get("title"),
                           "year": found.get("year") or claimed.get("year"), "verdict": r.get("verdict"),
-                          "score": r.get("score"), "note": r.get("note")})
+                          "score": r.get("score"), "note": r.get("note"),
+                          "printed": printed if r.get("verdict") in style.KNOWN and len(printed) > 1 and source != "project" else None,
+                          "run": run})
         else:
             items.append({"doi": r.get("identifier"), "title": r.get("title"), "status": r.get("status"),
                           "channel": r.get("channel"), "filename": r.get("filename")})
@@ -211,8 +218,10 @@ def detail(pid: str) -> Optional[Dict]:
         entry = lib.get(it["doi"]) or lib.get(it["doi"].lower()) or {}
         items.append({**it, "in_library": bool(entry), "filename": it.get("filename") or entry.get("filename"),
                       "title": it.get("title") or entry.get("title")})
+    entries = [{"doi": it["doi"], **it["printed"]} for it in items
+               if isinstance(it.get("printed"), dict) and it["printed"].get("title")]  # ältere Formen: übergehen
     return ({k: p.get(k) for k in ("id", "name", "description", "created_at", "updated_at")} | _counts(p)
-            | {"items": items, "watch": p.get("watch", True)})
+            | {"items": items, "watch": p.get("watch", True), "conflicts": style.consistency(entries)[:40]})
 
 
 # --------------------------------------------------------------------------

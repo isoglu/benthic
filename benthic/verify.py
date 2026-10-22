@@ -5,7 +5,8 @@ Gedacht für Literaturlisten aus LLMs. Für jede Referenz aus ``refs.parse``:
 1. Kennung auflösen (DOI direkt, arXiv über DataCite, PMID über Europe PMC).
 2. Das echte Werk holen (OpenAlex, sonst Crossref, sonst nur der DOI-Resolver).
 3. Behauptete Angaben (Titel, Autor:innen, Jahr) mit dem echten Werk vergleichen.
-4. Ohne oder mit falscher DOI: per Titel suchen (Crossref und OpenAlex).
+4. Ohne oder mit falscher DOI: per Titel suchen (Crossref und OpenAlex, dann arXiv, Europe PMC mit PubMed,
+   Semantic Scholar, DBLP, Open Library, DNB).
 5. Rückzüge erkennen (OpenAlex ``is_retracted``, Crossref ``updated-by``).
 
 Urteile: verified, corrected, partial, uncertain, mismatch, not_found, retracted.
@@ -17,12 +18,11 @@ import difflib
 import re
 import threading
 import time
-import unicodedata
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
-from . import netguard, oa, quota, refs
+from . import netguard, oa, preprints, quota, refs
 from .i18n import each_lang, join_list, note_part, tr, tr_parts
 
 VERDICTS = ("verified", "corrected", "partial", "uncertain", "mismatch", "not_found", "retracted")
@@ -215,6 +215,22 @@ def _search_arxiv(title: str) -> List[Dict]:
 # --------------------------------------------------------------------------
 # Einheitliche Werk-Darstellung
 # --------------------------------------------------------------------------
+# Gleicher Titel, aber nicht das Werk: Rückzugsnotiz, Erratum, Kommentar oder Antwort zu einem Artikel. Der
+# zurückgezogene Artikel selbst („RETRACTED: …“) bleibt ein Treffer, sonst ginge der Rückzug verloren.
+_NOTICE_TITLE = re.compile(r"^\W*(?:notice of retraction|retraction(?:\s+notice)?|erratum|errata|corrigendum|correction|"
+                           r"expression of concern|reply|response|rejoinder|comment(?:ary)?)\b\s*(?:to|on|for|regarding|:|[-\u2013])",
+                           re.IGNORECASE)
+_NOTICE_TYPES = ("erratum", "retraction", "paratext", "peer-review", "component")
+# Fassungen neben dem Artikel: Arbeitspapier (NBER), Bericht, Datensatz, Ablage (Zenodo, figshare)
+_COPY_TYPES = ("report", "report-component", "report-series", "repository", "dataset", "database")
+_COPY_PREFIXES = ("10.3386/", "10.5281/", "10.6084/")
+
+
+def _notice(title: str, kind: object = None, updates=None) -> bool:
+    return (bool(_NOTICE_TITLE.match(title or "")) or str(kind or "").lower() in _NOTICE_TYPES
+            or any(str(u.get("type", "")).lower() != "new_version" for u in updates or []))
+
+
 def _from_openalex(w: Dict) -> Dict:
     names = [((a.get("author") or {}).get("display_name") or "") for a in (w.get("authorships") or [])]
     loc = (w.get("primary_location") or {}).get("source") or {}
@@ -240,6 +256,7 @@ def _from_openalex(w: Dict) -> Dict:
         "cited_by": w.get("cited_by_count"),
         "is_oa": bool((w.get("open_access") or {}).get("is_oa")),
         "source": "OpenAlex",
+        "notice": _notice(w.get("title") or w.get("display_name") or "", w.get("type")),
     }
 
 
@@ -261,6 +278,7 @@ def _from_crossref(m: Dict) -> Dict:
         "cited_by": m.get("is-referenced-by-count"),
         "is_oa": None,
         "source": "Crossref",
+        "notice": _notice((m.get("title") or [""])[0] or "", m.get("type"), m.get("update-to")),
     }
 
 
@@ -296,21 +314,10 @@ def lookup(doi: str, email: str = "") -> Optional[Dict]:
 # --------------------------------------------------------------------------
 # Vergleich
 # --------------------------------------------------------------------------
-def _norm_name(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s or "")
-    return "".join(c for c in s if c.isalpha()).lower()
+_norm_name = refs.name_key
 
 
-def title_similarity(a: Optional[str], b: Optional[str]) -> float:
-    na, nb = refs.normalize_title(a or ""), refs.normalize_title(b or "")
-    if not na or not nb:
-        return 0.0
-    ratio = difflib.SequenceMatcher(None, na, nb).ratio()
-    short, long_ = sorted((na, nb), key=len)
-    # Untertitel oder ganze Zitatzeile: der kürzere Titel steckt im längeren.
-    if len(short) >= 20 and short in long_:
-        ratio = max(ratio, 0.95)
-    return ratio
+title_similarity = refs.title_similarity
 
 
 def compare(claimed: Dict, actual: Dict) -> Tuple[int, List[str], float]:
@@ -333,11 +340,10 @@ def compare(claimed: Dict, actual: Dict) -> Tuple[int, List[str], float]:
         got += 15 if ok else 0
         if not ok:
             flags.append("year")
-    claimed_names = {_norm_name(n) for n in (claimed.get("authors") or []) if n}
+    claimed_names = [n for n in (claimed.get("authors") or []) if n]
     if claimed_names and actual.get("authors"):
         weights += 15
-        actual_names = {_norm_name(n) for n in actual["authors"] if n}
-        ok = bool(claimed_names & actual_names)
+        ok = any(refs.same_name(c, a) for c in claimed_names for a in actual["authors"] if a)
         got += 15 if ok else 0
         if not ok:
             flags.append("authors")
@@ -345,8 +351,66 @@ def compare(claimed: Dict, actual: Dict) -> Tuple[int, List[str], float]:
     return score, flags, sim
 
 
-def field_diffs(claimed: Dict, actual: Optional[Dict]) -> Dict[str, Dict]:
-    """Einzelvergleich je Feld (title, authors, year, venue) für die Oberfläche und den Bericht."""
+def _subsequence(part: List[str], whole: List[str]) -> bool:
+    it = iter(whole)
+    return all(x in it for x in part)
+
+
+def _first_num(value: object) -> str:
+    m = re.match(r"\s*([A-Za-z]{0,2}\d+)", str(value or ""))
+    return m.group(1).lower().lstrip("0") if m else ""
+
+
+def _value_diffs(claimed: Dict, actual: Dict) -> Dict[str, Dict]:
+    """Band, Heft, Seiten und zitierte Seiten gegen das Werk. Nur, wenn die Angabe einen anderen Wert nennt
+    und der Wert des Werks nirgends sonst in der Angabe steht: so macht ein falsch gelesener Wert keinen Fund."""
+    out: Dict[str, Dict] = {}
+    raw = str(claimed.get("raw") or "")
+
+    def named(value: str) -> bool:
+        return bool(value) and bool(re.search(r"(?<![\w.])0*" + re.escape(value) + r"(?!\w)", refs._IDS.sub(" ", raw), re.I))
+
+    cv, av = _first_num(claimed.get("volume")), _first_num(actual.get("volume"))
+    if cv and av and cv != av and not named(av):
+        out["volume"] = {"claimed": str(claimed["volume"]), "found": str(actual["volume"]), "status": "warn"}
+    if refs.issues_disagree(claimed.get("issue"), actual.get("issue")) and not any(
+            named(i) for i in re.findall(r"\d+", str(actual.get("issue")))):
+        out["issue"] = {"claimed": str(claimed["issue"]), "found": str(actual["issue"]), "status": "warn"}
+    af, al = refs._span(actual.get("pages"))
+    if refs.pages_disagree(claimed.get("pages"), actual.get("pages")) and not named(af):
+        out["pages"] = {"claimed": str(refs.pages_text(claimed["pages"])), "found": str(refs.pages_text(actual["pages"])),
+                        "status": "warn"}
+    # Beginnt das Werk auf Seite 1, ist das oft die Zählung im Artikel (Artikelnummer-Zeitschriften): kein Vergleich.
+    if af.isdigit() and al.isdigit() and af != "1" and 0 < int(al) - int(af) < 2000:
+        outside = [p for p in claimed.get("cited_pages") or [] if str(p).isdigit() and not int(af) <= int(p) <= int(al)]
+        if outside:
+            out["cited_page"] = {"claimed": ", ".join(str(p) for p in outside[:3]), "found": f"{af}–{al}", "status": "warn"}
+    return out
+
+
+# Gruppen als Autor:in (ATLAS Collaboration, The ABC Consortium): keine Person, die in der Angabe fehlen kann
+_GROUP = re.compile(r"\b(?:collaborat\w*|consorti\w*|group|team|network|investigators|committee|initiative|alliance|"
+                    r"society|association|council|working party)\b", re.IGNORECASE)  # ganze Wörter: Teamson ist eine Person
+# Namensteile vor dem Nachnamen, zusammengeschrieben wie im Schlüssel: vander, dela, da
+_PARTICLE_RUN = re.compile(r"(?:van|von|der|den|de|del|della|da|das|di|do|dos|du|la|le|ten|ter|zu|y)+")
+
+
+def _same_name(a: str, b: str) -> bool:
+    """Zwei Schlüssel, die nicht gleich sind, aber denselben Namen meinen: „vanderwalt“ und „walt“ (der Rest ist ein
+    Namensteil), ein Name von mindestens vier Buchstaben am Ende eines längeren, oder ein Buchstabe Unterschied in
+    einem langen Namen (Steenkamp, Steenkamps). Zhou und Hou, Johnson und Son, Miller und Müller bleiben zwei."""
+    if not (a and b):
+        return False
+    short, long_ = sorted((a, b), key=len)
+    if long_.endswith(short) and (len(short) >= 4 or _PARTICLE_RUN.fullmatch(long_[:-len(short)] or "-")):
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.9
+
+
+def field_diffs(claimed: Dict, actual: Optional[Dict], values: bool = True) -> Dict[str, Dict]:
+    """Einzelvergleich je Feld (title, authors, year, venue) für die Oberfläche und den Bericht. Band, Heft,
+    Seiten, zitierte Seite und die Zahl der Autor:innen stehen nur darin, wenn sie abweichen, und nur mit
+    ``values``: gegen einen unsicheren Treffer verglichen wären sie ein Befund über ein anderes Werk."""
     if not actual:
         return {}
     out: Dict[str, Dict] = {}
@@ -370,14 +434,39 @@ def field_diffs(claimed: Dict, actual: Optional[Dict]) -> Dict[str, Dict]:
     ca = [str(a) for a in (claimed.get("authors") or []) if a]
     aa = [str(a) for a in (actual.get("authors") or []) if a]
     if ca and aa:
-        c_norm, a_norm = {_norm_name(n) for n in ca}, {_norm_name(n) for n in aa}
-        overlap = len(c_norm & a_norm)
-        st = "ok" if overlap == len(c_norm) else ("warn" if overlap > 0 else "fail")
+        ak = [_norm_name(n) for n in aa]
+
+        def canon(name: str) -> str:  # erst genau oder umschrieben gleich, dann Namensteile und Tippfehler
+            exact = next((k for n, k in zip(aa, ak) if refs.same_name(name, n)), None)
+            return exact or next((k for k in ak if _same_name(k, _norm_name(name))), _norm_name(name))
+        ck = [canon(n) for n in ca]
+        shared = [k for k in ck if k in ak]
+        # Fehlt ein Name, zählt das nur, wenn das Werk vollständig und nicht kürzer als die Angabe ist: Verzeichnisse
+        # führen manchmal nur die erste Person (Homburg statt Homburg, Hoyer und Koschate).
+        complete = len(aa) >= max(int(actual.get("author_count") or 0), len(ca))
+        if not shared:
+            st = "fail"
+        elif (len(set(shared)) < len(set(ck)) and complete) or ck[0] != ak[0] or not _subsequence(shared, ak):
+            st = "warn"  # Name fehlt im Werk, andere Erstautor:in oder andere Reihenfolge
+        else:
+            st = "ok"
         out["authors"] = {"claimed": ", ".join(ca[:4]), "found": ", ".join(aa[:4]), "status": st}
+        count = int(actual.get("author_count") or len(aa))
+        # „et al.“ ohne weitere Person: nur bei einem vollständigen Werk mit mehr als einer Person; Verzeichnisse
+        # führen oft nur die erste.
+        if claimed.get("et_al") and 1 < count <= len(ca) and complete:
+            out["author_count"] = {"claimed": f"{len(ca)} + et al.", "found": str(count), "status": "warn"}
+        elif not claimed.get("et_al") and claimed.get("author_count") and (
+                count - sum(1 for n in aa if _GROUP.search(n))) > int(claimed["author_count"]):  # ohne Konsortien
+            out["author_count"] = {"claimed": str(claimed["author_count"]), "found": str(count), "status": "warn"}
     cv, av = str(claimed.get("venue") or "").strip(), str(actual.get("venue") or "").strip()
     if cv and av:
         vsim = title_similarity(cv, av)
         out["venue"] = {"claimed": cv, "found": av, "status": "ok" if vsim >= 0.75 else "warn"}
+    if values:
+        out.update(_value_diffs(claimed, actual))
+    else:
+        out.pop("author_count", None)
     return out
 
 
@@ -405,7 +494,8 @@ def _chimera_hint(claimed: Dict, best: Optional[Dict], best_sim: float) -> Optio
 def _search_crossref(query: str, email: str) -> List[Dict]:
     def fetch():
         params = {"query.bibliographic": query[:300], "rows": 5,
-                  "select": "DOI,title,author,issued,published,container-title,type,updated-by,is-referenced-by-count"}
+                  "select": "DOI,title,author,issued,published,container-title,type,updated-by,update-to,"
+                            "is-referenced-by-count,volume,issue,page"}
         params.update(_mailto(email))
         j = oa._json(oa._api_get("https://api.crossref.org/works", params=params, timeout=15.0))
         if j is None:
@@ -456,6 +546,41 @@ def _search_semanticscholar(title: str) -> List[Dict]:
         return out
     hits = _cached("s2:" + title.lower(), fetch)
     _t("Semantic Scholar", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+    return hits or []  # type: ignore[return-value]
+
+
+# Gleicher Titel, aber nicht das Werk: Rückzugsnotiz, Erratum oder Leserbrief zu einem Artikel.
+_EPMC_NOT_A_WORK = ("retraction notice", "published erratum", "expression of concern", "comment")
+
+
+def _search_europepmc(title: str) -> List[Dict]:
+    """Europe PMC enthält ganz PubMed, auch ältere Artikel ohne DOI. Der Titel geht als Phrase hinein."""
+    phrase = " ".join(re.sub(r"[^\w\s-]", " ", title).split())[:300]
+    if not phrase:
+        return []
+    def fetch():
+        j = oa._json(oa._api_get("https://www.ebi.ac.uk/europepmc/webservices/rest/search", params={
+            "query": f'TITLE:"{phrase}"', "format": "json", "resultType": "lite", "pageSize": 5}, timeout=15.0))
+        if j is None:
+            return _FAILED
+        out = []
+        for r in ((j.get("resultList") or {}).get("result") or []):
+            kind = str(r.get("pubType") or "").lower()
+            if any(k in kind for k in _EPMC_NOT_A_WORK):
+                continue
+            names = [n.strip() for n in str(r.get("authorString") or "").rstrip(".").split(",") if n.strip()]
+            pmid = r.get("pmid")
+            out.append({"doi": r.get("doi"), "title": str(r.get("title") or "").rstrip(".").strip("[]"),
+                        "authors": [re.sub(r"\s+[A-Z]{1,4}$", "", n) for n in names][:12],  # "Haskell WL" -> "Haskell"
+                        "year": r.get("pubYear"), "venue": r.get("journalTitle"), "type": kind or None,
+                        "volume": r.get("journalVolume"), "issue": r.get("issue"), "pages": r.get("pageInfo"),
+                        "author_count": len(names), "retracted": "retracted publication" in kind,
+                        "cited_by": r.get("citedByCount"), "is_oa": r.get("isOpenAccess") == "Y", "source": "Europe PMC",
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid
+                        else f"https://europepmc.org/article/{r.get('source')}/{r.get('id')}"})
+        return out
+    hits = _cached("epmc:" + phrase.lower(), fetch)
+    _t("Europe PMC", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
     return hits or []  # type: ignore[return-value]
 
 
@@ -662,6 +787,19 @@ def _lookup_openlibrary_isbn(isbn: str) -> Optional[Dict]:
     return found  # type: ignore[return-value]
 
 
+_COPY_WORDS = re.compile(r"\b(?:arxiv|biorxiv|medrxiv|ssrn|preprint|working paper|discussion paper|nber|technical report|"
+                         r"zenodo|figshare|data ?set)\b")
+
+
+def _names_copy(claimed: Dict) -> bool:
+    """Nennt die Angabe außerhalb ihres Titels eine Fassung (Preprint, Arbeitspapier, Datensatz)? „A global dataset of
+    crop yields“ ist ein Artikel über einen Datensatz. Verglichen werden Wörter nach refs.normalize_title, so stören
+    Klammern ({GDHY}), LaTeX, Groß- und Kleinschreibung oder ein abgeschnittener Titel nicht."""
+    title = set(refs.normalize_title(str(claimed.get("title") or "")).split())
+    rest = [w for w in refs.normalize_title(str(claimed.get("raw") or "")).split() if w not in title]
+    return bool(_COPY_WORDS.search(" ".join(rest)))
+
+
 def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
     """Bester Treffer für eine Angabe ohne (passende) DOI: (Werk, Score, Titelähnlichkeit)."""
     query = str(claimed.get("title") or claimed.get("query") or claimed.get("raw") or "").strip()
@@ -672,6 +810,20 @@ def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
         extra = " ".join([*(claimed.get("authors") or [])[:2], str(claimed.get("year") or "")]).strip()
         full = f"{query} {extra}".strip()
     best, best_score, best_sim = None, -1, 0.0
+    scored: List[Tuple[int, float, Dict]] = []
+    wants_notice = bool(_NOTICE_TITLE.match(query))  # wer ein Erratum zitiert, soll es auch finden
+    wants_copy = _names_copy(claimed)
+
+    def is_copy(c: Dict) -> bool:
+        doi = str(c.get("doi") or "").lower()
+        return str(c.get("type") or "") in _COPY_TYPES or doi.startswith(_COPY_PREFIXES) or preprints.is_preprint(doi, c)
+
+    def primary(c: Optional[Dict]) -> bool:
+        """Ein veröffentlichtes Werk. Preprints, Arbeitspapiere, Berichte und Datensätze nur, wenn die Angabe selbst
+        so etwas nennt; Gutachten und Bestandteile (Abbildungen, Anhänge) nie."""
+        if not c or str(c.get("type") or "") in ("component", "peer-review"):
+            return False
+        return wants_copy or not is_copy(c)
     candidates = _search_crossref(full, email) + _search_openalex(query, email)
     if claimed.get("year"):
         candidates += _search_openalex(query, email, str(claimed["year"]))
@@ -680,15 +832,23 @@ def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
         for cand in cands:
             if not cand.get("title") or not (cand.get("doi") or cand.get("url")):
                 continue
+            if cand.get("notice") and not wants_notice:
+                continue
             score, _flags, sim = compare(claimed, cand)
-            # Bei Gleichstand gewinnt der Treffer mit Rückzugs-Information (OpenAlex).
-            if score > best_score or (score == best_score and cand["source"] == "OpenAlex"):
+            scored.append((score, sim, cand))
+            # Bei Gleichstand gewinnt das veröffentlichte Werk vor Preprint und Datensatz, dann der Treffer mit
+            # Rückzugs-Information (OpenAlex).
+            tie = score == best_score and (primary(cand), cand["source"] == "OpenAlex") >= (primary(best), True)
+            if score > best_score or tie:
                 best, best_score, best_sim = cand, score, sim
 
     pick(candidates)
     # Preprints (Informatik, Physik): arXiv selbst fragen, wenn nichts eindeutig passt.
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_arxiv(str(claimed["title"])))
+    # Medizin ohne DOI, etwa ältere PubMed-Artikel: Europe PMC.
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_europepmc(str(claimed["title"])))
     # Magazine (HBR), Buchkapitel, Konferenzen ohne DOI: Semantic Scholar; Bücher: Open Library, DNB; Informatik: DBLP
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_semanticscholar(str(claimed["title"])))
@@ -700,6 +860,13 @@ def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
         pick(_search_dnb(str(claimed["title"]), list(claimed.get("authors") or [])))
     if best:
         _t(best.get("source") or "", "best", title=best.get("title"), similarity=round(best_sim, 2), score=max(best_score, 0))
+        # Eine DOI gibt es nur, wenn ein Werk klar vorn liegt. Preprints, Datensätze und Gutachten zählen nicht als
+        # zweites Werk; zwei veröffentlichte Werke mit gleichem Titel, Jahr und Namen schon.
+        rivals = {str(c["doi"]).lower() for sc, sm, c in scored  # eine Kopie ist nie Rivalin eines Artikels
+                  if c.get("doi") and sm >= TITLE_FOUND and sc >= best_score - 5 and primary(c)
+                  and (is_copy(best) or not is_copy(c))}
+        if len(rivals) > 1:
+            best = {**best, "ambiguous": sorted(rivals)[:4]}
     if best and best["source"] == "Crossref":
         richer = lookup(best["doi"], email)  # Rückzugs-Flag und Open-Access-Status nachladen
         if richer:
@@ -726,8 +893,14 @@ def _diff_note(flags: List[str], via_title: bool = False) -> Dict:
             else note_part("Werk gefunden, aber {diffs} weicht von der Angabe ab.", diffs=diffs))
 
 
+def _ambiguous_note(best: Dict) -> Dict:
+    return note_part("Mehrere Werke passen zu dieser Angabe ({dois}). Benthic schlägt deshalb keine DOI vor; bitte im Original prüfen.",
+                     dois=", ".join(best["ambiguous"]))
+
+
 def _claimed(ref: Dict) -> Dict:
-    return {k: ref.get(k) for k in ("title", "authors", "year", "venue", "query", "raw")}
+    return {k: ref.get(k) for k in ("title", "authors", "year", "venue", "query", "raw", "volume", "issue", "pages",
+                                    "journal", "et_al", "author_count", "cited_pages")}
 
 
 def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], None]] = None) -> Dict:
@@ -747,7 +920,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         "format": ref.get("format"),
         "bib_key": ref.get("bib_key") or ref.get("key"),
         "bib_type": ref.get("bib_type"),
-        "claimed": {k: claimed.get(k) for k in ("title", "authors", "year", "venue")},
+        "claimed": {k: claimed.get(k) for k in ("title", "authors", "year", "venue", "volume", "issue", "pages", "journal")},
         "doi": ref.get("doi"),
         "claimed_doi": ref.get("doi"),
         "resolved_by": None,
@@ -792,7 +965,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
             else:
                 parts.append(note_part("{names} war nicht verfügbar; geprüft mit den übrigen Quellen.", names=names))
         result.update(verdict=verdict, note=tr_parts(parts), note_parts=parts, found=found, score=score, flags=flags or [])
-        result["field_diffs"] = field_diffs(claimed, found) if found else {}
+        result["field_diffs"] = field_diffs(claimed, found, verdict in ("verified", "corrected", "partial", "retracted")) if found else {}
         result["trace"] = list(getattr(_trace, "steps", []) or [])
         result["sources_failed"] = failed
         if found and found.get("doi"):
@@ -836,7 +1009,8 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
             if claimed.get("title") and sim < TITLE_OTHER:
                 emit("search")
                 best, bscore, bsim = search(claimed, email)
-                if best and bsim >= TITLE_FOUND and best.get("doi") and best["doi"].lower() != str(doi).lower():
+                if (best and bsim >= TITLE_FOUND and best.get("doi") and best["doi"].lower() != str(doi).lower()
+                        and not best.get("ambiguous")):
                     result["pattern"] = "wrong_doi"
                     return finish("corrected",
                                   note_part("Die angegebene DOI gehört zu „{title}“. Das genannte Werk hat die DOI {doi}.",
@@ -859,6 +1033,8 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         if claimed.get("title") or claimed.get("query"):
             emit("search")
             best, bscore, bsim = search(claimed, email)
+            if best and bsim >= TITLE_FOUND and best.get("ambiguous"):
+                return finish("uncertain", _ambiguous_note(best))
             if best and bsim >= TITLE_FOUND:
                 return finish("corrected", note_part("Die angegebene DOI existiert nicht. Das Werk hat die DOI {doi}.", doi=best["doi"]),
                               best, bscore)
@@ -874,10 +1050,12 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
     best, bscore, bsim = search(claimed, email)
     if best and bsim >= TITLE_FOUND and "year" not in compare(claimed, best)[1]:
         result["resolved_by"] = "title"
+        if best.get("ambiguous"):
+            return finish("uncertain", _ambiguous_note(best), {**best, "doi": None}, bscore)
         _score, flags, _sim = compare(claimed, best)
         if flags:
             return finish("partial", _diff_note(flags, via_title=True), best, bscore, flags)
-        known_sources = ("Semantic Scholar", "Open Library", "DBLP", "DataCite", "Deutsche Nationalbibliothek")
+        known_sources = ("Semantic Scholar", "Europe PMC", "Open Library", "DBLP", "DataCite", "Deutsche Nationalbibliothek")
         via = each_lang(lambda l: tr(best.get("source"), l)) if best.get("source") in ("Open Library", "Deutsche Nationalbibliothek") else best.get("source") if best.get("source") in known_sources else None
         return finish("verified", note_part("Über den Titel gefunden ({source}).", source=via) if via
                       else note_part("Über den Titel gefunden."), best, bscore)

@@ -126,7 +126,7 @@ def alternatives(query: str, email: str = "", top: int = 4) -> List[Dict]:
     """Echte Arbeiten zum Thema einer Angabe, die es so nicht gibt (Nicht auffindbar, Passt nicht).
 
     Benthic sucht mit dem angegebenen Titel (sonst dem ganzen Eintrag) bei OpenAlex und Crossref und nimmt die
-    nächsten Treffer mit DOI, ohne zurückgezogene. Das sind Vorschläge zum Lesen, kein Ersatz, den man ungelesen
+    nächsten Treffer mit DOI, ohne zurückgezogene und ohne Errata, Rückzugsnotizen, Kommentare oder Antworten. Das sind Vorschläge zum Lesen, kein Ersatz, den man ungelesen
     zitiert; die App sagt das dazu.
     """
     from . import verify  # verify importiert related nicht; so bleibt die Reihenfolge der Importe frei
@@ -139,7 +139,7 @@ def alternatives(query: str, email: str = "", top: int = 4) -> List[Dict]:
     seen = set()
     for hit in verify._search_openalex(q, email) + verify._search_crossref(q, email):
         doi = str(hit.get("doi") or "").lower()
-        if not doi or doi in seen or not hit.get("title") or hit.get("retracted"):
+        if not doi or doi in seen or not hit.get("title") or hit.get("retracted") or hit.get("notice"):
             continue
         seen.add(doi)
         out.append({k: hit.get(k) for k in ("doi", "title", "authors", "year", "venue", "type", "is_oa", "cited_by")})

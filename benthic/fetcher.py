@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
-from . import crossref, library, oa, routes
-from .i18n import tr
+from . import crossref, identity, library, oa, routes
+from .i18n import each_lang, note_part, tr, tr_part
 
 logger = logging.getLogger("benthic")
 
@@ -119,6 +119,7 @@ class BenthicDownloader:
 
         # 1) Open-Access-Quellen zuerst (alle Kandidaten, mit Fallback).
         oa_known = False
+        wrong: Optional[Dict] = None  # eine geladene Datei, die ein anderes Werk ist
         if _is_doi(identifier):
             candidates, pages = oa.resolve_candidates(
                 identifier,
@@ -139,6 +140,11 @@ class BenthicDownloader:
                     emit("download_fail", source=cand["source"])
                     continue  # toter Link / Landingpage → nächster Kandidat
                 meta = oa.resolve_metadata(identifier, self.oa_email)
+                ident = identity.check(content, identifier, (meta or {}).get("title"), (meta or {}).get("pages"))
+                if ident["status"] == identity.CONTRADICTED:
+                    wrong = ident
+                    emit("download_fail", source=cand["source"], reason=identity.note(ident))
+                    continue  # ein anderes Werk unter dieser Adresse → nächster Kandidat
                 filename = self._save(content, identifier, meta)
                 if not filename:
                     emit("download_fail", source=cand["source"], reason="speichern")
@@ -152,6 +158,8 @@ class BenthicDownloader:
                         "legal": True,
                         "version": cand.get("version") or "unknown",
                         "title": (meta or {}).get("title") or None,
+                        "identity": ident["status"],
+                        "copy": ident.get("copy"),
                     }
                 )
                 library.add(
@@ -160,6 +168,7 @@ class BenthicDownloader:
                     filename=filename,
                     origin="download",
                     channel="oa",
+                    pages=(meta or {}).get("pages"),
                 )
                 emit("download_ok", source=cand["source"], version=cand.get("version"), filename=filename)
                 emit("done", status="ok", channel="oa", source=cand["source"],
@@ -172,6 +181,9 @@ class BenthicDownloader:
             best = candidates[0]
             msg = tr("Open Access bekannt, PDF aber nicht automatisch abrufbar: im Browser öffnen") \
                 if result.get("landing_url") else tr("Open Access bekannt, PDF aber nicht automatisch abrufbar")
+            if wrong:
+                msg = identity.note(wrong)
+                result.update(wrong_file=True, file_doi=wrong.get("file_doi"), file_title=wrong.get("file_title"))
             result.update(
                 status="blocked",
                 source=best["source"],
@@ -193,7 +205,7 @@ class BenthicDownloader:
             emit("done", status="absent", error=result["error"], landing_url=result.get("landing_url"))
             return result
 
-        misses: List[str] = []
+        misses: List = []  # je Weg eine Funktion: Sprache -> „Weg: Grund“
         retryable = False
         for route in self.routes:
             label = route.label or route.id
@@ -207,17 +219,21 @@ class BenthicDownloader:
                 hit = route.fetch(identifier, route_emit)
             except routes.RouteMiss as exc:
                 retryable = retryable or exc.retryable
-                misses.append(f"{label}: {exc}")
+                misses.append(lambda lang, text=f"{label}: {exc}": text)
                 continue
             except Exception as exc:  # ein defekter Weg darf den Lauf nicht stoppen
                 logger.exception("Zusatzweg %s fehlgeschlagen", route.id)
-                misses.append(f"{label}: {type(exc).__name__}")
+                misses.append(lambda lang, text=f"{label}: {type(exc).__name__}": text)
                 continue
 
             meta = oa.resolve_metadata(identifier, self.oa_email) if _is_doi(identifier) else None
+            ident = identity.check(hit.content, identifier, (meta or {}).get("title"), (meta or {}).get("pages"))
+            if ident["status"] == identity.CONTRADICTED:
+                misses.append(lambda lang, label=label, ident=ident: f"{label}: {identity.note(ident, lang)}")
+                continue
             filename = self._save(hit.content, identifier, meta)
             if not filename:
-                misses.append(f"{label}: speichern fehlgeschlagen")
+                misses.append(lambda lang, label=label: f"{label}: {tr('speichern fehlgeschlagen', lang)}")
                 continue
 
             result.update(
@@ -229,6 +245,8 @@ class BenthicDownloader:
                     "route_label": label,
                     "legal": route.legal,
                     "title": (meta or {}).get("title") or None,
+                    "identity": ident["status"],
+                    "copy": ident.get("copy"),
                 }
             )
             library.add(
@@ -237,13 +255,16 @@ class BenthicDownloader:
                 filename=filename,
                 origin="download",
                 channel=route.id,
+                pages=(meta or {}).get("pages"),
             )
             emit("route_ok", route=route.id, route_label=label, target=hit.source, filename=filename)
             emit("done", status="ok", channel=route.id, route_label=label, source=hit.source, filename=filename)
             return result
 
-        msg = "Keine Open-Access-Kopie; Zusatzwege ohne Erfolg: " + "; ".join(misses)
-        return finish_error(msg, retryable=retryable)
+        part = note_part("Keine Open-Access-Kopie; Zusatzwege ohne Erfolg: {misses}",
+                         misses=each_lang(lambda lang: "; ".join(miss(lang) for miss in misses)))
+        result["error_parts"] = [part]  # für den KI-Assistenten auf Englisch, in der App in ihrer Sprache
+        return finish_error(tr_part(part), retryable=retryable)
 
     def check_one(self, identifier: str) -> Dict:
         """Prüft eine DOI ohne Download: bereits vorhanden? OA verfügbar?"""

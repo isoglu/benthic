@@ -1,0 +1,22 @@
+{
+  "_readme": "Fehler, die bis zu Nutzer:innen gelangt sind, je Fehlerklasse ein Eintrag. Nur anhängen, nie löschen (tests/test_escapes.py prüft das gegen den letzten Commit). owner: der Test, der die Klasse jetzt fängt (modul.Klasse.methode); null, solange keiner es tut, dann warnt jeder Testlauf. case: ein Fall in tests/corpus/cases.json, der den Fehler zeigt; solange owner null ist, trägt der Fall known mit dieser Nummer.",
+  "defects": [
+    {"id": "E-001", "found": "2026-10-22", "found_by": "Abgleich der Versionshinweise 1.1.4 mit dem Code",
+     "class": "Versionshinweise nennen eine Datenbankabfrage, die der Code nicht macht.",
+     "example": "CHANGELOG 1.1.4: 'queries PubMed and Semantic Scholar by title'; es gab nur die PMID-Auflösung über Europe PMC.",
+     "escaped_because": "Kein Test verbindet die Versionshinweise oder die Quellenliste des Berichts mit dem Code, der jede Quelle fragt.",
+     "owner": "tests.test_free_tools.RegistryCoverage.test_title_search_falls_back_to_europepmc",
+     "note": "Behoben in c80ccce: Europe PMC (ganz PubMed) per Titel in der Suchkaskade."},
+    {"id": "E-002", "found": "2026-10-22", "found_by": "Prüfkorpus, Fall isbn-book",
+     "class": "Ein über die ISBN gefundenes Buch wird am Erscheinungsjahr des Werks gemessen statt an dem der Ausgabe.",
+     "example": "Knuth (1984). The TeXbook. ISBN 0-201-13447-0: Open Library meldet first_publish_year 1970, das Urteil lautet uncertain.",
+     "escaped_because": "Kein Test hatte einen echten Open-Library-Eintrag, dessen Werkjahr vom Jahr der Ausgabe abweicht.",
+     "owner": null, "case": "isbn-book"},
+    {"id": "E-003", "found": "2026-10-22", "found_by": "Prüfkorpus, Fall umlaut-transliterated",
+     "class": "Umschriebene Umlaute (oe für ö) gelten als andere Autor:innen.",
+     "example": "Schoelkopf, B. (2001) gegen Schölkopf bei OpenAlex: partial statt verified.",
+     "escaped_because": "Der Namensabgleich entfernt Akzente, setzt ö aber nicht mit oe gleich; kein Test hatte einen umschriebenen Namen.",
+     "owner": "tests.test_corpus.Korpus.test_cases", "case": "umlaut-transliterated",
+     "note": "Behoben in 155b90b (refs.name_key: Müller, Mueller und Muller sind derselbe Name); dazu tests.test_metadata_depth.Feldwerte.test_authors_in_other_spellings_stay_silent."}
+  ]
+}

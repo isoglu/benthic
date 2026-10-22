@@ -1,0 +1,25 @@
+{
+  "_readme": "Die Schwellen, die Urteile und Funde entscheiden, mit ihrem Wert und der strengeren Richtung. stricter: in welche Richtung die Prüfung mehr meldet (higher oder lower). Strenger heißt: mehr Fehlalarme bei echten Arbeiten; lockerer heißt: echte Probleme rutschen durch. tests/test_thresholds.py lässt jede Änderung scheitern, bis sie hier eingetragen ist: vorher und nachher python -m tests.test_corpus --score laufen lassen und das Ergebnis in die Commit-Nachricht schreiben.",
+  "constants": {
+    "benthic.verify.TITLE_OK": {"value": 0.85, "stricter": "higher",
+      "why": "Titelähnlichkeit, unter der ein gefundenes Werk die Abweichung 'title' bekommt (Urteil partial statt verified)."},
+    "benthic.verify.TITLE_FOUND": {"value": 0.90, "stricter": "higher",
+      "why": "Ab hier gilt ein Suchtreffer als dasselbe Werk. Höher: mehr echte Werke landen bei uncertain oder not_found."},
+    "benthic.verify.TITLE_MAYBE": {"value": 0.72, "stricter": "higher",
+      "why": "Grenze zwischen uncertain (Bitte prüfen) und not_found (Vermutlich erfunden). Höher: mehr Angaben gelten als erfunden."},
+    "benthic.verify.TITLE_OTHER": {"value": 0.60, "stricter": "higher",
+      "why": "Unter dieser Ähnlichkeit gehört eine DOI zu einem anderen Werk (corrected oder mismatch)."},
+    "benthic.preprints.SIMILAR": {"value": 0.93, "stricter": "lower",
+      "why": "Titelähnlichkeit, ab der eine Druckfassung als dieselbe Arbeit wie der Preprint gilt. Niedriger: mehr Hinweise, auch auf falsche Druckfassungen."},
+    "benthic.quotes.CLOSE": {"value": 0.8, "stricter": "higher",
+      "why": "Ab hier zählt ein Zitat als fast wortgleich gefunden. Höher: mehr Zitate gelten als nicht gefunden."},
+    "benthic.overlap.NGRAM": {"value": 5, "stricter": "lower",
+      "why": "Länge der Wortfolgen im Index der Quelle. Kürzer: mehr Übereinstimmungen."},
+    "benthic.overlap.MIN_RUN": {"value": 10, "stricter": "lower",
+      "why": "Ab so vielen wortgleichen Wörtern in Folge meldet Benthic eine Übernahme ohne Anführungszeichen."},
+    "benthic.overlap.MIN_WORDS": {"value": 8, "stricter": "lower",
+      "why": "Kürzere Sätze werden nicht geprüft."},
+    "benthic.overlap.COVERAGE": {"value": 0.7, "stricter": "lower",
+      "why": "Oder: so viel eines Satzes steht wortgleich in der Quelle."}
+  }
+}

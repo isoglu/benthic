@@ -164,8 +164,10 @@ def metadata_from_work(work: Dict) -> Dict:
         None,
     )
     year = work.get("publication_year")
+    bib = work.get("biblio") or {}
     return {
         "title": work.get("title") or work.get("display_name") or "",
+        "pages": "–".join(p for p in (bib.get("first_page"), bib.get("last_page")) if p) or None,
         "authors": [_surname(n) for n in names],
         "author": _surname(names[0]) if names else "",
         "year": str(year) if year else "",
