@@ -28,16 +28,25 @@ def placeholders(text):
 
 
 def python_msgids():
-    """Erste Argumente aller tr()- und note_part()-Aufrufe mit festem Text (auch a if c else b)."""
+    """Vorlagen aller tr()- und note_part()-Aufrufe (erstes Argument) und style._note() (zweites) mit festem
+    Text, auch a if c else b und Nachschlagen in einer Tabelle auf Modulebene wie _CONFLICT[field]."""
     out = []
     for f in sorted(PKG.glob("*.py")):
-        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        tables = {t.id: [v.value for v in node.value.values if isinstance(v, ast.Constant) and isinstance(v.value, str)]
+                  for node in tree.body if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict)
+                  for t in node.targets if isinstance(t, ast.Name)}
+        for node in ast.walk(tree):
             func = getattr(node, "func", None)
             name = getattr(func, "id", None) or getattr(func, "attr", None)  # tr(…) oder i18n.note_part(…)
-            if isinstance(node, ast.Call) and name in ("tr", "_tr", "note_part") and node.args:
-                arg = node.args[0]
-                cands = [arg.body, arg.orelse] if isinstance(arg, ast.IfExp) else [arg]
-                out += [(f.name, c.value) for c in cands if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+            at = {"tr": 0, "_tr": 0, "note_part": 0, "_note": 1}.get(name) if isinstance(node, ast.Call) else None
+            if at is None or len(node.args) <= at:
+                continue
+            arg = node.args[at]
+            cands = [arg.body, arg.orelse] if isinstance(arg, ast.IfExp) else [arg]
+            out += [(f.name, c.value) for c in cands if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+            if isinstance(arg, ast.Subscript) and isinstance(arg.value, ast.Name):
+                out += [(f.name, s) for s in tables.get(arg.value.id, [])]
     return out
 
 

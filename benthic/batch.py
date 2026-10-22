@@ -23,17 +23,17 @@ import re
 import shutil
 import threading
 import time
-import unicodedata
 import uuid
 import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from . import config
+from . import config, refs, style
 
 TYPES = (".pdf", ".docx", ".txt", ".md", ".markdown", ".tex", ".ltx", ".zip")
 MAX_FILES = 300
 BAD = ("not_found", "mismatch", "retracted")
+BAD_QUOTES = ("not_found", "close", "misattributed")  # Zitate, die so nicht in der zitierten Quelle stehen
 
 _lock = threading.RLock()
 _cancel: Dict[str, threading.Event] = {}
@@ -116,7 +116,7 @@ def summary_row(name: str, job: Dict) -> Dict:
            "verified": sum(1 for r in results if r.get("verdict") in ("verified", "corrected")),
            "partial": count("partial") + count("uncertain"), "not_found": count("not_found"),
            "mismatch": count("mismatch"), "retracted": count("retracted"), "style": style_notes,
-           "quotes": len(doc.get("quotes") or []), "quotes_bad": sum(1 for q in quotes if q.get("status") in ("not_found", "close")),
+           "quotes": len(doc.get("quotes") or []), "quotes_bad": sum(1 for q in quotes if q.get("status") in BAD_QUOTES),
            "cross_check": bool(doc.get("cross_check")), "style_name": (style.get("styles") or {}).get(style.get("style"))}
     row["flagged"] = row["missing"] + row["not_found"] + row["mismatch"] + row["retracted"] + row["quotes_bad"]
     label = lambda r: (r.get("claimed") or {}).get("title") or r.get("identifier") or (r.get("input") or "")[:90]  # noqa: E731
@@ -125,7 +125,7 @@ def summary_row(name: str, job: Dict) -> Dict:
         "not_found": [label(r) for r in results if r.get("verdict") == "not_found"][:12],
         "mismatch": [label(r) for r in results if r.get("verdict") == "mismatch"][:12],
         "retracted": [label(r) for r in results if r.get("verdict") == "retracted"][:12],
-        "quotes": [q.get("quote", "")[:120] for q in quotes if q.get("status") in ("not_found", "close")][:8],
+        "quotes": [q.get("quote", "")[:120] for q in quotes if q.get("status") in BAD_QUOTES][:8],
     }
     return row
 
@@ -307,9 +307,7 @@ def totals(batch: Dict) -> Dict:
 
 
 def _title_key(title: str) -> str:
-    s = unicodedata.normalize("NFKD", str(title or "").lower())
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    return " ".join(w for w in re.findall(r"[a-z0-9]+", s) if len(w) > 2)
+    return " ".join(w for w in refs.normalize_title(str(title or "")).split() if len(w) > 2)
 
 
 def shared_phantoms(batch: Dict) -> List[Dict]:
@@ -331,6 +329,14 @@ def shared_phantoms(batch: Dict) -> List[Dict]:
     return sorted(shared, key=lambda g: (-len(g["files"]), g["title"]))[:40]
 
 
+def doi_conflicts(batch: Dict) -> List[Dict]:
+    """Eine DOI, ein Werk über alle Abgaben: dieselbe DOI mit anderem Jahr, Band oder anderen Seiten, zwei Titel mit
+    einer DOI, ein Seitenbereich bei zwei Werken (style.consistency). Höchstens eine der Angaben stimmt."""
+    entries = [e for r in batch.get("rows") or []
+               for e in style.entries_from_results((r.get("job") or {}).get("results") or [], r["name"])]
+    return style.consistency(entries)[:40]
+
+
 def class_summary(batch: Dict) -> Dict:
     """Wie viele Abgaben welches Problem haben, ohne Namen: für die Lehre, nicht für Einzelfälle."""
     rows = [r for r in batch.get("rows") or [] if r.get("state") == "done"]
@@ -345,7 +351,8 @@ def public(batch: Dict) -> Dict:
     waiting = sum(1 for r in rows if r.get("state") in ("queued", "checking"))
     eta = round(sum(durations) / len(durations) * waiting) if durations and batch.get("status") == "running" else None
     return {**{k: v for k, v in batch.items() if k != "rows"}, "rows": rows, "totals": totals(batch), "eta_seconds": eta,
-            "shared_phantoms": shared_phantoms(batch), "class_summary": class_summary(batch)}
+            "shared_phantoms": shared_phantoms(batch), "doi_conflicts": doi_conflicts(batch),
+            "class_summary": class_summary(batch)}
 
 
 def list_batches() -> List[Dict]:

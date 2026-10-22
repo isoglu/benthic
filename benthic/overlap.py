@@ -5,7 +5,8 @@ Anführungszeichen (gekennzeichnete Zitate prüft quotes.py) und ohne die Zitier
 sich nachprüfen lässt: eine lange wortgleiche Folge oder ein Satz, der fast wörtlich in der Quelle steht, mit Seite
 und Stelle. Das ist kein Urteil über Absicht: Fachbegriffe, Definitionen und feste Formeln wiederholen sich, und ob
 eine Stelle ein Zitat hätte sein müssen, entscheidet der Mensch, der beide liest. Es braucht keine Sammlung fremder
-Arbeiten: verglichen wird nur mit den Quellen, die die Arbeit selbst nennt.
+Arbeiten: verglichen wird nur mit den Quellen, die die Arbeit selbst nennt, und nur mit PDFs, die kein anderes Werk sind
+(identity.py).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from . import biblio, quotes, support
+from . import identity, quotes, support
 
 NGRAM = 5         # Wortfolgen dieser Länge bilden den Index der Quelle
 MIN_RUN = 10      # wortgleiche Folge ab so vielen Wörtern melden
@@ -76,6 +77,7 @@ def check_document(doc: Dict, results: List[Dict]) -> Dict:
     by_order = {r.get("order"): r for r in results}
     findings: List[Dict] = []
     missing: Set[str] = set()
+    wrong: Set[str] = set()
     seen: Set[Tuple[object, str]] = set()
     checked = no_source = 0
     for c in doc.get("claims") or []:
@@ -89,9 +91,13 @@ def check_document(doc: Dict, results: List[Dict]) -> Dict:
         if not doi:
             no_source += 1
             continue
-        path = biblio.pdf_path(doi)
+        found = r.get("found") or {}
+        path, ident = identity.held(doi, found.get("title"), found.get("pages"))
         if not path:
             missing.add(doi)
+            continue
+        if ident.get("status") == identity.CONTRADICTED:
+            wrong.add(doi)
             continue
         text = own_words(sentence)
         try:
@@ -114,7 +120,8 @@ def check_document(doc: Dict, results: List[Dict]) -> Dict:
                          "excerpt": loc.get("excerpt") if loc.get("status") in ("exact", "close") or loc.get("nearest") else None})
     order = {"verbatim": 0, "close": 1, "partial": 2}
     findings.sort(key=lambda f: (order[f["kind"]], -f["run"]))
-    return {"findings": findings[:200], "checked": checked, "no_source": no_source, "missing_pdfs": sorted(missing)}
+    return {"findings": findings[:200], "checked": checked, "no_source": no_source, "missing_pdfs": sorted(missing),
+            "wrong_pdfs": sorted(wrong)}
 
 
 def summary(result: Optional[Dict]) -> Dict[str, int]:

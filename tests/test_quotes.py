@@ -84,6 +84,80 @@ class Auffinden(unittest.TestCase):
         self.assertEqual(stripped[2]["text"], "Third page conclusion.")
 
 
+SMITH = [{"page": 1, "text": "Firms that plan post-acquisition integration [16], and focusing on the\n"
+                             "defi nitions of signifi cant synergies early, keep more of their staff members."}]
+JONES = [{"page": 1, "text": "Introduction."},
+         {"page": 2, "text": "Most mergers fail because managers overestimate the synergies they can capture."}]
+
+
+class Fehlstellen(unittest.TestCase):
+    def test_markers_and_split_ligatures(self):
+        r = quotes.locate(SMITH, "post-acquisition integration, and focusing on the definitions of significant synergies")
+        self.assertEqual(r["status"], "exact")
+        self.assertIn("defi nitions", r["excerpt"])                     # die Stelle, wie sie in der PDF steht
+
+    def test_real_word_endings_stay_apart(self):
+        self.assertEqual([w for w, _, _ in quotes._words("staff members off the record")],
+                         ["staff", "members", "off", "the", "record"])
+        self.assertEqual(quotes.locate(SMITH, "keep more of their staff members")["status"], "exact")
+
+    def test_longest_run(self):
+        r = quotes.locate(SMITH, "firms that plan post acquisition integration always double their market value")
+        self.assertEqual(r["status"], "not_found")
+        self.assertEqual(r["longest"], {"words": 6, "of": 11, "page": 1})
+        self.assertNotIn("longest", quotes.locate(SMITH, "nothing here resembles the source text at all"))
+
+    def test_a_real_word_that_ends_like_a_ligature(self):
+        fr = [{"page": 1, "text": "Pour cette raison, la France doit relever le défi de la transition énergétique."}]
+        self.assertEqual(quotes.locate(fr, "la France doit relever le défi")["status"], "exact")
+        self.assertEqual(quotes.locate(fr, "la France doit relever le défi climatique")["status"], "close")
+        self.assertEqual(quotes.locate(fr, "la France refuse toute transition énergétique")["status"], "not_found")
+
+    def run_document(self, quotes_, held=None):
+        doc = {"quotes": [{"quote": q, "entry": 0, "label": "Smith (2020)"} for q in quotes_]}
+        results = [{"order": 0, "verdict": "verified", "doi": "10.1/smith", "found": {"authors": ["Smith"], "year": "2020"}},
+                   {"order": 1, "verdict": "verified", "doi": "10.1/jones",
+                    "found": {"authors": ["Jones"], "year": "2019", "pages": "41–42"}}]
+        held = held or {}
+        published = {"status": "verified", "copy": None}
+        with mock.patch("benthic.identity.held", side_effect=lambda d, *a: (Path(f"/{d[5:]}.pdf"), held.get(d, published))), \
+             mock.patch("benthic.support._pages", side_effect=lambda p: SMITH if "smith" in str(p) else JONES):
+            return quotes.check_document(doc, results)
+
+    def test_found_word_for_word_in_another_source_of_the_run(self):
+        moved, invented = self.run_document(["most mergers fail because managers overestimate the synergies they can capture",
+                                             "every merger creates lasting value for all of its shareholders"])
+        self.assertEqual(moved["status"], "misattributed")
+        self.assertEqual(moved["found_in"], {"label": "Jones 2019", "doi": "10.1/jones", "page": 42})
+        self.assertNotIn("longest", moved)                                 # neben der richtigen Quelle ohne Aussage
+        self.assertEqual((invented["status"], invented["searched"]), ("not_found", 1))
+        self.assertNotIn("found_in", invented)
+
+    def test_short_or_similar_quotes_name_no_other_source(self):
+        short, similar = self.run_document(["managers overestimate the synergies they can capture",  # 7 Wörter
+                                            "most mergers fail because managers overestimate the gains they can capture"])
+        self.assertEqual((short["status"], short.get("found_in"), short.get("searched")), ("not_found", None, None))
+        self.assertEqual((similar["status"], similar.get("found_in"), similar["searched"]), ("not_found", None, 1))
+
+    def test_no_search_from_an_incomplete_or_wrong_copy(self):
+        quote = ["most mergers fail because managers overestimate the synergies they can capture"]
+        for info, status in (({"status": "unprovable", "copy": "summary"}, "incomplete"),
+                             ({"status": "contradicted", "file_doi": "10.1/x", "file_title": "X"}, "wrong_pdf"),
+                             ({"status": "verified", "copy": "preprint"}, "not_found"),     # dem Preprint fehlt ein Satz
+                             ({"status": "unprovable", "copy": None}, "not_found")):       # ob es die Quelle ist, offen
+            item, = self.run_document(quote, {"10.1/smith": info})
+            self.assertEqual((item["status"], item.get("found_in"), item.get("searched")), (status, None, None))
+
+    def test_incomplete_copy_is_no_finding(self):
+        held = (Path("/x.pdf"), {"status": "unprovable", "copy": "summary"})
+        with mock.patch("benthic.identity.held", return_value=held), \
+             mock.patch("benthic.support._pages", return_value=PAGES):
+            missing = quotes.check("10.1/x", "NumPy was invented in a garage in Berlin by three students")
+            present = quotes.check("10.1/x", "the primary array programming library")
+        self.assertEqual((missing["status"], missing["copy"]), ("incomplete", "summary"))
+        self.assertEqual((present["status"], present["copy"]), ("exact", "summary"))
+
+
 class Route(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

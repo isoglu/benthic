@@ -10,6 +10,7 @@ Dieses Modul arbeitet ohne Netzwerk.
 
 from __future__ import annotations
 
+import difflib
 import re
 import unicodedata
 from typing import Dict, List, Optional
@@ -83,13 +84,160 @@ def arxiv_doi(arxiv_id: str) -> str:
 # --------------------------------------------------------------------------
 # Hilfen für Titel und Namen
 # --------------------------------------------------------------------------
+_FOLD = str.maketrans({"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d", "ð": "d", "þ": "th", "ı": "i"})
+
+
+def fold(s: str) -> str:
+    """Kleinbuchstaben ohne Akzente, ß als ss, Ligaturen aufgelöst: die eine Faltung für Namen und Titel."""
+    s = unicodedata.normalize("NFKD", (s or "").lower().translate(_FOLD))
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+_UMLAUT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue"})
+
+
+def name_key(name: str, transliterate: bool = False) -> str:
+    """Vergleichsschlüssel für Nachnamen: gefaltet, nur Buchstaben, auch chinesische oder kyrillische (王伟 bleibt
+    王伟). Mit ``transliterate`` werden ä, ö, ü zu ae, oe, ue; das ist nur der zweite Versuch, damit Xu und Xue
+    oder Bauer und Baur zwei Namen bleiben."""
+    s = (name or "").lower()
+    return "".join(c for c in fold(s.translate(_UMLAUT) if transliterate else s) if c.isalpha())
+
+
+def same_name(a: str, b: str) -> bool:
+    """Gleicher Nachname: genau gleich nach der Faltung (Müller, Muller) oder gleich umschrieben (Müller, Mueller)."""
+    ka, kb = name_key(a), name_key(b)
+    return bool(ka) and (ka == kb or name_key(a, True) == name_key(b, True))
+
+
 def normalize_title(title: str) -> str:
     """Kleinbuchstaben, ohne Akzente, Satzzeichen und LaTeX-Reste."""
-    s = unicodedata.normalize("NFKD", title or "")
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = re.sub(r"\\[a-zA-Z]+\s*", " ", s)
-    s = re.sub(r"[^0-9a-zA-Z]+", " ", s).lower()
+    s = re.sub(r"\\[a-zA-Z]+\s*", " ", fold(title))
+    s = re.sub(r"[^0-9a-z]+", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# --------------------------------------------------------------------------
+# Band, Heft und Seiten, wie die Angabe sie nennt
+# --------------------------------------------------------------------------
+# DOIs und Links fallen vorher weg: Eine Elsevier-PII wie 10.1016/s0377-2217(01)00049-2 sähe sonst aus wie
+# Heft 01 und die Seiten 00049-2.
+_IDS = re.compile(r"https?://\S+|doi:\s*\S+|\b10\.\d{4,9}/\S+|\bISBN(?:-1[03])?:?\s*[0-9Xx\-\s]{10,17}|"
+                  r"\b(?:arxiv|PMID):?\s*\S+", re.IGNORECASE)
+_RANGE = r"([A-Za-z]{0,2}\d{1,7})(?:\s*[-\u2013\u2014]{1,2}\s*([A-Za-z]{0,2}\d{1,7}))?"
+_ISSUE_VAL = r"(\d{1,4}(?:\s*[-–/]\s*\d{1,4})?)"
+_PRINTED = (  # (Muster, Felder) in der Reihenfolge, in der sie gelten; das erste Muster gewinnt je Feld
+    (re.compile(r";\s*(\d{1,4})\s*(?:\(" + _ISSUE_VAL + r"\))?\s*:\s*" + _RANGE), ("volume", "issue", "first", "last")),  # 2015;521(7553):436-44
+    (re.compile(r"(?<![\w.])(\d{1,4})\s*\(" + _ISSUE_VAL + r"\)\s*[,:]\s*(?:pp?\.\s*|S\.\s*)?" + _RANGE + r"(?![\w/])"),
+     ("volume", "issue", "first", "last")),                                                          # 12(3), 45-67
+    (re.compile(r",\s*(\d{1,4})\s*,\s*(?:pp?\.\s*)?([A-Za-z]{0,2}\d{1,7})\s*[-\u2013\u2014]{1,2}\s*([A-Za-z]{0,2}\d{1,7})(?![\w/])"),
+     ("volume", "first", "last")),                                                                   # , 585, 357-362
+    # „Band“ nur groß und nach einem Komma: „the 5 GHz band 3“ in einem englischen Titel ist kein Band
+    (re.compile(r"\b(?:[Vv]ol\.?|[Vv]olume|Bd\.|Jg\.)\s*(\d{1,4})\b|(?:^|[,;:]\s*)(?:Band|Jahrgang)\s+(\d{1,4})\b"),
+     ("volume", "volume")),
+    (re.compile(r"(?<![\w.])(\d{1,4}),?\s+no\.\s*\d", re.IGNORECASE), ("volume",)),                   # 12, no. 3 (Chicago)
+    (re.compile(r"\b(?:no\.|nr\.|issue|heft)\s*" + _ISSUE_VAL + r"\b|,\s*H\.\s*(\d{1,3})\b", re.IGNORECASE), ("issue", "issue")),
+    (re.compile(r"(?:\bpp?\.|,\s*S\.|\bSeiten|\bpages)\s*" + _RANGE + r"(?![\w/])", re.IGNORECASE), ("first", "last")),
+    (re.compile(r"\bno\.\s*\d{1,4}\s*:\s*" + _RANGE, re.IGNORECASE), ("first", "last")),                # no. 3: 45-67
+)
+
+
+def _last_page(first: str, last: str) -> str:
+    """Abgekürzte Endseite ausschreiben: 436-44 → 444."""
+    if first.isdigit() and last.isdigit() and len(last) < len(first):
+        full = first[:len(first) - len(last)] + last
+        return full if int(full) >= int(first) else last
+    return last
+
+
+def pages_text(value: object) -> Optional[str]:
+    """Seiten einheitlich: 45--67, 45 - 67 und 45–7 werden zu 45–67."""
+    v = str(value or "").strip()
+    m = re.fullmatch(_RANGE, v)
+    if m:
+        return m.group(1) + ("–" + _last_page(m.group(1), m.group(2)) if m.group(2) else "")
+    return v or None
+
+
+def _span(value: object) -> tuple:
+    first, _, last = str(pages_text(value) or "").lower().partition("–")
+    first, last = first.lstrip("0"), last.lstrip("0")
+    return first, ("" if last == first else last)  # OpenAlex: Artikelnummer 2232 als „2232–2232“
+
+
+def pages_disagree(a: object, b: object) -> bool:
+    """Nennen zwei Seitenangaben verschiedene Seiten? Nur wenn sie vergleichbar sind: eine Artikelnummer (e0232930)
+    gegen Seitenzahlen nicht, eine Zählung ab Seite 1 (1-15, oft die Seiten im Artikel) nicht, eine erste Seite
+    allein gegen den Bereich, der mit ihr beginnt, nicht."""
+    (af, al), (bf, bl) = _span(a), _span(b)
+    if not af or not bf or af.isdigit() != bf.isdigit() or "1" in (af, bf):
+        return False
+    return af != bf or bool(al and bl and al != bl)
+
+
+def issues_disagree(a: object, b: object) -> bool:
+    """Verschiedene Hefte? Ein Doppelheft 3-4 enthält Heft 3."""
+    na, nb = (set(re.findall(r"\d+", str(v or ""))) for v in (a, b))
+    return bool(na and nb) and not na & nb
+
+
+def printed_fields(text: str) -> Dict[str, str]:
+    """Band, Heft und Seiten aus einer Angabe in Freitext (ohne Netzwerk). Nur eindeutige Muster: lieber
+    nichts lesen als eine Jahreszahl für einen Band halten."""
+    t = re.sub(r"[*_]", "", _IDS.sub(" ", text or ""))  # Markdown-Kursiv: *Organization Science, 13*(3)
+    t = re.sub(r"\((?:1[89]|20)\d{2}[a-z]?\b[^)]*\)", " ", t)  # (2020), (2020, März)
+    out: Dict[str, str] = {}
+    for i, (pattern, names) in enumerate(_PRINTED):
+        m = pattern.search(t)
+        if not m:
+            continue
+        got: Dict[str, str] = {}
+        for name, value in zip(names, m.groups()):
+            if value and name not in got:
+                got[name] = value
+        if i < 3 and "journal" not in out:  # „… Titel. Journal of X, 12(3), 45-67“: der Teil vor dem Band
+            segs = [x.strip(" ,;:") for x in re.split(r"[.?!]\s+", t[:m.start()])]
+            segs = [x for x in segs if x and not re.fullmatch(r"[\d\s]+", x)]
+            if segs and re.search(r"[^\W\d_]{2}", segs[-1]) and len(segs[-1]) <= 150:
+                out["journal"] = segs[-1]
+        if "first" in got and "pages" not in out:
+            first, last = got.get("first") or "", got.get("last") or ""
+            if first and not (not last and re.fullmatch(r"(?:1[89]|20)\d{2}", first)):  # „S. 2021“ ist ein Jahr
+                out["pages"] = pages_text(first + ("–" + last if last else ""))
+        for key in ("volume", "issue"):
+            if got.get(key) and key not in out and not re.fullmatch(r"(?:1[89]|20)\d{2}", got[key]):
+                out[key] = re.sub(r"\s+", "", got[key])
+    return out
+
+
+# DOIs, die Band, Heft und erste Seite tragen. Nur Verlage, deren Schema das sicher so meint, jeder mit einem Test:
+# AMA 10.1509/jmkr.39.4.421.19114, APA 10.1037/0003-066X.49.12.997, INFORMS 10.1287/mksc.20.1.1.10197,
+# Annual Reviews 10.1146/annurev.psych.52.1.1, AEA 10.1257/jep.29.3.3, Endocrine Society 10.1210/jc.87.5.2090,
+# dazu die SICI-DOIs (…(199709)18:8<637::AID-SMJ…>). Dieselbe Form anderswo sagt nichts: in 10.1210/jcem.87.5.8477
+# ist 8477 eine Manuskriptnummer, das Werk steht auf den Seiten 2033-2041.
+_DOI_VIP = re.compile(r"^10\.(?:1509/[a-z]+|1037//?\d{4}-\d{3}[\dx]|1287/[a-z]+|1146/annurev\.[a-z]+|1257/jep|1210/jc)"
+                      r"\.(\d{1,4})\.(\d{1,3})\.(\d{1,6})(?:\.\d+)?$", re.IGNORECASE)
+_DOI_SICI = re.compile(r"\(SICI\)[\dX-]+\(\d{4,8}\)(\d{1,4}):(\d{1,3})(?:<(\d{1,6})::)?", re.IGNORECASE)
+
+
+def doi_fields(doi: str) -> Dict[str, str]:
+    """Band, Heft und erste Seite, die eine DOI selbst nennt (ohne Netzwerk); sonst {}."""
+    m = _DOI_VIP.match(doi or "") or _DOI_SICI.search(doi or "")
+    if not m or re.fullmatch(r"(?:1[89]|20)\d{2}", m.group(1)):  # ein Jahr an der Stelle des Bands: im Zweifel nichts
+        return {}
+    return {k: v for k, v in zip(("volume", "issue", "first_page"), m.groups()) if v}
+
+
+def title_similarity(a: Optional[str], b: Optional[str]) -> float:
+    na, nb = normalize_title(a or ""), normalize_title(b or "")
+    if not na or not nb:
+        return 0.0
+    ratio = difflib.SequenceMatcher(None, na, nb).ratio()
+    short, long_ = sorted((na, nb), key=len)
+    # Untertitel oder ganze Zitatzeile: der kürzere Titel steckt im längeren.
+    if len(short) >= 20 and short in long_:
+        ratio = max(ratio, 0.95)
+    return ratio
 
 
 def _strip_latex(s: str) -> str:
@@ -188,7 +336,13 @@ def parse_bibtex(text: str) -> List[Ref]:
         f = _bibtex_fields(entry)
         r = _empty("bibtex", entry)
         r["title"] = f.get("title") or None
-        r["authors"] = [_surname(a) for a in re.split(r"\s+and\s+", f.get("author", "")) if a.strip()][:8]
+        names = [a for a in re.split(r"\s+and\s+", f.get("author", "")) if a.strip()]
+        r["et_al"] = any(a.strip().lower() == "others" for a in names)
+        names = [a for a in names if a.strip().lower() != "others"]
+        r["authors"] = [_surname(a) for a in names][:8]
+        r["author_count"] = len(names)
+        r["volume"], r["issue"] = f.get("volume") or None, f.get("number") or f.get("issue") or None
+        r["pages"] = pages_text(f.get("pages"))
         year = _YEAR_RE.search(f.get("year", "") or f.get("date", ""))
         r["year"] = year.group(1) if year else None
         r["venue"] = f.get("journal") or f.get("booktitle") or None
@@ -230,6 +384,13 @@ def parse_ris(text: str) -> List[Ref]:
             cur["title"] = val
         elif tag in ("AU", "A1"):
             cur["authors"].append(_surname(val))  # type: ignore[union-attr]
+            cur["author_count"] = len(cur["authors"])  # type: ignore[arg-type]
+        elif tag in ("VL", "IS") and val:
+            cur["volume" if tag == "VL" else "issue"] = val
+        elif tag == "SP" and val:
+            cur["pages"] = pages_text(val)
+        elif tag == "EP" and val and "–" not in str(cur.get("pages") or ""):  # SP 357-362 trägt die Endseite schon
+            cur["pages"] = pages_text((str(cur.get("pages") or "") + "–" + val).strip("–"))
         elif tag in ("PY", "Y1", "DA") and not cur["year"]:
             y = _YEAR_RE.search(val)
             cur["year"] = y.group(1) if y else None
@@ -289,6 +450,10 @@ def parse_endnote_xml(text: str) -> List[Ref]:
                 a_val = "".join(el.itertext()).strip()
                 if a_val:
                     r["authors"].append(_surname(a_val))
+            elif ltag in ("volume", "number", "pages"):
+                key = "issue" if ltag == "number" else ltag
+                r[key] = r.get(key) or "".join(el.itertext()).strip() or None
+                r["pages"] = pages_text(r.get("pages"))
             elif ltag == "year" and not r["year"]:
                 y_val = "".join(el.itertext()).strip()
                 ym = _YEAR_RE.search(y_val)
@@ -387,6 +552,8 @@ def _text_ref(line: str) -> Optional[Ref]:
         r["venue"] = re.sub(r",\s*\d.*$", "", italic.group(1)).strip()  # "*Organization Science, 13*" → Zeitschrift
     head = plain[:year.start()] if year else plain.split(".")[0]
     r["authors"] = _surnames_from_text(head) if (year or r["title"]) else []
+    r["et_al"] = bool(re.search(r"\bet al\b|\bu\. ?a\.", head))
+    r.update(printed_fields(body))
     initials = _initials_first(plain)
     if initials:  # "Y. Bengio, P. Simard, and P. Frasconi. Titel. Zeitschrift, 1994." (IEEE, CVPR)
         r["authors"], title = initials
@@ -474,15 +641,17 @@ def parse(text: str) -> List[Ref]:
         found = parse_endnote_xml(text)
     else:
         found = parse_text(text or "")
-    out, seen = [], set()
+    out, seen = [], {}
     for r in found:
         # arXiv-Kennung ohne DOI: die DataCite-DOI ist bekannt und eindeutig.
         if r.get("arxiv") and not r.get("doi"):
             r["doi"] = arxiv_doi(str(r["arxiv"]))
         k = _key(r)
-        if k in seen:
+        # Dieselbe DOI mit anderem Jahr, Band oder anderen Seiten bleibt stehen: der Widerspruch ist ein Befund.
+        if k in seen and not any(r.get(f) and seen[k].get(f) and str(r[f]) != str(seen[k][f])
+                                 for f in ("year", "volume", "pages")):
             continue
-        seen.add(k)
+        seen.setdefault(k, r)
         r["label"] = label(r)
         out.append(r)
     return out

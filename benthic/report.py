@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import __version__
+from . import __version__, identity
 from .i18n import current, tr
 from .verify import VERDICT_ADVICE, VERDICT_LABEL, VERDICTS
 
@@ -41,8 +41,10 @@ EXPLAIN = {
     "retracted": "Die Arbeit wurde zurückgezogen",
 }
 QUOTE_LABEL = {"exact": "Wortgleich", "close": "Wortlaut weicht ab", "not_found": "Nicht in der Quelle gefunden",
-               "no_pdf": "PDF fehlt", "no_source": "Quelle nicht bestätigt", "pending": "Quelle wird noch geprüft"}
-QUOTE_COLOR = {"exact": "ok", "close": "warn", "not_found": "fail"}
+               "no_pdf": "PDF fehlt", "no_source": "Quelle nicht bestätigt", "pending": "Quelle wird noch geprüft",
+               "wrong_pdf": "Falsches PDF", "incomplete": "Nicht in dieser Fassung",
+               "misattributed": "Steht in einer anderen Quelle"}
+QUOTE_COLOR = {"exact": "ok", "close": "warn", "not_found": "fail", "wrong_pdf": "warn", "misattributed": "warn"}
 MONTHS = {"de": ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
                  "November", "Dezember"),
           "en": ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -344,6 +346,17 @@ def _doi(doi: Optional[str]) -> str:
     return f'<span class="mono">{_e(doi)}</span>' if doi else ""
 
 
+def _diffs(r: Dict) -> List[tuple]:
+    """Abweichende Felder als (Eintrag, „Band: 13 → 12“); bei „Nicht auffindbar“ ist der Treffer ein anderes Werk."""
+    if r.get("verdict") == "not_found":
+        return []
+    labels = {"title": tr("Titel"), "authors": tr("Autor:innen"), "year": tr("Jahr"), "venue": tr("Zeitschrift"),
+              "volume": tr("Band"), "issue": tr("Heft"), "pages": tr("Seiten"), "author_count": tr("Anzahl Autor:innen"),
+              "cited_page": tr("Zitierte Seite")}
+    return [(d, f'{labels.get(field, field)}: {d.get("claimed", "")} → {d.get("found", "")}')
+            for field, d in (r.get("field_diffs") or {}).items() if isinstance(d, dict) and d.get("status") != "ok"]
+
+
 def _attention_card(r: Dict, shared_note: Optional[str] = None) -> str:
     v = r.get("verdict") or "uncertain"
     num = int(r.get("order", 0)) + 1
@@ -370,12 +383,7 @@ def _attention_card(r: Dict, shared_note: Optional[str] = None) -> str:
         lines.append('<p class="found">' + " · ".join(bits) + "</p>")
     if r.get("note") and r.get("note") != shared_note:
         lines.append(f'<p class="note {COLOR.get(v, "")}">{_e(r["note"])}</p>')
-    diffs = r.get("field_diffs") or {}
-    diff_pills = []
-    _LBL = {"title": tr("Titel"), "authors": tr("Autor:innen"), "year": tr("Jahr"), "venue": tr("Zeitschrift")}
-    for field, d in diffs.items():
-        if d.get("status") != "ok":
-            diff_pills.append(f'<span class="pill-diff {d.get("status")}">{_e(_LBL.get(field, field))}: {_e(d.get("claimed", ""))} → {_e(d.get("found", ""))}</span>')
+    diff_pills = [f'<span class="pill-diff {d.get("status")}">{_e(text)}</span>' for d, text in _diffs(r)]
     if diff_pills:
         lines.append(f'<p class="field-diffs">{" ".join(diff_pills)}</p>')
     if r.get("pattern") == "chimera":
@@ -417,10 +425,12 @@ def _register_row(r: Dict) -> str:
     v = r.get("verdict") or "uncertain"
     num = int(r.get("order", 0)) + 1
     by = _byline(r)
+    diffs = "; ".join(text for _d, text in _diffs(r)) if v not in ATTENTION else ""  # Handlungsbedarf zeigt sie schon
     return (f'<div class="row reg {v}" id="reg-{num}"><span class="n">{num}</span>'
             f'<span class="v {COLOR.get(v, "")}"><i style="background:{FILL.get(v, "#999")}"></i>{_e(tr(VERDICT_LABEL.get(v, v)))}</span>'
             f'<span class="ref"><b>{_e(_title_of(r)[:300])}</b>' + (f' <span class="m">{_e(by)}</span>' if by else "")
-            + f'</span><span class="doi">{_e(r.get("doi") or "")}</span></div>')
+            + (f' <span class="m warn">{_e(diffs)}</span>' if diffs else "")
+            + f'</span><span class="doi">{_e(r.get("doi") or (r.get("found") or {}).get("url") or "")}</span></div>')
 
 
 def _heading(anchor: str, title: str, lede: str = "") -> str:
@@ -720,7 +730,8 @@ CHECK_ICON = ('<svg viewBox="0 0 16 16" width="16" height="16" fill="none" strok
               'stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="m5.2 8.2 2 2 3.8-4.2"/></svg>')
 
 
-SOURCES = ("Crossref", "OpenAlex", "Semantic Scholar", "arXiv", "Retraction Watch", "Open Library")
+SOURCES = ("Crossref", "OpenAlex", "Europe PMC (PubMed)", "Semantic Scholar", "DataCite", "arXiv", "DBLP",
+           "Open Library", "Deutsche Nationalbibliothek", "Retraction Watch")
 
 
 def _shell(title: str, run_title: str, cover: str, flow: str, foot: str, auto_print: bool) -> str:
@@ -736,6 +747,27 @@ def _shell(title: str, run_title: str, cover: str, flow: str, foot: str, auto_pr
             f'<style>{CSS}</style></head><body>{_sprite()}{template}'
             f'<div id="book">{cover}</div><div id="flow">{flow}</div>'
             f'<script>{PAGINATE}{printer}</script></body></html>')
+
+
+def _quote_notes(q: Dict) -> List[str]:
+    """Was zu einem Zitat außer dem Befund zu sagen ist: welche Datei, welche Fassung, wie weit es trägt, wo es sonst steht."""
+    out = []
+    if q.get("status") == "wrong_pdf" and identity.note(q):
+        out.append(identity.note(q))
+    if q.get("longest"):
+        out.append(tr("Längste wortgleiche Folge: {n} von {total} Wörtern, S. {page}.", n=q["longest"]["words"],
+                      total=q["longest"]["of"], page=q["longest"]["page"]))
+    if q.get("found_in"):
+        out.append(tr("Steht in {other} (S. {page}), zitiert ist {cited}.", other=q["found_in"]["label"],
+                      page=q["found_in"]["page"], cited=q.get("label") or ""))
+    elif q.get("searched"):
+        out.append(tr("Auch nicht in der anderen geladenen Quelle." if q["searched"] == 1
+                      else "Auch in keiner der {n} anderen geladenen Quellen.", n=q["searched"]))
+    if q.get("copy") in identity.LABELS:
+        out.append(tr("Fassung: {copy}", copy=tr(identity.LABELS[q["copy"]])))
+    if q.get("status") in ("not_found", "incomplete") and q.get("identity") == identity.UNPROVABLE:
+        out.append(tr("Ob das PDF das zitierte Werk ist, ließ sich nicht zeigen: Weder DOI noch Titel stehen am Anfang."))
+    return out
 
 
 def _cover(kind_label: str, docname: str, number: str, when: float, verdict_line: str, bar: str, legend: str) -> str:
@@ -808,6 +840,9 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
         toc.append(("sec-overlap", tr("Übernahmen ohne Anführungszeichen"), (tr("1 Stelle") if len(overlaps) == 1 else tr("{n} Stellen", n=len(overlaps))) if overlaps else tr("keine")))
     if style.get("applicable"):
         toc.append(("sec-style", tr("Zitierstil"), tr("{n} Einträge mit Hinweisen", n=len(noted))))
+    elif style.get("list"):
+        toc.append(("sec-style", tr("Hinweise zur Liste"),
+                    tr("1 Widerspruch") if len(style["list"]) == 1 else tr("{n} Widersprüche", n=len(style["list"]))))
     if mw.get("suggestions"):
         toc.append(("sec-missing", tr("Oft zitiert von deinen Quellen"), tr("{n} Vorschläge", n=len(mw["suggestions"]))))
     toc.append(("sec-all", tr("Alle Quellen"), _sources(total)))
@@ -869,6 +904,7 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
             rows.append(f'<div class="row quote"><q>{_e(q.get("quote"))}</q><div class="meta"><b class="{QUOTE_COLOR.get(status, "")}">'
                         f'{_e(tr(QUOTE_LABEL.get(status, "Nicht prüfbar")))}</b> · {_e(q.get("label"))}{_e(page)}</div>'
                         + (f'<div class="meta">{_e(tr("In der Quelle:"))} {_e(q.get("excerpt"))}</div>' if status == "close" and q.get("excerpt") else "")
+                        + "".join(f'<div class="meta">{_e(line)}</div>' for line in _quote_notes(q))
                         + "</div>")
         sec.append('<div class="split quotes">' + "".join(rows) + "</div>")
     if job.get("overlap_check"):
@@ -888,6 +924,8 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
             sec.append(f'<div class="keep"><p class="allgood">{CHECK_ICON}{_e(tr("Kein Satz übernimmt Wortlaut seiner Quelle ohne Anführungszeichen."))}</p></div>')
         if oc.get("missing_pdfs"):
             sec.append(f'<div class="keep"><p class="muted">{_e(tr("Nicht verglichen (PDF fehlt): {n}", n=len(oc["missing_pdfs"])))}</p></div>')
+        if oc.get("wrong_pdfs"):
+            sec.append(f'<div class="keep"><p class="muted">{_e(tr("Nicht verglichen (PDF ist ein anderes Werk): {n}", n=len(oc["wrong_pdfs"])))}</p></div>')
     if style.get("applicable"):
         name = (style.get("styles") or {}).get(style.get("style"), style.get("style"))
         sec.append(_heading("sec-style", tr("Zitierstil"),
@@ -899,6 +937,9 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
                      for k, v in sorted(noted.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0)]
             sec.append('<div class="split snotes">' + "".join(f'<div class="row">{"".join(cells[i:i + 2])}</div>'
                                                               for i in range(0, len(cells), 2)) + "</div>")
+    elif style.get("list"):  # BibTeX oder RIS: kein Zitierstil, aber Widersprüche in der Liste
+        sec.append(_heading("sec-style", tr("Hinweise zur Liste")))
+        sec.append('<div class="keep block"><ul>' + "".join(f"<li>{_e(i['text'])}</li>" for i in style["list"]) + "</ul></div>")
     if mw.get("suggestions"):
         sec.append(_heading("sec-missing", tr("Oft zitiert von deinen Quellen"),
                             tr("Werke, die mehrere deiner bestätigten Quellen zitieren, die aber nicht im Verzeichnis stehen.")))
@@ -916,7 +957,7 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
              (tr("Geprüft gegen"), _e(", ".join(SOURCES)))]
     if doc.get("name"):
         facts.insert(1, (tr("Arbeit"), _e(doc["name"])))
-    flow.append(_about(facts, [tr("Urteile sind begründete Hinweise aus Crossref, OpenAlex, arXiv und doi.org, keine Gutachten. Bei „Weicht ab“ und „Unsicher“ lohnt der Blick ins Original.")]))
+    flow.append(_about(facts, [tr("Urteile sind begründete Hinweise aus den Verzeichnissen unter „Geprüft gegen“, keine Gutachten. Bei „Weicht ab“ und „Unsicher“ lohnt der Blick ins Original.")]))
     return _shell(title, tr("Prüfbericht"), cover, "".join(flow), f'{tr("Prüfbericht")} #{job_id} · {_date(when, clock=False)}', auto_print)
 
 
@@ -947,12 +988,11 @@ def _overview(results, counts, total, ok, warn, bad, doc, quotes, style, noted, 
                       + (stat(tr("Jahr verschieden"), len(doc["year_mismatch"]), "warn") if doc.get("year_mismatch") else "")
                       + "</div>")
     if quotes:
-        qc = {s: sum(1 for q in quotes if q.get("status") == s) for s in ("exact", "close", "not_found")}
+        qc = {s: sum(1 for q in quotes if q.get("status") == s) for s in QUOTE_LABEL}
         panels.append(f'<div class="panel"><h3>{_e(tr("Wörtliche Zitate"))}</h3>'
                       + stat(tr("Geprüft"), len(quotes))
-                      + stat(tr(QUOTE_LABEL["exact"]), qc["exact"], "ok" if qc["exact"] else "")
-                      + stat(tr(QUOTE_LABEL["close"]), qc["close"], "warn" if qc["close"] else "")
-                      + stat(tr(QUOTE_LABEL["not_found"]), qc["not_found"], "fail" if qc["not_found"] else "") + "</div>")
+                      + "".join(stat(tr(QUOTE_LABEL[s]), n, QUOTE_COLOR.get(s, "") if n else "")
+                                for s, n in qc.items() if n or s in ("exact", "close", "not_found")) + "</div>")
     if style.get("applicable"):
         name = (style.get("styles") or {}).get(style.get("style"), style.get("style"))
         panels.append(f'<div class="panel"><h3>{_e(tr("Zitierstil"))}</h3>'
@@ -1088,6 +1128,11 @@ def render_batch(b: Dict, auto_print: bool = False) -> str:
                        f'<div class="row"><div class="item"><b>{_e(g["title"])}</b><div class="meta">'
                        f'{_e(tr("In {n} Abgaben: {files}", n=len(g["files"]), files=", ".join(g["files"])))}</div></div></div>'
                        for g in shared) + "</div>")
+    conflicts = b.get("doi_conflicts") or []
+    if conflicts:
+        course += (_sub(tr("Widersprüche zwischen den Abgaben"))
+                   + f'<div class="keep"><p class="muted">{_e(tr("Eine DOI ist ein Werk: Wo sie mit anderem Jahr, Band oder anderen Seiten steht, stimmt höchstens eine der Angaben."))}</p>'
+                   + '<ul>' + "".join(f"<li>{_e(c['text'])}</li>" for c in conflicts) + "</ul></div>")
     overview = ('<section data-break="page">' + _heading("sec-overview", tr("Auf einen Blick"), str(b.get("folder") or ""))
                 + f'<div class="keep">{kpis}</div>' + course
                 + _sub(tr("Übersicht je Arbeit"))

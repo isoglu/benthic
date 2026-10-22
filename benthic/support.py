@@ -6,7 +6,7 @@ BM25 über kurze Abschnitte des Volltexts, dazu ein Bonus für Zahlen, die in Au
 vorkommen. "Abdeckung" ist der Anteil der tragenden Wörter der Aussage (nach Seltenheit
 gewichtet), der in der Passage steht.
 
-Ohne Netzwerk; die PDF muss in der Bibliothek liegen.
+Ohne Netzwerk; die PDF muss in der Bibliothek liegen und darf kein anderes Werk sein (identity.py).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import biblio
+from . import identity
 
 _STOP = set("""
 a an and are as at be been being but by can could did do does for from had has have he her his how i if in
@@ -235,9 +235,12 @@ def language(text: str) -> Optional[str]:
 def find(doi: str, claim: str, k: int = 3, translated: Optional[str] = None) -> Dict:
     """Passagen zu einer Aussage. Ist die Aussage in einer anderen Sprache als die Quelle, meldet das
     ``needs_translation``; mit ``translated`` (der Aussage in der Sprache der Quelle) wird damit gesucht."""
-    path = biblio.pdf_path(doi)
+    path, ident = identity.held(doi)
     if not path:
         return {"doi": doi, "available": False}
+    if ident.get("status") == identity.CONTRADICTED:
+        return {"doi": doi, "available": False, "wrong_file": True, "file_doi": ident.get("file_doi"),
+                "file_title": ident.get("file_title"), "error": identity.note(ident)}
     try:
         pages = _pages(path)
         chunks = passages(pages)
@@ -247,7 +250,7 @@ def find(doi: str, claim: str, k: int = 3, translated: Optional[str] = None) -> 
     source_lang, claim_lang = language(sample), language(claim)
     query = translated.strip() if translated and translated.strip() else claim
     top = rank(query, chunks, k)
-    return {"doi": doi, "available": True, "file": path.name, "claim": claim, "passages": top,
+    return {"doi": doi, "available": True, "file": path.name, "copy": ident.get("copy"), "claim": claim, "passages": top,
             "level": level(top[0] if top else None), "claim_language": claim_lang, "source_language": source_lang,
             "translated": query if query != claim else None,
             "needs_translation": bool(source_lang and claim_lang and source_lang != claim_lang and query == claim)}

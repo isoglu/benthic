@@ -372,7 +372,8 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
         job = dict(_jobs[job_id])
 
     try:
-        projects.record_results(job.get("project"), mode, job.get("results") or [], source=job.get("origin", "ui"))
+        projects.record_results(job.get("project"), mode, job.get("results") or [], source=job.get("origin", "ui"),
+                                run=str((job.get("document") or {}).get("name") or ""))
     except Exception:  # ein Projektfehler darf den Verlauf nicht verhindern
         logger.exception("Projekt-Übernahme fehlgeschlagen")
     summary = _summary(job, mode)
@@ -1079,7 +1080,7 @@ def find_support():
         return jsonify({"error": tr("Bitte eine Aussage eingeben, mindestens ein paar Wörter.")}), 400
     result = support.find(doi, claim[:1000], k=min(max(int(data.get("k") or 3), 1), 8),
                           translated=str(data.get("translated") or "")[:1500] or None)
-    if not result["available"]:
+    if not result["available"] and not result.get("wrong_file"):  # bei einem anderen Werk bleibt dessen Hinweis
         result["error"] = (tr("Das PDF ließ sich nicht lesen.") if result.get("unreadable")
                            else tr("Das PDF zu dieser Quelle liegt nicht in der Bibliothek. Erst laden, dann suchen."))
     return jsonify(result)
@@ -1631,6 +1632,21 @@ def export_cleaned_bib_route(job_id: str):
     )
 
 
+def _quote_comment(q: Dict) -> Optional[str]:
+    """Randkommentar zu einem wörtlichen Zitat im Word-Export, oder None, wenn es nichts zu sagen gibt."""
+    if q.get("status") == "misattributed":
+        other = q.get("found_in") or {}
+        return tr("Steht nicht in der zitierten Quelle, aber wortgleich in {other} (S. {page}).",
+                  other=other.get("label", ""), page=other.get("page", "?"))
+    if q.get("status") == "close":
+        return tr("Wörtliches Zitat weicht vom Original ab.")
+    if q.get("status") == "not_found":
+        return tr("Wörtliches Zitat im Volltext nicht gefunden.")
+    if q.get("page_ok") is False:
+        return tr("Seitenzahl des Zitats weicht ab.")
+    return None
+
+
 @app.route("/api/jobs/<job_id>/annotated.docx")
 def export_annotated_docx(job_id: str):
     """Kommentiertes Word-Dokument mit Hinweisen als native Word-Randkommentare."""
@@ -1709,19 +1725,11 @@ def export_annotated_docx(job_id: str):
             "author": "Benthic",
         })
     for q in job.get("quote_check") or []:
-        if q.get("status") in ("close", "not_found") or q.get("page_ok") is False:
-            q_note = (
-                "Wörtliches Zitat weicht vom Original ab."
-                if q.get("status") == "close"
-                else (
-                    "Wörtliches Zitat im Volltext nicht gefunden."
-                    if q.get("status") == "not_found"
-                    else "Seitenzahl des Zitats weicht ab."
-                )
-            )
+        q_note = _quote_comment(q)
+        if q_note:
             notes.append({
                 "needle": q.get("quote") or "",
-                "text": f"Zitatprüfung ({q.get('label', '')}): {q_note}",
+                "text": tr("Zitatprüfung ({label}): {note}", label=q.get("label", ""), note=q_note),
                 "author": "Benthic",
             })
 

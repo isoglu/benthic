@@ -160,6 +160,69 @@ class RegistryCoverage(unittest.TestCase):
         self.assertEqual(hits[0]["source"], "DBLP")
         self.assertEqual(hits[0]["authors"], ["LeCun", "Bengio"])
 
+    # Antworten im Format der Europe-PMC-REST-Suche (resultType=lite), gekürzt.
+    EPMC_TITLE = "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children."
+    EPMC_JSON = {"hitCount": 3, "resultList": {"result": [
+        {"id": "20137807", "source": "MED", "pmid": "20137807", "doi": "10.1016/s0140-6736(10)60175-4",
+         "title": "Retraction--" + EPMC_TITLE, "journalTitle": "Lancet", "pubYear": "2010", "pubType": "retraction notice"},
+        {"id": "9683237", "source": "MED", "pmid": "9683237", "doi": "10.1016/s0140-6736(05)77837-5", "title": EPMC_TITLE,
+         "authorString": "Sabra A, Bellanti JA, Colón AR.", "pubYear": "1998", "pubType": "letter; comment"},
+        {"id": "9500320", "source": "MED", "pmid": "9500320", "doi": "10.1016/s0140-6736(97)11096-0", "title": EPMC_TITLE,
+         "authorString": "Wakefield AJ, Murch SH, Walker-Smith JA.", "journalTitle": "Lancet", "journalVolume": "351",
+         "issue": "9103", "pageInfo": "637-641", "pubYear": "1998",
+         "pubType": "retracted publication; research support, non-u.s. gov't; journal article"},
+    ]}}
+
+    def test_search_europepmc(self):
+        from benthic import verify
+        resp = mock.Mock(status_code=200, json=lambda: self.EPMC_JSON)
+        with mock.patch("benthic.oa._api_get", return_value=resp) as get:
+            hits = verify._search_europepmc("Ileal-lymphoid-nodular hyperplasia, non-specific colitis (1998)")
+        self.assertEqual(get.call_args.kwargs["params"]["query"],
+                         'TITLE:"Ileal-lymphoid-nodular hyperplasia non-specific colitis 1998"')
+        # Rückzugsnotiz und Leserbrief tragen denselben Titel, sind aber nicht das Werk.
+        self.assertEqual([h["doi"] for h in hits], ["10.1016/s0140-6736(97)11096-0"])
+        hit = hits[0]
+        self.assertEqual(hit["authors"], ["Wakefield", "Murch", "Walker-Smith"])
+        self.assertTrue(hit["retracted"])
+        self.assertEqual((hit["source"], hit["year"], hit["pages"]), ("Europe PMC", "1998", "637-641"))
+        self.assertFalse(hit["title"].endswith("."))
+
+    def test_title_search_falls_back_to_europepmc(self):
+        """Ein PubMed-Artikel ohne DOI, den Crossref und OpenAlex nicht finden: Europe PMC bestätigt ihn."""
+        from benthic import refs, verify
+        epmc = {"resultList": {"result": [
+            {"id": "4123456", "source": "MED", "pmid": "4123456", "title": "Serum zinc in elderly patients with hip fracture.",
+             "authorString": "Doe J, van der Berg A.", "journalTitle": "Geriatrics", "pubYear": "1974",
+             "pubType": "journal article"}]}}
+
+        def api(url, params=None, headers=None, timeout=20.0):
+            self.assertIn("ebi.ac.uk/europepmc", url)  # sonst keine andere Quelle in diesem Test
+            return mock.Mock(status_code=200, json=lambda: epmc)
+        ref = refs.parse("Doe, J., & van der Berg, A. (1974). Serum zinc in elderly patients with hip fracture. "
+                         "Geriatrics, 29, 1-4.")[0]
+        with mock.patch.object(verify, "_search_crossref", return_value=[]), \
+                mock.patch.object(verify, "_search_openalex", return_value=[]), \
+                mock.patch.object(verify, "_search_arxiv", return_value=[]), \
+                mock.patch("benthic.oa._api_get", side_effect=api):
+            res = verify.verify_ref(ref)
+        self.assertEqual(res["verdict"], "verified")
+        self.assertEqual(res["found"]["source"], "Europe PMC")
+        self.assertEqual(res["found"]["url"], "https://pubmed.ncbi.nlm.nih.gov/4123456/")
+
+    def test_no_europepmc_call_after_a_clear_hit(self):
+        from benthic import verify
+        hit = {"doi": "10.1000/xyz", "title": "Serum copper in elderly patients with hip fracture",
+               "authors": ["Doe"], "year": "1975", "retracted": False, "source": "Crossref"}
+        claimed = {"title": "Serum copper in elderly patients with hip fracture", "authors": ["Doe"], "year": "1975"}
+        with mock.patch.object(verify, "_search_crossref", return_value=[hit]), \
+                mock.patch.object(verify, "_search_openalex", return_value=[]), \
+                mock.patch.object(verify, "lookup", return_value=None), \
+                mock.patch.object(verify, "_search_europepmc") as epmc:
+            best, _score, _sim = verify.search(claimed)
+        self.assertEqual(best["doi"], "10.1000/xyz")
+        epmc.assert_not_called()
+
     def test_dnb_marc21_parsing(self):
         from benthic import verify
         sample_marc = """<?xml version="1.0" encoding="UTF-8"?>

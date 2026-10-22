@@ -6,6 +6,46 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.5
+
+Benthic prüft jetzt, ob ein geladenes PDF wirklich die zitierte Arbeit ist,
+nennt die Fassung, vergleicht jede Angabe einer Quelle mit dem Eintrag im
+Verzeichnis und findet ältere PubMed-Artikel über den Titel.
+
+- **Das richtige PDF oder keins.** Bevor Benthic ein Zitat oder eine Übernahme
+  mit einem geladenen PDF vergleicht, sucht es auf den ersten Seiten nach der
+  zitierten DOI oder dem Titel. Eine Datei, die sich als andere Arbeit
+  herausstellt, wird weder gespeichert noch verwendet, und Benthic nennt die
+  Arbeit, die sie wirklich ist.
+- **Welche Fassung vorliegt.** Preprints, Arbeitspapiere, akzeptierte
+  Manuskripte, technische Berichte, Zusammenfassungen und Vorschauen hinter
+  einer Bezahlschranke heißen jetzt so. Fehlt ein Zitat in einer
+  Zusammenfassung, einer Vorschau oder in Folien, steht dort „Nicht in dieser
+  Fassung“, statt dass es als nicht gefunden gilt.
+- **Zitate aus einer anderen Quelle.** Steht ein Zitat nicht in der zitierten
+  Arbeit, aber wörtlich in einer anderen Arbeit derselben Prüfung, sagt Benthic,
+  woher es wirklich stammt.
+- **Jede Angabe verglichen.** Erstautor:in, Reihenfolge der Autor:innen, Band,
+  Heft und Seiten werden mit dem Eintrag verglichen und neben dem Urteil
+  gezeigt, ohne es zu ändern, ebenso eine zitierte Seite außerhalb der Seiten
+  des Artikels. Namen in anderer Schreibweise, etwa Müller und Mueller, gelten
+  als derselbe Name.
+- **Eine DOI, ein Werk.** In einem Literaturverzeichnis oder einem Kursordner
+  weist Benthic auf eine DOI mit verschiedenen Angaben hin und auf zwei Werke
+  mit denselben Seiten im selben Band.
+- **Bessere Vorschläge für eine fehlende DOI.** Korrekturen, Erwiderungen und
+  Rückzugsnotizen gelten nicht mehr als das Werk selbst, und ein
+  Zeitschriftenartikel geht seinem gleichnamigen Arbeitspapier oder Datensatz
+  vor.
+- **PubMed über den Titel.** Die Titelsuche fragt jetzt auch Europe PMC, das
+  ganz PubMed enthält. So findet Benthic ältere medizinische Artikel ohne DOI
+  und verlinkt ihre PubMed-Seite. Die Hinweise zu 1.1.4 kündigten diese Suche
+  schon an; jetzt läuft sie.
+- **Korrekturen.** Smith 2020a und Smith 2020b fallen bei der Prüfung einer
+  Arbeit nicht mehr zusammen, die Liste der Datenbanken im Bericht nennt jetzt
+  jede, die Benthic fragt, und die Tiefenanzeige beim ersten Start bleibt über
+  der Wasseroberfläche nicht mehr stehen.
+
 ## 1.1.4
 
 Sechs Datenbanken in der Prüfkaskade, kommentierte Word-Dateien und bereinigte

@@ -192,7 +192,10 @@ def tree_files(base):
 def scan_tree(base):
     for p in tree_files(base):
         rel = str(p.relative_to(root)) if p.is_relative_to(root) else str(p)
-        scan_file(p, rel)
+        # Aufgezeichnete Antworten der Verzeichnisse sind fremder Text wie die Laufzeit im Bundle: echte Titel
+        # enthalten Begriffe der Liste als Wortteil. Dort zählen nur persönliche Pfade.
+        third_party = rel.startswith("tests/corpus/responses/") and p.suffix == ".json"
+        scan_file(p, rel, mode="path" if third_party else "all")
         if p.suffix.lower() in IMAGE_EXT or p.suffix.lower() == ".svg":
             report(f"{rel} (Dateiname)", "all", p.name)
 

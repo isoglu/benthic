@@ -84,6 +84,29 @@ class Dokument(unittest.TestCase):
         self.assertTrue(all("Smith" not in u["label"] for u in a["uncited"]))      # und nicht als nie zitiert
         self.assertEqual(document.analyse(THESIS)["year_mismatch"], [])
 
+    def test_year_letters_keep_two_works_apart(self):
+        text = ("1 Introduction\n\nFirst finding (Smith, 2020a). Second finding (Smith, 2020b). Lee (2019) agrees.\n\n"
+                "References\n\nLee, K. (2019). Citation errors in student essays. Computers & Education, 170, 104210.\n"
+                "Smith, J. (2020a). Invented references in language model output. Journal of Results, 12(3), 45-67.\n"
+                "Smith, J. (2020b). Fabricated citations in chat answers. Journal of Results, 12(4), 80-99.\n"
+                "Taylor, R. (2015). A source nobody cites. Oxford University Press.\n")
+        a = document.analyse(text)
+        self.assertEqual(sorted((c["label"], c["entry"]) for c in a["claims"] if c["surname"] == "Smith"),
+                         [("Smith, 2020a", 1), ("Smith, 2020b", 2)])
+        self.assertEqual([u["label"] for u in a["uncited"]], ["A source nobody cites"])
+        # Ohne Buchstaben im Verzeichnis (oder im Text) bleibt die Zuordnung wie bisher: kein falsches „fehlt“.
+        plain = document.analyse(THESIS.replace("(Smith & Jones, 2019)", "(Smith & Jones, 2019a)"))
+        self.assertEqual([m["label"] for m in plain["missing_in_list"]], ["Brown (2017)"])
+        self.assertTrue(all("Invented" not in u["label"] for u in plain["uncited"]))
+
+    def test_umlaut_and_transliteration_are_one_name(self):
+        a = document.analyse(THESIS.replace("Müller 2018, S. 12", "Mueller 2018, S. 12"))
+        self.assertEqual([m["label"] for m in a["missing_in_list"]], ["Brown (2017)"])
+        entry = next(r for r in a["refs"] if (r.get("authors") or [""])[0] == "Müller")
+        self.assertEqual(entry.get("cited_pages"), ["12"])  # S. 12 geht mit in die Prüfung des Eintrags
+        other = document.analyse(THESIS.replace("Müller 2018, S. 12", "Miller 2018, S. 12"))
+        self.assertIn("Miller, 2018", [m["label"] for m in other["missing_in_list"]])
+
     def test_numeric_thesis(self):
         a = document.analyse(NUMERIC)
         self.assertEqual(a["style"], "numeric")

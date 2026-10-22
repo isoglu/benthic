@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import io
 import re
-import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -346,8 +345,7 @@ def find_bibliography(text: str) -> Tuple[str, List[Dict]]:
 # Zitate im Text
 # --------------------------------------------------------------------------
 def _fold(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s or "")
-    return "".join(c for c in s if not unicodedata.combining(c)).lower().strip()
+    return refs.fold(s).strip()
 
 
 _SKIP_WORDS = {"vgl", "see", "cf", "siehe", "e.g", "z.b", "i.e", "also", "auch", "ebd", "ibid", "and", "und",
@@ -422,7 +420,7 @@ def find_citations(body: str) -> List[Dict]:
     seen = set()
 
     def add(item: Dict, pos: int, page: Optional[str] = None) -> None:
-        key = (item.get("surname"), item.get("year"), item.get("number"), pos // 40)
+        key = (item.get("surname"), item.get("year"), item.get("letter"), item.get("number"), pos // 40)
         if key in seen:
             return
         seen.add(key)
@@ -439,22 +437,22 @@ def find_citations(body: str) -> List[Dict]:
         for part in m.group(1).split(";"):
             if _DATE.match(part):
                 continue  # "(January 2027)", "(12. März 2026)": ein Datum, kein Zitat
-            years = re.findall(r"\b(1[89]\d{2}|20\d{2})[a-z]?\b", part)
+            years = re.findall(r"\b(1[89]\d{2}|20\d{2})([a-z]?)\b", part)
             name = _first_surname(part.split(",")[0] if "," in part else re.split(r"\b(?:1[89]|20)\d{2}", part)[0])
             if not years or not name:
                 continue
             etal = " et al." if re.search(r"et al|u\. ?a\.", part) else ""
-            for y in years:
+            for y, letter in years:
                 if re.search(r"(?:" + _MONTHS + r")\.?\s*,?\s*(?:\d{1,2},?\s*)?" + y, part, re.IGNORECASE):
                     continue  # "(Lisbon, December 2026)": Ort und Datum, kein Zitat
-                add({"kind": "author-year", "surname": name, "year": y, "label": f"{name}{etal}, {y}"}, m.start(),
-                    page_of(part.split(y, 1)[-1]))
+                add({"kind": "author-year", "surname": name, "year": y, "letter": letter, "label": f"{name}{etal}, {y}{letter}"},
+                    m.start(), page_of(part.split(y + letter, 1)[-1]))
     for m in _NARRATIVE.finditer(text):
-        name, year = m.group(1), m.group(2)[:4]
+        name, year, letter = m.group(1), m.group(2)[:4], m.group(2)[4:]
         if _fold(name).rstrip(".") in _SKIP_WORDS:
             continue
-        add({"kind": "author-year", "surname": name, "year": year, "label": f"{name} ({year})"}, m.start(),
-            page_of(m.group(3)))
+        add({"kind": "author-year", "surname": name, "year": year, "letter": letter, "label": f"{name} ({year}{letter})"},
+            m.start(), page_of(m.group(3)))
     for m in _NUMERIC.finditer(text):
         for chunk in re.split(r"\s*,\s*", m.group(1)):
             rng = re.split(r"\s*[–\-]\s*", chunk)
@@ -537,13 +535,20 @@ def find_writing_signals(body: str, citations: List[Dict]) -> Dict[str, List[Dic
 # --------------------------------------------------------------------------
 # Abgleich
 # --------------------------------------------------------------------------
-def _entry_key(ref: Dict) -> Tuple[str, str]:
+def _entry_key(ref: Dict, transliterate: bool = False) -> Tuple[str, str]:
     authors = ref.get("authors") or []
     surname = str(authors[0]) if authors else ""
     if not surname:
         head = re.split(r"[,(.]", str(ref.get("raw") or ""), maxsplit=1)[0]
         surname = head.split()[-1] if head.split() else ""
-    return _fold(surname.split()[-1] if surname else ""), str(ref.get("year") or "")
+    return refs.name_key(surname.split()[-1] if surname else "", transliterate), str(ref.get("year") or "")
+
+
+def _year_letter(ref: Dict) -> str:
+    """Der Buchstabe hinter dem Jahr (Smith 2020a, 2020b): ohne ihn fielen zwei Werke auf einen Schlüssel."""
+    year = str(ref.get("year") or "")
+    m = re.search(r"\b" + re.escape(year) + r"([a-z])\b", str(ref.get("raw") or "")) if year else None
+    return m.group(1) if m else ""
 
 
 def analyse(text: str) -> Dict:
@@ -563,8 +568,11 @@ def analyse(text: str) -> Dict:
     numeric = sum(1 for c in citations if c["kind"] == "number") > sum(1 for c in citations if c["kind"] == "author-year")
     style = "numeric" if numeric else "author-year"
     keys = {}
-    for ref in parsed:
-        keys.setdefault(_entry_key(ref), ref["entry"])
+    for transliterate in (False, True):  # erst der genaue Name, dann umschrieben (Müller = Mueller)
+        for ref in parsed:
+            surname, year = _entry_key(ref, transliterate)
+            keys.setdefault((surname, year + _year_letter(ref)), ref["entry"])
+            keys.setdefault((surname, year), ref["entry"])  # Zitat ohne Buchstaben oder Verzeichnis ohne
     by_number = {ref["number"] if ref.get("number") else ref["entry"] + 1: ref["entry"] for ref in parsed}
     highest = max(by_number) if by_number else 0
 
@@ -578,11 +586,16 @@ def analyse(text: str) -> Dict:
         if c["kind"] == "number":
             entry = by_number.get(c["number"])
         else:
-            entry = keys.get((_fold(c["surname"].split()[-1]), c["year"]))
+            entry = None
+            for transliterate in (False, True):
+                surname = refs.name_key(c["surname"].split()[-1], transliterate)
+                entry = keys.get((surname, c["year"] + c.get("letter", "")), keys.get((surname, c["year"])))
+                if entry is not None:
+                    break
         c["entry"] = entry
         if entry is None:
             m = missing.setdefault(c["label"], {"label": c["label"], "count": 0, "sentence": c["sentence"],
-                                                "surname": _fold(c["surname"].split()[-1]) if c.get("surname") else "",
+                                                "surname": refs.name_key(c["surname"].split()[-1]) if c.get("surname") else "",
                                                 "year": str(c.get("year") or "")})
             m["count"] += 1
         else:
@@ -611,6 +624,11 @@ def analyse(text: str) -> Dict:
         m.pop("surname", None)
         m.pop("year", None)
     uncited = [{"entry": r["entry"], "label": refs.label(r) or r["raw"][:90]} for r in parsed if r["entry"] not in cited_entries]
+    for c in citations:  # zitierte Seiten (S. 14) je Eintrag: verify vergleicht sie mit den Seiten des Werks
+        if c.get("page") and c.get("entry") is not None:
+            pages = parsed[c["entry"]].setdefault("cited_pages", [])
+            if c["page"] not in pages:
+                pages.append(c["page"])
     counted = [c for c in citations if (c["kind"] == "number") == numeric and "entry" in c]
     # Hochgestellte Zahlen (Nature, Science) liest kein PDF-Text als Zitat; dann lieber nichts
     # behaupten als fast jeden Eintrag "nie zitiert" nennen.

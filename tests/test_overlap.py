@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from benthic import overlap
+from benthic import biblio, overlap
 
 SOURCE = [{"page": 1, "text": "Abstract. NumPy is the primary array programming library for the Python language.\n"
                               "It has an essential role in research analysis pipelines in fields as diverse as physics,\n"
@@ -52,7 +52,7 @@ class Uebernahmen(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_check(self):
-        with mock.patch.object(overlap.biblio, "pdf_path", side_effect=lambda d: self.pdf if d.startswith("10.1038") else None), \
+        with mock.patch.object(biblio, "pdf_path", side_effect=lambda d: self.pdf if d.startswith("10.1038") else None), \
                 mock.patch.object(overlap.support, "_pages", return_value=SOURCE):
             return overlap.check_document(DOC, RESULTS)
 
@@ -78,7 +78,7 @@ class Uebernahmen(unittest.TestCase):
             from benthic import app as appmod, history
             history.append({"id": "77", "mode": "verify", "results": RESULTS, "document": DOC})
             client = appmod.app.test_client()
-            with mock.patch.object(overlap.biblio, "pdf_path", side_effect=lambda d: self.pdf if d.startswith("10.1038") else None), \
+            with mock.patch.object(biblio, "pdf_path", side_effect=lambda d: self.pdf if d.startswith("10.1038") else None), \
                     mock.patch.object(overlap.support, "_pages", return_value=SOURCE):
                 j = client.post("/api/overlap", json={"job_id": "77"}).get_json()
             self.assertEqual(j["counts"]["verbatim"], 1)

@@ -1587,6 +1587,18 @@ function renderBatchSignals(b) {
     });
     box.append(h2, note, ol);
   }
+  const conflicts = b.doi_conflicts || [];
+  if (conflicts.length) {
+    const h3 = document.createElement("h3");
+    h3.textContent = T("Widersprüche zwischen den Abgaben");
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = T("Eine DOI ist ein Werk: Wo sie mit anderem Jahr, Band oder anderen Seiten steht, stimmt höchstens eine der Angaben.");
+    const ul = document.createElement("ul");
+    ul.className = "sc-list";
+    conflicts.forEach((c) => { const li = document.createElement("li"); li.textContent = c.text; ul.appendChild(li); });
+    box.append(h3, note, ul);
+  }
 }
 
 function fmtDuration(sec) {
@@ -1860,7 +1872,7 @@ function updateReportTabs() {
   };
   const doc = verifyDoc || {};
   const docCount = (doc.missing_in_list || []).length + (doc.uncited || []).length + (doc.year_mismatch || []).length +
-    (verifyQuotes || []).filter((q) => ["not_found", "close"].includes(q.status)).length;
+    (verifyQuotes || []).filter((q) => ["not_found", "close", "misattributed"].includes(q.status)).length;
   const styleCount = verifyStyle && verifyStyle.applicable ? Object.values(verifyStyle.entries || {}).filter((v) => v && v.length).length : 0;
   const labels = { sources: T("Quellen"), document: T("Abgleich und Zitate"), style: T("Zitierstil"), list: T("Liste") };
   const counts = { sources: verifyResults.length, document: docCount, style: styleCount };
@@ -1904,8 +1916,18 @@ async function startVerify() {
 function renderStyle(report) {
   const box = $("#verify-style");
   box.innerHTML = "";
-  box.hidden = !(report && report.applicable);
+  const notes = (report && report.list) || [];
+  box.hidden = !(report && (report.applicable || notes.length));
   if (box.hidden) return;
+  if (!report.applicable) {  // BibTeX oder RIS: kein Zitierstil, aber Widersprüche in der Liste
+    const h = document.createElement("h3");
+    h.textContent = T("Hinweise zur Liste");
+    const ul = document.createElement("ul");
+    ul.className = "sc-list";
+    notes.forEach((i) => { const li = document.createElement("li"); li.textContent = i.text; ul.appendChild(li); });
+    box.append(h, ul);
+    return;
+  }
   const head = document.createElement("div");
   head.className = "sc-head";
   const h = document.createElement("h3");
@@ -2312,7 +2334,45 @@ const QUOTE_STATE = {
   no_pdf: ["", "i-file", () => T("PDF fehlt")],
   no_source: ["", "i-question", () => T("Quelle nicht bestätigt")],
   pending: ["", "i-clock", () => T("Quelle wird noch geprüft")],
+  wrong_pdf: ["warn", "i-warn", () => T("Falsches PDF")],
+  incomplete: ["", "i-question", () => T("Nicht in dieser Fassung")],
+  misattributed: ["warn", "i-warn", () => T("Steht in einer anderen Quelle")],
 };
+const INCOMPLETE_COPY = ["summary", "teaser", "no_text", "thin", "commentary"];  // wie identity.INCOMPLETE
+// Fassung der PDF, gegen die geprüft wurde (identity.py), wenn sie nicht einfach der Volltext ist
+const COPY_LABEL = {
+  working_paper: () => T("Arbeitspapier"),
+  ssrn: () => T("SSRN-Fassung"),
+  accepted: () => T("Akzeptiertes Manuskript"),
+  preprint: () => T("Preprint"),
+  teaser: () => T("Vorschau hinter einer Bezahlschranke"),
+  summary: () => T("Zusammenfassung oder Auszug, nicht das ganze Werk"),
+  no_text: () => T("PDF ohne Textebene"),
+  report: () => T("Technischer Bericht"),
+  commentary: () => T("Kommentar oder Korrektur, nicht das Werk selbst"),
+  thin: () => T("Wenig Text je Seite: Folien, Poster oder Scan"),
+};
+
+// Was zu einem Zitat außer dem Befund zu sagen ist (wie _quote_notes in report.py)
+function quoteNotes(q) {
+  const out = [];
+  if (q.status === "wrong_pdf" && q.file_title) {
+    out.push(T("Das PDF ist ein anderes Werk: DOI {doi}, „{title}“.", { doi: q.file_doi, title: q.file_title }));
+  }
+  if (q.longest) {
+    out.push(T("Längste wortgleiche Folge: {n} von {total} Wörtern, S. {page}.", { n: q.longest.words, total: q.longest.of, page: q.longest.page }));
+  }
+  if (q.found_in) {
+    out.push(T("Steht in {other} (S. {page}), zitiert ist {cited}.", { other: q.found_in.label, page: q.found_in.page, cited: q.label || "" }));
+  } else if (q.searched) {
+    out.push(TN(q.searched, "Auch nicht in der anderen geladenen Quelle.", "Auch in keiner der {n} anderen geladenen Quellen."));
+  }
+  if (COPY_LABEL[q.copy]) out.push(T("Fassung: {copy}", { copy: COPY_LABEL[q.copy]() }));
+  if (["not_found", "incomplete"].includes(q.status) && q.identity === "unprovable") {
+    out.push(T("Ob das PDF das zitierte Werk ist, ließ sich nicht zeigen: Weder DOI noch Titel stehen am Anfang."));
+  }
+  return out;
+}
 
 function quotesSection(doc) {
   const wrap = document.createElement("div");
@@ -2433,6 +2493,7 @@ function overlapSection(doc) {
       ul.appendChild(li);
     });
     if ((res.missing_pdfs || []).length) note.appendChild(fetchQuoteSources(res.missing_pdfs, runCheck));
+    if ((res.wrong_pdfs || []).length) note.append(" " + T("Nicht verglichen (PDF ist ein anderes Werk): {n}", { n: res.wrong_pdfs.length }));
     const tip = document.createElement("p");
     tip.className = "hint ov-tip";
     tip.textContent = T("Setze übernommenen Wortlaut in Anführungszeichen oder formuliere ihn neu. Fachbegriffe und feste Formeln sind kein Problem; entscheiden musst du beim Lesen.");
@@ -2500,6 +2561,12 @@ function quoteItem(q) {
     ex.append(k, document.createTextNode(` ${q.excerpt}`));
     li.appendChild(ex);
   }
+  quoteNotes(q).forEach((line) => {
+    const m = document.createElement("p");
+    m.className = "dq-meta" + (q.found_in || q.status === "wrong_pdf" ? " warn" : "");
+    m.textContent = line;
+    li.appendChild(m);
+  });
   return li;
 }
 
@@ -2701,10 +2768,11 @@ function verifyRow(res) {
     main.appendChild(f);
   }
 
+  // Auch bei „Bestätigt“: ein Jahr daneben oder ein anderer Band soll sichtbar sein, nicht still durchgehen.
   const diffs = res.field_diffs || {};
   const diffKeys = Object.keys(diffs);
   const hasDiffs = diffKeys.some((key) => diffs[key].status !== "ok");
-  if (hasDiffs && ["corrected", "mismatch", "uncertain", "partial", "retracted"].includes(res.verdict)) {
+  if (hasDiffs && res.verdict !== "not_found") {
     const dBox = document.createElement("div");
     dBox.className = "field-diffs";
     const labels = {
@@ -2712,6 +2780,11 @@ function verifyRow(res) {
       authors: T("Autor:innen"),
       year: T("Jahr"),
       venue: T("Zeitschrift"),
+      volume: T("Band"),
+      issue: T("Heft"),
+      pages: T("Seiten"),
+      author_count: T("Anzahl Autor:innen"),
+      cited_page: T("Zitierte Seite"),
     };
     diffKeys.forEach((key) => {
       const fd = diffs[key];
@@ -2744,6 +2817,16 @@ function verifyRow(res) {
     a.rel = "noopener";
     a.textContent = midTrunc(res.doi, 44);
     a.title = res.doi;
+    meta.appendChild(a);
+  } else if (/^https:\/\//.test(found.url || "")) {
+    // Ohne DOI: die Seite des Verzeichnisses (PubMed, Open Library, DNB), damit man das Werk selbst sieht.
+    const a = document.createElement("a");
+    a.className = "mono";
+    a.href = found.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = midTrunc(found.url.replace(/^https:\/\//, ""), 44);
+    a.title = found.url;
     meta.appendChild(a);
   }
   const via = { title: T("über Titel"), arxiv: T("über arXiv"), pmid: T("über PMID"), isbn: T("über ISBN") }[res.resolved_by];
@@ -3014,7 +3097,7 @@ function supportRow(span, doi, sentences) {
     if (!r || !r.ok) { out.appendChild(supportNote(j.error || T("Suche fehlgeschlagen"), "fail")); return; }
     if (!j.available) {
       out.appendChild(supportNote(j.error, "warn"));
-      if (!j.unreadable) out.appendChild(fetchForSupport(doi, () => run()));
+      if (!j.unreadable && !j.wrong_file) out.appendChild(fetchForSupport(doi, () => run()));
       return;
     }
     if (j.needs_translation && !translated) {
@@ -3035,6 +3118,13 @@ function supportRow(span, doi, sentences) {
     }
     const best = (j.passages || [])[0];
     out.appendChild(supportNote(SUPPORT_LEVEL[j.level](), j.level === "close" ? "ok" : (j.level === "partial" ? "" : "warn")));
+    if (INCOMPLETE_COPY.includes(j.copy)) {
+      out.appendChild(supportNote(T("Gesucht in einer unvollständigen Fassung ({copy}); was hier fehlt, kann im Werk stehen.",
+        { copy: COPY_LABEL[j.copy]() }), "warn"));
+    } else if (COPY_LABEL[j.copy]) {  // Preprint, Arbeitspapier, Manuskript, Bericht: eine andere Fassung
+      out.appendChild(supportNote(T("Gesucht in einer anderen als der veröffentlichten Fassung ({copy}); Wortlaut und Seiten können abweichen.",
+        { copy: COPY_LABEL[j.copy]() }), "warn"));
+    }
     const terms = (best && best.terms) || [];
     (j.passages || []).forEach((p) => {
       const q = document.createElement("blockquote");
@@ -3440,7 +3530,8 @@ const DEPTH_FACTS = {
 };
 const depthAt = (m) => Math.pow(Math.min(FLOOR, Math.max(0, m)) / FLOOR, 1 / 2.6);
 const fmtDepth = (m) => `${fmtNum(Math.round(m))} m`;
-const zoneOf = (m) => DEPTH_ZONES.filter(([d]) => m >= d - .5).pop()[1];
+// Über dem Meeresspiegel (der Tauchgang federt kurz auf −10 m) gilt noch die oberste Zone.
+const zoneOf = (m) => (DEPTH_ZONES.filter(([d]) => m >= d - .5).pop() || DEPTH_ZONES[0])[1];
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const smooth01 = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const easeInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -4400,6 +4491,17 @@ async function showProject(id, scroll) {
   else $("#pd-health").hidden = true;
   if (p.items.length >= 2) renderMissingWorks($("#pd-missing"), { project: p.id }, null, p.id);
   else $("#pd-missing").hidden = true;
+  const conflicts = $("#pd-conflicts");
+  conflicts.innerHTML = "";
+  conflicts.hidden = !(p.conflicts || []).length;
+  if (!conflicts.hidden) {
+    const h = document.createElement("h3");
+    h.textContent = T("Widersprüche in diesem Projekt");
+    const ul = document.createElement("ul");
+    ul.className = "sc-list";
+    p.conflicts.forEach((c) => { const li = document.createElement("li"); li.textContent = c.text; ul.appendChild(li); });
+    conflicts.append(h, ul);
+  }
   $("#pd-watch-toggle").checked = p.watch !== false;
   $("#pd-recheck").disabled = !p.items.length;
   $("#pd-watch-now").disabled = !p.items.length;

@@ -1,0 +1,18 @@
+{
+"case": "isbn-book",
+"recorded": "2026-10-22",
+"benthic": "1.1.4",
+"calls": [
+{
+"url": "https://openlibrary.org/search.json",
+"params": {
+"isbn": "0201134470",
+"fields": "key,title,subtitle,author_name,first_publish_year,publisher",
+"limit": "3"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"numFound\": 2, \"start\": 0, \"numFoundExact\": true, \"num_found\": 2, \"documentation_url\": \"https://openlibrary.org/dev/docs/api/search\", \"q\": \"\", \"offset\": null, \"docs\": [{\"author_name\": [\"Donald Knuth\"], \"first_publish_year\": 1970, \"key\": \"/works/OL1915651W\", \"publisher\": [\"Addison-Wesley Pub. Co.\", \"Addison Wesley\", \"Addison-Wesley\"], \"title\": \"The TeXbook\"}, {\"author_name\": [\"Donald Knuth\"], \"first_publish_year\": 1986, \"key\": \"/works/OL14941577W\", \"publisher\": [\"Addison-Wesley Professional\"], \"subtitle\": \"The TeXbook (Computers & Typesetting Series)\", \"title\": \"Computers & Typesetting, Volume A\"}]}"
+}
+]
+}
