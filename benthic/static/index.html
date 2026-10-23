@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.1.5">
-  <link rel="stylesheet" href="/static/style.css?v=1.1.5">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.1.6">
+  <link rel="stylesheet" href="/static/style.css?v=1.1.6">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
@@ -742,6 +742,16 @@
           </div>
         </div>
 
+        <div data-section="sources" class="card" id="house-card">
+          <div class="card-head"><h2>Hausregeln der Hochschule</h2><span class="hint" id="house-state"></span></div>
+          <p class="hint card-lead">Manche Hochschulen geben ihre Regeln als Datei heraus: Zitierstil, Rankinglisten, Proxy-Link, Kontaktadresse und OpenAlex-Key. Benthic übernimmt nur diese Angaben; alles bleibt hier änderbar.</p>
+          <div class="ranking-add">
+            <input type="file" id="house-file" accept=".json,application/json" aria-label="Hausregel-Datei">
+            <button class="btn" id="house-load-btn" type="button">Hausregeln laden</button>
+            <button class="btn ghost small" id="house-remove-btn" type="button" hidden>Hausregeln entfernen</button>
+          </div>
+        </div>
+
         <div data-section="sources" class="card">
           <details class="advanced" open>
             <summary>Erweitert</summary>
@@ -896,6 +906,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.1.5"></script>
+  <script src="/static/app.js?v=1.1.6"></script>
 </body>
 </html>

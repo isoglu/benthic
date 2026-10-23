@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import itertools
 import json
@@ -17,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, Response, has_request_context, jsonify, request, send_file, send_from_directory
 
-from . import __app_name__, __version__, batch, biblio, clips, config, connect, document, export, finder, guide, history, i18n, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
+from . import __app_name__, __version__, batch, biblio, clips, config, connect, document, export, finder, guide, history, house, i18n, integrity, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
 from .i18n import tr
 from .fetcher import BenthicDownloader
 
@@ -356,7 +357,7 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
             except Exception:
                 logger.exception("Suche nach veröffentlichten Fassungen fehlgeschlagen")
         try:
-            report = style.check_list(done_results)
+            report = style.check_list(done_results, settings.get("house_style") or None)
         except Exception:  # eine Stilfrage darf den Prüfbericht nicht verhindern
             logger.exception("Stilprüfung fehlgeschlagen")
             report = None
@@ -377,7 +378,7 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
     except Exception:  # ein Projektfehler darf den Verlauf nicht verhindern
         logger.exception("Projekt-Übernahme fehlgeschlagen")
     summary = _summary(job, mode)
-    summary.update({k: job.get(k) for k in ("origin", "project", "project_name", "document", "style",
+    summary.update({k: job.get(k) for k in ("schema", "origin", "project", "project_name", "document", "style",
                                             "quote_check", "missing_works", "docx_path", "docx_name")})
     if not job.get("no_history"):  # Stapelprüfungen speichern ihre Läufe selbst (batch.py)
         history.append(summary)
@@ -602,6 +603,7 @@ def _launch_job(mode: str, identifiers: List, settings: Dict, proj, extra: Dict 
         _jobs[job_id] = {
             "id": job_id,
             "mode": mode,
+            "schema": verify.RESULT_SCHEMA,
             "status": "running",
             "total": len(identifiers),
             "done": 0,
@@ -721,6 +723,11 @@ def _analyse_document(items, path=None):
                 raise ValueError("size")
             files = latex.files_from_upload(items)
         analysis = latex.analyse(files)
+        zipped = [d for n, d in items if n.lower().endswith(".zip")]
+        if path is not None and path.suffix.lower() == ".zip":
+            zipped = [path.read_bytes()]
+        if len(zipped) == 1 and len(items) <= 1:  # ein Projekt als .zip: sein Fingerabdruck für das Siegel
+            analysis["sha256"] = hashlib.sha256(zipped[0]).hexdigest()
         main = analysis.get("main_file") or ""
         name = path.name if path is not None else (next((n for n in names if n.lower().endswith(".zip")), "")
                                                      or Path(main).name or names[0])
@@ -729,7 +736,11 @@ def _analyse_document(items, path=None):
     if path is not None:
         data = path.read_bytes()
     text = document.extract_text(name, data)
-    return document.analyse(text), name, len(text)
+    analysis = document.analyse(text)
+    if name.lower().endswith(".docx"):  # Formatierung, die den Text verbirgt, steht nur in der Datei
+        analysis["integrity"]["hidden"] = integrity.docx_hidden(data)
+    analysis["sha256"] = hashlib.sha256(data).hexdigest()  # Fingerabdruck der Datei für das Siegel im Bericht
+    return analysis, name, len(text)
 
 
 @app.route("/api/style", methods=["POST"])
@@ -1409,6 +1420,27 @@ def add_ranking():
     except Exception:  # noqa: BLE001 - kaputte Excel-Datei o. Ä.
         return jsonify({"error": tr("Die Datei ließ sich nicht lesen. CSV oder XLSX?")}), 400
     return jsonify(meta)
+
+
+@app.route("/api/house-rules", methods=["POST"])
+def load_house_rules():
+    """Hausregeln einer Hochschule laden: JSON-Datei im Formularfeld `file` (Aufbau in house.py)."""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": tr("Bitte eine Hausregel-Datei (.json) wählen.")}), 400
+    data = f.read(8 * 1024 * 1024 + 1)
+    if len(data) > 8 * 1024 * 1024:
+        return jsonify({"error": tr("Die Datei ist größer als 8 MB.")}), 400
+    try:
+        return jsonify(house.apply(data))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/house-rules", methods=["DELETE"])
+def drop_house_rules():
+    house.remove()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/rankings/<list_id>", methods=["DELETE"])

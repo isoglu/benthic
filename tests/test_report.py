@@ -1,6 +1,7 @@
 """Prüfbericht als druckbare Seite (offline)."""
 
 import os
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -60,12 +61,23 @@ class Bericht(unittest.TestCase):
         page = self.client.get("/report/9907").get_data(as_text=True)
         self.assertIn('class="page cover"', page)            # Deckblatt
         for anchor in ("sec-overview", "sec-contents", "sec-attention", "sec-document", "sec-quotes", "sec-style",
-                       "sec-all", "sec-about"):
+                       "sec-all", "sec-proof"):
             self.assertIn(f'id="{anchor}"', page)
         self.assertIn('data-pageof="sec-all"', page)           # Inhaltsverzeichnis mit Seitenzahlen
         self.assertIn('<template id="page-tpl">', page)       # Kopf und Fuß jeder Innenseite
         self.assertNotIn("stop-opacity", page)                # druckt WebKit deckend (report._print_safe)
         self.assertNotIn("<mask", page)
+
+    def test_seal_and_qr(self):
+        from benthic import seal
+        page = self.client.get("/report/9907").get_data(as_text=True)
+        self.assertIn('class="qr"', page)
+        link = re.search(r'href="https://benthic\.isoglu\.com/v#([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)"', page)
+        self.assertIsNotNone(link)
+        parsed = seal.parse(link.group(1))
+        self.assertTrue(parsed["valid"])
+        self.assertEqual(parsed["name"], "thesis.docx")
+        self.assertIn(" ".join(parsed["digest"][i:i + 4] for i in range(0, 16, 4)).upper(), page)  # Siegel im Fuß
 
     def test_batch_page(self):
         from benthic import report
@@ -74,7 +86,7 @@ class Bericht(unittest.TestCase):
              "rows": [{"name": "a.pdf", "entries": 10, "retracted": 1, "problems": {"retracted": ["Wakefield 1998"]}},
                       {"name": "b.docx", "state": "error", "error": "no-bibliography"}]}
         page = report.render_batch(b)
-        for text in ("a.pdf", "b.docx", "Wakefield 1998", 'class="page cover"', 'id="sec-about"'):
+        for text in ("a.pdf", "b.docx", "Wakefield 1998", 'class="page cover"', 'id="sec-proof"'):
             self.assertIn(text, page)
 
     def test_unknown(self):

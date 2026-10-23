@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
-from . import refs
+from . import integrity, refs
 
 MAX_BYTES = 60 * 1024 * 1024
 # Entpackt höchstens so viel aus einer Word-Datei oder einem LaTeX-Archiv: Ein Zip von wenigen KB kann sonst
@@ -645,6 +645,7 @@ def analyse(text: str) -> Dict:
         "uncited": uncited[:200] if readable else [],
         "secondary_citations": signals["secondary_citations"],
         "uncited_claims": signals["uncited_claims"],
+        "integrity": integrity.scan(body),  # unsichtbare Zeichen, fremde Buchstaben, gequälte Phrasen
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": find_quotes(_normalised(body), citations),
         "refs_text": "\n".join(e["text"] for e in entries),

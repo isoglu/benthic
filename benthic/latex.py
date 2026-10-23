@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple
 
-from . import document, refs
+from . import document, integrity, refs
 
 MAX_FILES = 400
 MAX_SCAN = 20000  # so viele Einträge sieht files_from_path höchstens an; ein Projektordner hat weit weniger
@@ -313,6 +313,7 @@ def analyse(files: Dict[str, str]) -> Dict:
         "uncited": uncited,
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": quotes,
+        "integrity": integrity.scan(plain),
         "main_file": main,
         "bib_files": bib_keys,
         "refs_text": "\n".join(entries[k] for k in to_check),

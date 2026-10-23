@@ -5,6 +5,30 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.6
+
+Every check report now carries a signed seal that anyone can verify,
+institutions can hand out their rules as one file, and a thesis check shows
+signs of manipulation.
+
+- **A seal anyone can check.** Every PDF report carries a signed seal with a
+  QR code on its cover and its number in every footer. The QR code opens
+  benthic.isoglu.com/v, which shows whether the report is unchanged since it
+  was made and looks up each DOI again at Crossref and DataCite, in the
+  reader's own browser. A thesis file dropped there is compared with the
+  report by its fingerprint. The seal proves that a report is unchanged, not
+  who made it.
+- **House rules from your institution.** A library or writing center can hand
+  out one file with its name, proxy link, contact address, OpenAlex key,
+  required citation style and ranking lists. Load it under Settings › Sources
+  and access; Benthic takes nothing else from it, and the house style then
+  decides the style check.
+- **Signs of manipulation.** A thesis check shows invisible characters inside
+  words, letters from another script that look Latin, text hidden in a Word
+  file (hidden, white or tiny) and tortured phrases, the odd synonyms a
+  paraphrasing tool leaves behind. Each finding shows where it is, to check in
+  the file; it is never a score.
+
 ## 1.1.5
 
 Benthic now makes sure a downloaded PDF is the paper you cited, says which

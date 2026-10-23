@@ -6,6 +6,32 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.6
+
+Jeder Prüfbericht trägt jetzt ein signiertes Siegel, das jede Person
+nachprüfen kann, Hochschulen können ihre Regeln als eine Datei weitergeben, und
+die Prüfung einer Arbeit zeigt Hinweise auf Manipulation.
+
+- **Ein Siegel, das jede Person prüfen kann.** Jeder PDF-Bericht trägt ein
+  signiertes Siegel mit QR-Code auf dem Deckblatt und seiner Nummer in jeder
+  Fußzeile. Der QR-Code öffnet benthic.isoglu.com/v: Die Seite zeigt, ob der
+  Bericht seit seiner Erstellung unverändert ist, und fragt jede DOI noch
+  einmal bei Crossref und DataCite nach, im Browser der lesenden Person. Eine
+  dort abgelegte Arbeit wird über ihren Fingerabdruck mit dem Bericht
+  verglichen. Das Siegel belegt, dass ein Bericht unverändert ist, nicht, wer
+  ihn erstellt hat.
+- **Hausregeln der Hochschule.** Eine Bibliothek oder ein Schreibzentrum kann
+  eine Datei mit Name, Proxy-Link, Kontaktadresse, OpenAlex-Key, verlangtem
+  Zitierstil und Rankinglisten weitergeben. Du lädst sie unter Einstellungen ›
+  Quellen und Zugang; Benthic übernimmt nichts anderes daraus, und der
+  Zitierstil der Hausregeln gilt dann für die Stilprüfung.
+- **Hinweise auf Manipulation.** Die Prüfung einer Arbeit zeigt unsichtbare
+  Zeichen mitten in Wörtern, Buchstaben aus einer anderen Schrift, die wie
+  lateinische aussehen, in einer Word-Datei versteckten Text (ausgeblendet,
+  weiß oder winzig) und gequälte Phrasen, die seltsamen Synonyme eines
+  Umschreibprogramms. Jeder Fund zeigt die Stelle zum Nachprüfen in der Datei;
+  er ist nie ein Wert für die Person.
+
 ## 1.1.5
 
 Benthic prüft jetzt, ob ein geladenes PDF wirklich die zitierte Arbeit ist,

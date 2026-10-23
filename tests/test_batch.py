@@ -74,6 +74,7 @@ class Stapel(unittest.TestCase):
         self.assertEqual(rows["anna.txt"]["not_found"], 1)
         self.assertEqual(rows["ben.txt"]["error"], "no-bibliography")
         self.assertEqual(rows["carla"]["entries"], 3)
+        self.assertEqual(batch.find_job(rows["anna.txt"]["job_id"])["schema"], 1)  # Version des Ergebnis-Datensatzes
         self.assertEqual(history.load(), [])                       # Stapel füllen den Verlauf nicht
         report = self.client.get(f"/report/{rows['anna.txt']['job_id']}")
         self.assertEqual(report.status_code, 200)                   # Bericht aus dem Stapel
