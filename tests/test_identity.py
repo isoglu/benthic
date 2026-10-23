@@ -296,6 +296,15 @@ class Gehalten(unittest.TestCase):
 
 
 class Bericht(unittest.TestCase):
+    def setUp(self):  # der Bericht legt beim Siegeln einen Schlüssel im Datenordner an
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = mock.patch.dict(os.environ, {"BENTHIC_DATA_DIR": self.tmp.name})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
     def test_report_names_file_copy_run_and_other_source(self):
         from benthic import report
         quotes = [{"quote": "a quote from the wrong file", "label": "Aydin (2014)", "status": "wrong_pdf",

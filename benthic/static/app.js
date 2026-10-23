@@ -180,6 +180,8 @@ function renderSettings() {
   $("#set-proxy").value = settings.proxy_prefix || "";
   $("#set-sources").value = (settings.library_sources || []).join("\n");
   $("#set-update-url").value = settings.update_url || "";
+  $("#house-state").textContent = settings.house_rules ? T("geladen: {name}", { name: settings.house_rules }) : T("keine geladen");
+  $("#house-remove-btn").hidden = !settings.house_rules;
   renderProviders();
   renderRoute();
   renderMode();
@@ -2156,6 +2158,7 @@ function renderDocument(doc) {
     tip.append(icon("i-quote"), document.createTextNode(T("Bei bestätigten Quellen sucht das Anführungszeichen im geladenen Volltext die Stelle, die zu deinem Satz passt.")));
     box.appendChild(tip);
   }
+  box.appendChild(integritySection(doc));  // gilt auch, wenn sich die Zitate nicht lesen lassen
   if (!doc.cross_check) {
     const p = document.createElement("p");
     p.className = "hint dc-note";
@@ -2229,6 +2232,46 @@ function renderDocument(doc) {
   box.appendChild(writingSignalsSection(doc));
   box.appendChild(quotesSection(doc));
   box.appendChild(overlapSection(doc));
+}
+
+// Hinweise auf Manipulation (integrity.py): jede Stelle mit Umgebung, zum Nachprüfen in der Datei
+function integritySection(doc) {
+  const f = doc.integrity || {};
+  const hidden = { hidden: T("In Word ausgeblendeter Text"), white: T("Weiße Schrift ohne Hintergrund"), tiny: T("Winzige Schrift (unter 2 pt)") };
+  const rows = [
+    ...(f.hidden || []).map((x) => [hidden[x.kind] || "", x.text, 1, ""]),
+    ...(f.invisible || []).map((x) => [T("Unsichtbares Zeichen im Wort"), x.word, x.count, x.context]),
+    ...(f.lookalike || []).map((x) => [T("Buchstabe aus einer anderen Schrift"), x.word, x.count, x.context]),
+    ...(f.tortured || []).map((x) => [T("Ungewöhnliche Wendung, üblich ist „{term}“", { term: x.expected }), x.phrase, x.count, x.context]),
+  ];
+  if (!rows.length) return document.createDocumentFragment();
+  const sec = document.createElement("div");
+  sec.className = "dc-signals dc-col warn";
+  const h = document.createElement("h4");
+  h.textContent = T("Hinweise auf Manipulation") + ` (${rows.length})`;
+  const sub = document.createElement("div");
+  sub.className = "dc-sig-block";
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = T("Jeder Fund zeigt die Stelle. Prüfe ihn in der Datei; ein einzelner kann Zufall sein.");
+  const ul = document.createElement("ul");
+  rows.slice(0, 30).forEach(([label, what, n, ctx]) => {
+    const li = document.createElement("li");
+    li.className = "dc-stack";
+    const b = document.createElement("strong");
+    b.textContent = `${label}: ${what}` + (n > 1 ? ` (${n}×)` : "");
+    li.appendChild(b);
+    if (ctx) {
+      const p = document.createElement("p");
+      p.className = "dc-sentence";
+      p.textContent = ctx;
+      li.appendChild(p);
+    }
+    ul.appendChild(li);
+  });
+  sub.append(hint, ul);
+  sec.append(h, sub);
+  return sec;
 }
 
 function writingSignalsSection(doc) {
@@ -4856,6 +4899,26 @@ async function importRanking() {
   loadRankings();
 }
 
+// Hausregeln einer Hochschule (Einstellungen): setzen Angaben und Listen, danach neu laden
+async function loadHouseRules() {
+  const file = $("#house-file").files[0];
+  if (!file) { toast(T("Keine Datei gewählt"), T("Die Hausregeln sind eine .json-Datei deiner Hochschule.")); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/house-rules", { method: "POST", body: fd });
+  const j = await r.json();
+  if (!r.ok) { toast(T("Hausregeln nicht geladen"), j.error || ""); return; }
+  toast(T("Hausregeln geladen"), j.style ? T("{name}, Zitierstil {style}", { name: j.name, style: j.style }) : j.name);
+  $("#house-file").value = "";
+  loadSettings();
+  loadRankings();
+}
+
+async function removeHouseRules() {
+  await fetch("/api/house-rules", { method: "DELETE" });
+  loadSettings();
+}
+
 async function createProject() {
   const name = $("#project-name").value.trim();
   if (!name) { $("#project-name").focus(); return; }
@@ -6294,6 +6357,8 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
     });
   });
 $("#ranking-add-btn").onclick = importRanking;
+$("#house-load-btn").onclick = loadHouseRules;
+$("#house-remove-btn").onclick = removeHouseRules;
 $("#licenses").addEventListener("toggle", async (e) => {
   const pre = $("#licenses-text");
   if (!e.target.open || pre.textContent) return;

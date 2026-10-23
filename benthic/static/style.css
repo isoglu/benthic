@@ -1205,6 +1205,7 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .dc-sig-block li:last-child { border-bottom: none; }
 .dc-sig-block li .dc-sentence { margin: 0; flex: 1; }
 .dc-sig-block li .btn { flex-shrink: 0; margin-top: 2px; }
+.dc-sig-block li.dc-stack { display: block; }
 
 /* Belegstellen im Volltext */
 .results tbody tr.support-row:hover td { background: none; }

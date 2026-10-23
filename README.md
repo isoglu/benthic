@@ -68,6 +68,13 @@ talks to the scholarly services listed below.
   verbatim, closely or in part without quotation marks, with the source passage
   next to it. Only the thesis's own sources are compared; this is not a
   plagiarism check against the web.
+- **Signs of manipulation.** In a thesis, Benthic shows invisible characters
+  inside words, letters from another script that look Latin (a Cyrillic "а"
+  in "plagiarism"), text hidden in a Word file (hidden, white or tiny), and
+  tortured phrases, the odd synonyms a paraphrasing tool leaves behind
+  ("counterfeit consciousness" for artificial intelligence; list from Cabanac,
+  Labbé and Magazinov 2021). Each finding shows where it is, to check in the
+  file. White text in PDFs and text inside images are not detected.
 - **Find the passage.** For a confirmed source, Benthic searches the
   downloaded full text for the passages closest to the sentence that cites it,
   with page numbers. It ranks by wording; whether a passage supports the claim
@@ -210,6 +217,11 @@ On first launch a short assistant asks for your language, an e-mail address
 (sent to Unpaywall, Crossref and OpenAlex as their etiquette asks), your
 university and its proxy (EZproxy or OpenAthens), a download folder (default
 `~/Documents/Benthic`) and an existing library to import.
+
+A library or writing center can hand out its rules as one file: **Settings → Your
+institution's house rules** loads a `.json` file with the institution's name, proxy
+link, contact address, OpenAlex key, required citation style and ranking lists,
+and nothing else. The format is described in `benthic/house.py`.
 
 ![First-run setup](docs/screenshots/setup.png)
 
@@ -417,6 +429,8 @@ benthic/style.py          citation style check
 benthic/support.py        passages in a full text that come closest to a claim
 benthic/finder.py         real papers for a claim (OpenAlex)
 benthic/overlap.py        wording taken from the sources without quotation marks
+benthic/integrity.py      signs of manipulation: hidden text, look-alike letters, tortured phrases
+benthic/house.py          an institution's house rules file
 benthic/clips.py          Grimpo's finds: screenshots, links, text
 benthic/guide.py          the nine steps through a paper
 benthic/watch.py          retraction watch for project sources

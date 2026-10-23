@@ -15,6 +15,7 @@ plugin-data/
 journals-cache.json
 usage.json
 rankings/
+seal.key
 benthic-server.log
 *.log
 

@@ -48,6 +48,10 @@ VERDICT_ADVICE = {
     "retracted": "Zitiere die Arbeit nicht als Beleg. Musst du sie erwähnen, nenne den Rückzug ausdrücklich.",
 }
 
+# Version des Ergebnis-Datensatzes (Urteil, Angabe, Feldvergleich je Quelle). Siegel, Postausgang und
+# Campus-Server lesen ihn; erhöhen, sobald sich ein Feld ändert, das sie lesen. Fehlt sie, gilt 1.
+RESULT_SCHEMA = 1
+
 # Schwellen für den Titelvergleich (0 bis 1).
 TITLE_OK = 0.85       # gleicher Titel (kleine Abweichungen, Untertitel)
 TITLE_FOUND = 0.90    # Suche gilt als eindeutig

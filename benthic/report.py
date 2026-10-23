@@ -1,9 +1,10 @@
-"""Prüfbericht als gestaltetes A4-Dokument: Deckblatt, Überblick, Inhalt, Listen und Angaben zum Bericht.
+"""Prüfbericht als gestaltetes A4-Dokument: Deckblatt, Überblick, Inhalt, Listen und Nachweis mit Siegel.
 
 Die App druckt die Seite über macOS in eine PDF (ReportBridge in BenthicApp.swift, ohne Ränder); im Browser
 öffnet ``?print=1`` den Druckdialog. Die Seite ist eigenständig: eigenes CSS, das Zeichen als SVG, ein kleines
 Skript, das den Inhalt auf A4-Seiten verteilt (laufende Kopf- und Fußzeile, Seitenzahlen, Inhaltsverzeichnis)
-und danach gegebenenfalls druckt.
+und danach gegebenenfalls druckt. Das Siegel (seal.py) steht als QR-Code auf dem Deckblatt und auf der letzten
+Seite, seine Nummer im Fuß jeder Seite.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import __version__, identity
+from . import __version__, identity, integrity, seal
 from .i18n import current, tr
 from .verify import VERDICT_ADVICE, VERDICT_LABEL, VERDICTS
 
@@ -515,11 +516,14 @@ footer.run .pno { margin-left: auto; color: #4a5a75; font-variant-numeric: tabul
 .legend li.zero { opacity: .45; }
 .legend .pc { color: #7a889e; margin-left: .6mm; font-variant-numeric: tabular-nums; }
 .legend.dark { color: #a9c3e0; } .legend.dark b { color: #fff; }
-.cover .sources { position: absolute; left: 14mm; right: 14mm; bottom: 20mm; display: flex; align-items: baseline;
-                  justify-content: space-between; gap: 3mm; white-space: nowrap; padding: 4.6mm 6mm; border-radius: 4mm;
-                  background: rgba(9, 28, 54, .62); box-shadow: inset 0 .3mm 0 rgba(255,255,255,.16), 0 0 0 .25mm rgba(160,190,255,.22); }
-.cover .sources span { font-size: 7.6pt; color: #9fb6d3; }
-.cover .sources b { font: 600 8.6pt/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; color: #eaf2ff; letter-spacing: -.01em; }
+.cover .seal { position: absolute; left: 14mm; right: 14mm; bottom: 20mm; display: flex; gap: 6mm; align-items: center;
+               padding: 5mm; border-radius: 5mm; background: rgba(9, 28, 54, .62);
+               box-shadow: inset 0 .3mm 0 rgba(255,255,255,.16), 0 0 0 .25mm rgba(160,190,255,.22); }
+.cover .seal .tile { flex: none; background: #fff; border-radius: 2.6mm; padding: 1.2mm; line-height: 0; }
+.cover .seal h2 { font: 650 12pt/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; margin: 0 0 1.6mm; color: #fff; letter-spacing: -.01em; }
+.cover .seal p { margin: 0 0 1.6mm; font-size: 8.4pt; line-height: 1.45; color: #c4d6ec; }
+.cover .seal p.id { margin: 2.4mm 0 0; font-size: 7.6pt; color: #8fe3ff; }
+.cover .seal p.id span { color: #7e98b8; font-family: -apple-system, sans-serif; letter-spacing: 0; }
 .cover .foot { position: absolute; left: 18mm; right: 18mm; bottom: 9mm; display: flex; font-size: 7pt; color: #7e98b8; }
 .cover .foot span:last-child { margin-left: auto; }
 
@@ -637,6 +641,13 @@ footer.run .pno { margin-left: auto; color: #4a5a75; font-variant-numeric: tabul
 .regs .reg .doi { color: #26354d; font-size: 7pt; overflow-wrap: anywhere; }
 
 /* Nachweis */
+.proof { display: grid; grid-template-columns: 52mm 1fr; gap: 8mm; align-items: start; margin: 2mm 0 7mm; }
+.proof .tile { border-radius: 4mm; padding: 2mm; box-shadow: inset 0 0 0 .25mm #c3cfdd; line-height: 0; background: #fff; }
+.proof ol { margin: 0; padding-left: 4.6mm; } .proof li { margin: 0 0 2.2mm; color: #26354d; }
+.proof li b { color: #0b1830; }
+.btn { display: inline-flex; align-items: center; gap: 2mm; margin-top: 2mm; padding: 2.2mm 4mm; border-radius: 5mm;
+       background: linear-gradient(180deg, #13284a, #0b1830); color: #fff; font-weight: 600; font-size: 8.6pt; }
+.btn svg { width: 3.4mm; height: 3.4mm; }
 .facts { width: 100%; border-collapse: collapse; margin: 0 0 7mm; }
 .facts th { text-align: left; font-weight: 600; color: #4a5a75; width: 42mm; vertical-align: top; padding: 1.8mm 0; border-bottom: .2mm solid #eef2f7; }
 .facts td { padding: 1.8mm 0; border-bottom: .2mm solid #eef2f7; overflow-wrap: anywhere; }
@@ -726,6 +737,8 @@ PAGINATE = r"""
 })();
 """
 
+LINK_ICON = ('<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" '
+             'stroke-linejoin="round"><path d="M9 3h4v4M13 3 7.5 8.5M12 9.5V13H3V4h3.5"/></svg>')
 CHECK_ICON = ('<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#08697d" stroke-width="1.8" '
               'stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="m5.2 8.2 2 2 3.8-4.2"/></svg>')
 
@@ -734,13 +747,14 @@ SOURCES = ("Crossref", "OpenAlex", "Europe PMC (PubMed)", "Semantic Scholar", "D
            "Open Library", "Deutsche Nationalbibliothek", "Retraction Watch")
 
 
-def _shell(title: str, run_title: str, cover: str, flow: str, foot: str, auto_print: bool) -> str:
+def _shell(title: str, run_title: str, cover: str, flow: str, sealed: Optional[Dict], auto_print: bool) -> str:
     lang = current()
+    seal_line = (f'<span class="mono">{_e(tr("Siegel"))} {_e(sealed["number"])}</span><span>benthic.isoglu.com/v</span>'
+                 if sealed else f"<span>{_e(tr('Erstellt mit Benthic {version}', version=__version__))}</span>")
     template = (f'<template id="page-tpl"><section class="page inner">{_corner()}'
                 f'<header class="run"><svg><use href="#bm"/></svg><span class="wm">Benthic</span><span class="sep"></span>'
                 f'<span>{_e(run_title)}</span><span class="doc">{_e(title)}</span></header>'
-                f'<div class="body"></div><footer class="run"><span>{_e(foot)}</span><span>benthic.isoglu.com</span>'
-                f'<span class="pno"></span></footer></section></template>')
+                f'<div class="body"></div><footer class="run">{seal_line}<span class="pno"></span></footer></section></template>')
     printer = "addEventListener('load',()=>setTimeout(()=>print(),300));" if auto_print else ""
     return (f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
             f'<title>{_e(run_title)}: {_e(title)}</title><meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -770,14 +784,19 @@ def _quote_notes(q: Dict) -> List[str]:
     return out
 
 
-def _cover(kind_label: str, docname: str, number: str, when: float, verdict_line: str, bar: str, legend: str) -> str:
+def _cover(kind_label: str, docname: str, number: str, when: float, verdict_line: str, bar: str, legend: str,
+           sealed: Optional[Dict], batch: bool = False) -> str:
     stem, ext = docname, ""
     m = re.match(r"^(.*?)(\.(?:pdf|docx?|tex|ltx|zip|txt|md|bib|ris))$", docname, re.I)
     if m:
         stem, ext = m.group(1), m.group(2)
     long = len(stem) > 70
-    sources = (f'<div class="sources"><span>{_e(tr("Geprüft gegen"))}</span>'
-               + "".join(f"<b>{_e(name)}</b>" for name in SOURCES) + "</div>")
+    seal_html = ""
+    if sealed:
+        seal_html = (f'<div class="seal"><a class="tile" href="{_e(sealed["full_url"])}">{seal.qr_svg(sealed["qr_url"], 31)}</a>'
+                     f'<div><h2>{_e(tr("Echtheit prüfen"))}</h2>'
+                     f'<p>{_e(tr("Code scannen: Die Prüfseite zeigt, was dieser Bericht sagen muss, und prüft die Signatur.") if batch else tr("Code scannen: Die Prüfseite zeigt, was dieser Bericht sagen muss, und prüft die Signatur. In der PDF führt ein Klick auf den Code zur vollständigen Prüfung, die jede DOI selbst bei Crossref nachfragt."))}</p>'
+                     f'<p class="id mono">{_e(sealed["number"])} <span>· {_e(tr("Schlüssel"))}</span> {_e(sealed["key_id"])}</p></div></div>')
     return (f'<section class="page cover">{_sea()}'
             f'<div class="top"><div class="brand"><svg><use href="#bm"/></svg><span>Benthic</span></div>'
             f'<div class="meta"><b>{_e(kind_label)} {_e(number)}</b><br>{_e(_date(when))}</div></div>'
@@ -785,15 +804,39 @@ def _cover(kind_label: str, docname: str, number: str, when: float, verdict_line
             f'<p class="docname{" long" if long else ""}">{_e(stem)}'
             + (f'<span class="ext">{_e(ext)}</span>' if ext else "") + "</p></div>"
             f'<div class="summary"><p class="verdict">{_e(verdict_line)}</p>{bar}{legend}</div>'
-            f'{sources}<div class="foot"><span>{_e(tr("Erstellt mit Benthic {version}", version=__version__))}</span>'
+            f'{seal_html}<div class="foot"><span>{_e(tr("Erstellt mit Benthic {version}", version=__version__))}</span>'
             f'<span>benthic.isoglu.com</span></div></section>')
 
 
-def _about(rows: List[Tuple[str, str]], notes: List[str]) -> str:
-    """Schluss: Angaben zum Bericht und seine Grenzen, im Anschluss an die Listen."""
-    return ('<section>' + _heading("sec-about", tr("Über diesen Bericht"))
-            + '<div class="keep"><table class="facts">' + "".join(f"<tr><th>{_e(k)}</th><td>{v}</td></tr>" for k, v in rows)
-            + "</table>" + "".join(f'<p class="fine">{_e(n)}</p>' for n in notes) + "</div></section>")
+def _proof(sealed: Optional[Dict], rows: List[Tuple[str, str]], fine: str, batch: bool = False) -> str:
+    parts = [_heading("sec-proof", tr("Nachweis"),
+                      tr("Wie sich prüfen lässt, dass dieser Bericht echt und unverändert ist."))]
+    if sealed:
+        parts.append(
+            f'<div class="proof">'
+            f'<a class="tile" href="{_e(sealed["full_url"])}">{seal.qr_svg(sealed["qr_url"], 48)}</a><div><ol>'
+            f'<li><b>{_e(tr("Code scannen."))}</b> {_e(tr("Die Prüfseite zeigt Arbeit, Datum und Zählungen, die dieser Bericht nennen muss, und ob die Signatur gültig ist. Weicht etwas vom Bericht ab, wurde er verändert."))}</li>'
+            + (f'<li><b>{_e(tr("Den ganzen Datensatz prüfen."))}</b> {_e(tr("Ein Klick auf den Code oder den Knopf darunter öffnet die Prüfseite mit den Zählungen jeder Arbeit; sie rechnet die Prüfsumme nach. Die Quellen einer Arbeit belegt ihr eigener Prüfbericht."))}</li>'
+               if batch else
+               f'<li><b>{_e(tr("Alle Quellen nachprüfen."))}</b> {_e(tr("Ein Klick auf den Code oder den Knopf darunter öffnet die Prüfseite mit dem ganzen Datensatz; alternativ diese PDF auf die Prüfseite ziehen. Die Seite rechnet die Prüfsumme nach und fragt jede DOI selbst bei Crossref und DataCite ab, im Browser der prüfenden Person."))}</li>'
+               f'<li><b>{_e(tr("Die Arbeit vergleichen."))}</b> {_e(tr("Wer die Datei der Arbeit auf die Prüfseite zieht, sieht, ob ihr Fingerabdruck zu diesem Bericht passt. Die Datei verlässt dabei den Rechner nicht."))}</li>')
+            + f'</ol><a class="btn" href="{_e(sealed["full_url"])}">{LINK_ICON}'
+            + _e(tr("Bericht online prüfen") if batch else tr("Alle Quellen online prüfen")) + '</a></div></div>')
+        rows = [(tr("Siegelnummer"), f'<span class="mono">{_e(sealed["digest"])}</span>'),
+                (tr("Schlüssel dieser Installation"), f'<span class="mono">{_e(sealed["key"][:32])}</span>')] + rows
+    parts.append('<table class="facts">' + "".join(f"<tr><th>{_e(k)}</th><td>{v}</td></tr>" for k, v in rows) + "</table>")
+    parts.append(f'<p class="fine">{_e(fine)}</p>')
+    if sealed:
+        parts.append(f'<p class="fine">{_e(tr("Das Siegel steht nur im Bericht: Die Prüfseite liest es aus der Adresse, die der Browser nie an einen Server schickt. Eine Signatur belegt, dass der Bericht seit dem Erstellen unverändert ist.") if batch else tr("Das Siegel steht nur im Bericht: Die Prüfseite liest es aus der Adresse, die der Browser nie an einen Server schickt. Eine Signatur belegt, dass der Bericht seit dem Erstellen unverändert ist; dass die Quellen stimmen, belegt erst die Nachprüfung bei Crossref."))}</p>')
+    return '<section data-break="page">' + "".join(f'<div class="keep">{p}</div>' if not p.startswith('<div class="h"') else p
+                                                 for p in parts) + "</section>"
+
+
+def _make_seal(record: Dict, name: str, counts: List[int]) -> Optional[Dict]:
+    try:
+        return seal.make(record, name, counts)
+    except (OSError, ValueError):
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -808,6 +851,8 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
     ok, warn, bad = (sum(counts[v] for v in group) for group in (OK, WARN, BAD))
     when = job.get("finished_at") or job.get("created_at")
     title = doc.get("name") or job.get("project_name") or tr("Literaturliste vom {date}", date=_date(when, clock=False))
+    record = seal.report_record(job, job_id)
+    sealed = _make_seal(record, doc.get("name") or job.get("project_name") or "", [counts[v] for v in seal.REPORT_COUNTS])
 
     if bad:
         line = tr("{ok} von {n} Quellen bestätigt, {bad} mit Problemen.", ok=ok, n=total, bad=bad)
@@ -815,7 +860,7 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
         line = tr("{ok} von {n} Quellen bestätigt, {warn} zum Nachsehen.", ok=ok, n=total, warn=warn)
     else:
         line = tr("Alle {n} Quellen bestätigt.", n=total) if total != 1 else tr("Die Quelle ist bestätigt.")
-    cover = _cover(tr("Prüfbericht"), title, f"#{job_id}", when, line, _bar(counts, total), _legend(counts, total, dark=True))
+    cover = _cover(tr("Prüfbericht"), title, f"#{job_id}", when, line, _bar(counts, total), _legend(counts, total, dark=True), sealed)
 
     attention = sorted((r for r in results if r.get("verdict") in ATTENTION),
                        key=lambda r: (ATTENTION.index(r.get("verdict")), r.get("order", 0)))
@@ -825,6 +870,8 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
     overlaps = (job.get("overlap_check") or {}).get("findings") or []
     mw = job.get("missing_works") or {}
     noted = {k: v for k, v in (style.get("entries") or {}).items() if v}
+    integ = doc.get("integrity") or {}
+    n_integ = integrity.count(integ)
 
     # Inhalt (Abschnitte, die es gibt)
     toc = [("sec-overview", tr("Auf einen Blick"), tr("Zahlen, Quellenkarte, was zuerst zu tun ist"))]
@@ -834,6 +881,8 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
         toc.append(("sec-document", tr("Abgleich mit der Arbeit"),
                     tr("{m} ohne Eintrag, {u} nie zitiert", m=len(missing), u=len(uncited))
                     + (", " + tr("{n} mit anderem Jahr", n=len(years)) if years else "")))
+    if n_integ:
+        toc.append(("sec-integrity", tr("Hinweise auf Manipulation"), tr("1 Stelle") if n_integ == 1 else tr("{n} Stellen", n=n_integ)))
     if quotes:
         toc.append(("sec-quotes", tr("Wörtliche Zitate"), tr("{n} geprüft", n=len(quotes))))
     if job.get("overlap_check"):
@@ -846,7 +895,7 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
     if mw.get("suggestions"):
         toc.append(("sec-missing", tr("Oft zitiert von deinen Quellen"), tr("{n} Vorschläge", n=len(mw["suggestions"]))))
     toc.append(("sec-all", tr("Alle Quellen"), _sources(total)))
-    toc.append(("sec-about", tr("Über diesen Bericht"), tr("Angaben, Grundlage und Grenzen")))
+    toc.append(("sec-proof", tr("Nachweis"), tr("Siegel, QR-Code und Prüfung")))
 
     flow = [_overview(results, counts, total, ok, warn, bad, doc, quotes, style, noted, attention, missing),
             _contents(toc)]
@@ -892,6 +941,20 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
                 f'<div class="row"><div class="item"><b class="warn">{_e(u["sentence"])}</b></div></div>' for u in unclaims[:20]) + "</div>")
         if doc.get("cross_check") and not missing and not uncited and not years and not sec_cites and not unclaims:
             sec.append(f'<div class="keep"><p class="allgood">{CHECK_ICON}{_e(tr("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert."))}</p></div>')
+    if n_integ:
+        sec.append(_heading("sec-integrity", tr("Hinweise auf Manipulation"),
+                            tr("Jeder Fund zeigt die Stelle. Prüfe ihn in der Datei; ein einzelner kann Zufall sein.")))
+        hidden = {"hidden": tr("In Word ausgeblendeter Text"), "white": tr("Weiße Schrift ohne Hintergrund"),
+                  "tiny": tr("Winzige Schrift (unter 2 pt)")}
+        times = lambda f: f' <span class="muted">({int(f["count"])}×)</span>' if f.get("count", 1) > 1 else ""
+        rows = [(hidden.get(f["kind"], ""), f["text"], "", "") for f in integ.get("hidden") or []]
+        rows += [(tr("Unsichtbares Zeichen im Wort"), f["word"], times(f), f["context"]) for f in integ.get("invisible") or []]
+        rows += [(tr("Buchstabe aus einer anderen Schrift"), f["word"], times(f), f["context"]) for f in integ.get("lookalike") or []]
+        rows += [(tr("Ungewöhnliche Wendung, üblich ist „{term}“", term=f["expected"]), f["phrase"], times(f), f["context"])
+                 for f in integ.get("tortured") or []]
+        sec.append('<div class="split list one">' + "".join(
+            f'<div class="row"><div class="item"><b class="warn">{_e(label)}:</b> {_e(what)}{n}'
+            + (f'<div class="meta">{_e(ctx)}</div>' if ctx else "") + "</div></div>" for label, what, n, ctx in rows) + "</div>")
     if quotes:
         sec.append(_heading("sec-quotes", tr("Wörtliche Zitate"), tr("{n} geprüft", n=len(quotes))))
         rows = []
@@ -956,9 +1019,9 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
     facts = [(tr("Bericht"), _e(f"#{job_id} · {_date(when)}")), (tr("Erstellt mit"), _e(f"Benthic {__version__}")),
              (tr("Geprüft gegen"), _e(", ".join(SOURCES)))]
     if doc.get("name"):
-        facts.insert(1, (tr("Arbeit"), _e(doc["name"])))
-    flow.append(_about(facts, [tr("Urteile sind begründete Hinweise aus den Verzeichnissen unter „Geprüft gegen“, keine Gutachten. Bei „Weicht ab“ und „Unsicher“ lohnt der Blick ins Original.")]))
-    return _shell(title, tr("Prüfbericht"), cover, "".join(flow), f'{tr("Prüfbericht")} #{job_id} · {_date(when, clock=False)}', auto_print)
+        facts.insert(1, (tr("Arbeit"), _e(doc["name"]) + (f'<br><span class="mono">SHA-256 {_e(doc["sha256"])}</span>' if doc.get("sha256") else "")))
+    flow.append(_proof(sealed, facts, tr("Urteile sind begründete Hinweise aus den Verzeichnissen unter „Geprüft gegen“, keine Gutachten. Bei „Weicht ab“ und „Unsicher“ lohnt der Blick ins Original.")))
+    return _shell(title, tr("Prüfbericht"), cover, "".join(flow), sealed, auto_print)
 
 
 def _overview(results, counts, total, ok, warn, bad, doc, quotes, style, noted, attention, missing) -> str:
@@ -1060,8 +1123,8 @@ def _contents(toc: List[Tuple[str, str, str]]) -> str:
                      f'<p>{_e(tr(EXPLAIN[v]))}</p></div>' for v in VERDICTS)
     method = (f'<div class="cols"><div class="block"><h3>{_e(tr("Wie Benthic prüft"))}</h3>'
               f'<p>{_e(tr("Jede Angabe wird über ihre DOI oder ihren Titel gesucht, bei OpenAlex, Crossref, arXiv, Semantic Scholar und Open Library, und mit dem gefundenen Werk verglichen: Titel, Autor:innen, Jahr. Rückzüge melden OpenAlex und Crossref, dessen Daten die Retraction-Watch-Datenbank einschließen."))}</p></div>'
-              f'<div class="block"><h3>{_e(tr("Grenzen der Prüfung"))}</h3>'
-              f'<p>{_e(tr("Urteile sind begründete Hinweise, keine Gutachten. Bücher, Berichte aus der Praxis und Webseiten stehen oft in keinem der Verzeichnisse und landen deshalb eher bei „Unsicher“. Bei „Weicht ab“ und „Unsicher“ lohnt der Blick ins Original."))}</p></div></div>')
+              f'<div class="block"><h3>{_e(tr("Wie sich der Bericht prüfen lässt"))}</h3>'
+              f'<p>{_e(tr("Der QR-Code auf dem Deckblatt führt zur Prüfseite. Sie zeigt, was dieser Bericht sagen muss, und prüft die Signatur; aus der PDF heraus fragt sie zusätzlich jede Quelle selbst nach. Mehr dazu im Abschnitt Nachweis."))}</p></div></div>')
     return ('<section data-break="page">' + _heading("sec-contents", tr("Inhalt"))
             + f'<div class="keep"><ol class="toc">{items}</ol></div>'
             + f'<div class="h sub"><h3>{_e(tr("Die Urteile"))}</h3></div><div class="keep verdicts">{legend}</div>'
@@ -1077,6 +1140,8 @@ def render_batch(b: Dict, auto_print: bool = False) -> str:
     t = b.get("totals") or {}
     when = b.get("finished_at") or b.get("created_at")
     name = str(b.get("name") or b.get("folder") or "")
+    record = seal.batch_record(b)
+    sealed = _make_seal(record, name, seal.batch_counts(record))
     rows = b.get("rows") or []
     checked, flagged, errors = t.get("checked", 0), t.get("flagged_files", 0), t.get("errors", 0)
     clean = max(0, checked - flagged)
@@ -1090,7 +1155,7 @@ def render_batch(b: Dict, auto_print: bool = False) -> str:
               + f'<li><i style="background:{FILL["not_found"]}"></i><b>{flagged}</b> {_e(tr("mit Problemen"))}</li>'
               + (f'<li><i style="background:{FILL["uncertain"]}"></i><b>{errors}</b> {_e(tr("nicht lesbar"))}</li>' if errors else "")
               + "</ul>")
-    cover = _cover(tr("Stapelprüfung"), name, f"#{b.get('id', '')}", when, line, bar, legend)
+    cover = _cover(tr("Stapelprüfung"), name, f"#{b.get('id', '')}", when, line, bar, legend, sealed, batch=True)
 
     cols = [("entries", "Einträge"), ("missing", "Zitate ohne Eintrag"), ("not_found", "Nicht auffindbar"),
             ("mismatch", "Passt nicht"), ("retracted", "Zurückgezogen"), ("quotes_bad", "Zitate auffällig"), ("style", "Stilhinweise")]
@@ -1155,11 +1220,11 @@ def render_batch(b: Dict, auto_print: bool = False) -> str:
         flow.append('<section data-break="page">' + "".join(sec) + "</section>")
     facts = [(tr("Stapel"), _e(f"#{b.get('id', '')} · {_date(when)}")), (tr("Ordner"), _e(b.get("folder") or "")),
              (tr("Erstellt mit"), _e(f"Benthic {__version__}"))]
-    flow.append(_about(facts, [tr("Die Arbeiten blieben auf dem Mac; geprüft wurden nur die Literaturangaben.")]))
+    flow.append(_proof(sealed, facts, tr("Die Arbeiten blieben auf dem Mac; geprüft wurden nur die Literaturangaben."), batch=True))
     css = ("<style>.btable .brow{display:grid;grid-template-columns:1fr repeat(7,15mm);gap:1.6mm;padding:1.3mm 0;"
            "border-bottom:.2mm solid #eef2f7;font-size:7.8pt;align-items:baseline}.btable .split-head{color:#4a5a75;font-weight:600;"
            "font-size:6.8pt;border-bottom:.3mm solid #c3cfdd;line-height:1.2}.btable .brow>span:not(.f){text-align:right;"
            "font-variant-numeric:tabular-nums}.btable .brow .f{font-weight:600;overflow-wrap:anywhere}.btable .brow .wide{grid-column:2/-1;text-align:left!important}"
            ".btable .zero{color:#b4bfcd}</style>")
-    out = _shell(name, tr("Stapelprüfung"), cover, "".join(flow), f'{tr("Stapelprüfung")} #{b.get("id", "")} · {_date(when, clock=False)}', auto_print)
+    out = _shell(name, tr("Stapelprüfung"), cover, "".join(flow), sealed, auto_print)
     return out.replace("</head>", css + "</head>", 1)
