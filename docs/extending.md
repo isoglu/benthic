@@ -14,19 +14,29 @@ AI tools connected through MCP never use extra routes, and neither does
 
 ## Where plugins are loaded from
 
-Plugins are code, so Benthic loads them only from places that are part of the
-build or explicitly set by a developer:
+Plugins are code: whatever sits in these places runs inside Benthic, with your
+user's rights, every time Benthic starts. Only add plugins you wrote yourself
+or trust.
 
+- **Your own plugins folder**, `plugins/` in Benthic's data folder:
+  `~/Library/Application Support/Benthic/plugins` for the app. Create the
+  folder, put a plugin in it (a package folder or a single `.py` file) and
+  restart Benthic. To switch a plugin off, remove it or start its name with
+  `_`. Besides its own modules, a plugin here can import only the standard
+  library and the packages Benthic ships with ([requirements.txt](../requirements.txt)); a
+  `requirements.txt` next to it is not installed.
 - `plugins/` next to the `benthic` package. `./macos/build_app.sh --plugin=DIR`
   copies a plugin there inside the app bundle, where it is covered by the
-  bundle's signature. The folder is ignored by git.
+  bundle's signature and its `requirements.txt` is installed. The folder is
+  ignored by git. With `run.py` this is the same folder as your own plugins
+  folder, unless `BENTHIC_DATA_DIR` points elsewhere.
 - The `BENTHIC_PLUGINS` environment variable (paths separated by `:`), for
   development with `run.py`.
 
-The official app never loads plugins from a folder the user can write to, and
 `macos/sign_and_notarize.sh` refuses to sign a build that contains plugins.
-Builds with plugins are meant for your own Mac; give them their own bundle
-identifier, data folder and port so they can run next to the official app:
+Builds with bundled plugins are meant for your own Mac; give them their own
+bundle identifier, data folder and port so they can run next to the official
+app:
 
 ```bash
 ./macos/build_app.sh --plugin=../my-route --name="Benthic Lab" \

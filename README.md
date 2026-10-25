@@ -374,9 +374,10 @@ paths inside compiled bytecode.
 ## Extending Benthic
 
 A plugin can add download routes that run after open access, only when the
-user switches them on; AI tools never use them. Plugins are bundled at build
-time (`./macos/build_app.sh --plugin=DIR`) and are never loaded from a folder
-the user can write to. See [docs/extending.md](docs/extending.md).
+user switches them on; AI tools never use them. Benthic loads your own plugins
+from `~/Library/Application Support/Benthic/plugins`; a build can also bundle
+one (`./macos/build_app.sh --plugin=DIR`). See
+[docs/extending.md](docs/extending.md).
 
 ## Releasing
 
