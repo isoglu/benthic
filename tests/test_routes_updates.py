@@ -60,17 +60,20 @@ print(json.dumps(out))
 """
 
 
-def run_check(plugins=None):
+def run_check(plugins=None, data_folder=False):
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, BENTHIC_DATA_DIR=tmp, PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
         env.pop("BENTHIC_PLUGINS", None)
         if plugins:
+            folder = Path(tmp) / "plugins" if data_folder else Path(tmp)
+            folder.mkdir(exist_ok=True)
             paths = []
             for name, code in plugins.items():
-                f = Path(tmp) / f"{name}.py"
+                f = folder / f"{name}.py"
                 f.write_text(code)
                 paths.append(str(f))
-            env["BENTHIC_PLUGINS"] = os.pathsep.join(paths)
+            if not data_folder:
+                env["BENTHIC_PLUGINS"] = os.pathsep.join(paths)
         res = subprocess.run([sys.executable, "-c", CHECK], env=env, capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
             raise AssertionError(res.stderr)
@@ -95,6 +98,11 @@ class ExtraRoutes(unittest.TestCase):
         self.assertEqual(out["miss"], "error")
         self.assertEqual(out["proxy_miss"], "https://proxy.example/login?url=https://doi.org/10.1234/missing")
         self.assertTrue(out["settings"])
+
+    def test_plugin_from_data_folder(self):
+        out = run_check({"demo": PLUGIN}, data_folder=True)  # eigene Plugins im Datenordner, ohne BENTHIC_PLUGINS
+        self.assertEqual([r["id"] for r in out["routes"]], ["demo"])
+        self.assertEqual(out["on"]["channel"], "demo")
 
     def test_tools_never_use_extra_routes(self):
         src = (ROOT / "benthic" / "mcp_server.py").read_text(encoding="utf-8")

@@ -5,6 +5,18 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.7
+
+Benthic now loads plugins you add yourself.
+
+- **Your own plugins.** Put a plugin into
+  `~/Library/Application Support/Benthic/plugins` and restart Benthic. A
+  plugin can add a download route that runs after open access, for example
+  your university's link resolver, once you switch on Extra routes in the
+  settings. Until now a plugin had to be built into the app. A plugin is code
+  that runs inside Benthic, so add only plugins you wrote yourself or trust.
+  How to write one: [docs/extending.md](https://github.com/isoglu/benthic/blob/main/docs/extending.md).
+
 ## 1.1.6
 
 Every check report now carries a signed seal that anyone can verify,

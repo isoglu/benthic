@@ -5,10 +5,11 @@ den Link-Resolver einer Hochschule oder den Dateiserver einer Arbeitsgruppe. Sie
 laufen nur, wenn keine Open-Access-Kopie bekannt ist und die Einstellung
 „Zusatzwege“ eingeschaltet ist; Werkzeuge über MCP nutzen sie nie.
 
-Plugins werden nur aus zwei Orten geladen:
+Plugins werden aus drei Orten geladen:
 
 * dem Ordner ``plugins`` neben dem Paket (``build_app.sh --plugin DIR`` kopiert
   ihn ins App-Bundle, wo er mitsigniert wird),
+* dem Ordner ``plugins`` im Datenordner (eigene Plugins der Nutzer),
 * den Pfaden in der Umgebungsvariable ``BENTHIC_PLUGINS`` (Entwicklung).
 
 Ein Plugin ist ein Python-Paket (oder eine einzelne ``.py``-Datei) mit einer
@@ -106,11 +107,12 @@ _loaded = False
 
 
 def plugin_paths() -> List[Path]:
-    """Plugin-Kandidaten: Einträge im Ordner ``plugins`` und in ``BENTHIC_PLUGINS``."""
+    """Plugin-Kandidaten: Ordner ``plugins`` im Paket und im Datenordner, dann ``BENTHIC_PLUGINS``."""
     out: List[Path] = []
-    bundled = config.PROJECT_ROOT / "plugins"
-    if bundled.is_dir():
-        out.extend(sorted(p for p in bundled.iterdir() if not p.name.startswith((".", "_"))))
+    # Im Dev-Betrieb ist der Datenordner das Projektverzeichnis: denselben Ordner nur einmal laden.
+    for folder in dict.fromkeys((config.PROJECT_ROOT / "plugins", config.data_dir() / "plugins")):
+        if folder.is_dir():
+            out.extend(sorted(p for p in folder.iterdir() if not p.name.startswith((".", "_"))))
     for raw in os.environ.get("BENTHIC_PLUGINS", "").split(os.pathsep):
         if raw.strip():
             out.append(Path(raw.strip()).expanduser())

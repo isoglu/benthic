@@ -6,6 +6,19 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.7
+
+Benthic lädt jetzt Plugins, die du selbst hinzufügst.
+
+- **Eigene Plugins.** Leg ein Plugin in
+  `~/Library/Application Support/Benthic/plugins` und starte Benthic neu. Ein
+  Plugin kann einen Download-Weg ergänzen, der nach Open Access läuft, etwa
+  den Link-Resolver deiner Hochschule, sobald du in den Einstellungen die
+  Zusatzwege einschaltest. Bisher musste ein Plugin in die App eingebaut
+  werden. Ein Plugin ist Code, der in Benthic läuft: Leg nur Plugins hinein,
+  die du selbst geschrieben hast oder denen du vertraust. Wie man eines
+  schreibt: [docs/extending.md](https://github.com/isoglu/benthic/blob/main/docs/extending.md).
+
 ## 1.1.6
 
 Jeder Prüfbericht trägt jetzt ein signiertes Siegel, das jede Person
