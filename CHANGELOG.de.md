@@ -6,6 +6,15 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.8
+
+Plugins haben jetzt ihren eigenen Platz in den Einstellungen.
+
+- **Plugins in den Einstellungen.** Einstellungen › Quellen und Zugang ›
+  Plugins öffnet den Plugin-Ordner mit einem Klick, zeigt, ob jedes Plugin
+  aktiv ist oder warum es gescheitert ist, und startet Benthic neu, damit ein
+  neues Plugin wirkt. Auch der Schalter für die Zusatzwege steht dort.
+
 ## 1.1.7
 
 Benthic lädt jetzt Plugins, die du selbst hinzufügst.

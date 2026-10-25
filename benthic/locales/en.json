@@ -1546,5 +1546,20 @@
  "Unsichtbares Zeichen im Wort": "Invisible character inside a word",
  "Buchstabe aus einer anderen Schrift": "Letter from another script",
  "Ungewöhnliche Wendung, üblich ist „{term}“": "Unusual phrase; the usual term is “{term}”",
- "Hausregeln laden": "Load house rules"
+ "Hausregeln laden": "Load house rules",
+ "eigene Download-Wege nach Open Access": "your own download routes after open access",
+ "Ein Plugin ergänzt Benthic um einen Download-Weg, etwa den Link-Resolver deiner Hochschule. Leg es in den Plugin-Ordner und starte Benthic neu. Ein Plugin ist Code, der in Benthic läuft: Leg nur Plugins hinein, die du selbst geschrieben hast oder denen du vertraust.": "A plugin adds a download route to Benthic, for example your university's link resolver. Put it into the plugins folder and restart Benthic. A plugin is code that runs inside Benthic, so add only plugins you wrote yourself or trust.",
+ "Wie man ein Plugin schreibt": "How to write a plugin",
+ "Plugin-Ordner öffnen": "Open plugins folder",
+ "Benthic neu starten": "Restart Benthic",
+ "Neu, wirkt nach dem Neustart": "New, active after a restart",
+ "Entfernt, weg nach dem Neustart": "Removed, gone after a restart",
+ "Aus (Name beginnt mit _)": "Off (name starts with _)",
+ "Noch keine Plugins. Öffne den Plugin-Ordner und leg eines hinein.": "No plugins yet. Open the plugins folder and put one in.",
+ "Neustart nicht möglich": "Cannot restart",
+ "Neustart fehlgeschlagen. Beende Benthic und öffne es wieder.": "The restart failed. Quit Benthic and open it again.",
+ "Benthic kann erst nach dem laufenden Lauf neu starten.": "Benthic can restart once the current run has finished.",
+ "{name} ist kein Python-Paket (__init__.py fehlt)": "{name} is not a Python package (__init__.py is missing)",
+ "Keine Funktion register(api)": "No register(api) function",
+ "Aktiv": "Active"
 }
