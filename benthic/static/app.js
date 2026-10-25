@@ -1279,7 +1279,7 @@ function showView(name) {
   if (name === "library") { loadLibrary(); loadFiles(); loadZotero(); }
   if (name === "history") loadHistory();
   if (viewHooks[name]) { try { viewHooks[name](); } catch (e) { console.error(e); } }
-  if (name === "settings") { loadSettings(); loadMcp(); loadRankings(); renderSendCard(); loadUsage(); }
+  if (name === "settings") { loadSettings(); loadMcp(); loadRankings(); loadPlugins(); renderSendCard(); loadUsage(); }
   if (name === "projects") loadProjects();
   if (name === "batch") loadBatches();
   if (name === "settings") showSettingsSection();
@@ -4899,6 +4899,57 @@ async function importRanking() {
   loadRankings();
 }
 
+// Eigene Plugins (Einstellungen): Zustand jedes Plugins, Ordner öffnen, neu starten
+const PLUGIN_STATES = {
+  loaded:  ["library", T("Aktiv")],
+  error:   ["fail", T("Fehler")],
+  new:     ["warn outline", T("Neu, wirkt nach dem Neustart")],
+  removed: ["warn outline", T("Entfernt, weg nach dem Neustart")],
+  off:     ["library outline", T("Aus (Name beginnt mit _)")],
+};
+
+async function loadPlugins() {
+  let list = [];
+  try { list = (await (await fetch("/api/plugins")).json()).plugins || []; } catch (e) { /* offline */ }
+  const ul = $("#plugin-list");
+  ul.innerHTML = "";
+  if (!list.length) {
+    ul.innerHTML = `<li class="hint">${T("Noch keine Plugins. Öffne den Plugin-Ordner und leg eines hinein.")}</li>`;
+    return;
+  }
+  list.forEach((p) => {
+    const [cls, label] = PLUGIN_STATES[p.state] || PLUGIN_STATES.error;
+    const li = document.createElement("li");
+    li.innerHTML = `<span><strong>${esc(p.name)}</strong>${p.error ? ` <span class="hint">${esc(p.error)}</span>` : ""}</span>`
+      + `<span class="chip ${cls}">${label}</span>`;
+    ul.appendChild(li);
+  });
+}
+
+async function openPluginFolder() {
+  try { await fetch("/api/plugin-folder", { method: "POST" }); } catch (e) { /* offline */ }
+  loadPlugins();
+}
+
+async function restartBenthic() {
+  const r = await fetch("/api/restart", { method: "POST" });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(T("Neustart nicht möglich"), j.error || ""); return; }
+  $("#plugins-restart").disabled = true;
+  $("#plugins-status").textContent = T("Benthic startet neu …");
+  // Erst warten, bis das alte Backend weg ist, dann, bis das neue antwortet.
+  let down = false;
+  for (let i = 0; i < 120; i++) {
+    await new Promise((res) => setTimeout(res, 250));
+    let up = false;
+    try { up = (await fetch("/api/health", { cache: "no-store" })).ok; } catch (e) { /* startet noch */ }
+    if (!up) down = true;
+    else if (down) { location.reload(); return; }
+  }
+  $("#plugins-restart").disabled = false;
+  $("#plugins-status").textContent = T("Neustart fehlgeschlagen. Beende Benthic und öffne es wieder.");
+}
+
 // Hausregeln einer Hochschule (Einstellungen): setzen Angaben und Listen, danach neu laden
 async function loadHouseRules() {
   const file = $("#house-file").files[0];
@@ -6358,6 +6409,8 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
   });
 $("#ranking-add-btn").onclick = importRanking;
 $("#house-load-btn").onclick = loadHouseRules;
+$("#plugins-open").onclick = openPluginFolder;
+$("#plugins-restart").onclick = restartBenthic;
 $("#house-remove-btn").onclick = removeHouseRules;
 $("#licenses").addEventListener("toggle", async (e) => {
   const pre = $("#licenses-text");

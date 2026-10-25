@@ -10,6 +10,8 @@ import logging
 import os
 import re
 import signal
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
@@ -478,6 +480,44 @@ def plugin_asset(name: str, filename: str):
     resp = send_from_directory(folder, filename)
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+@app.route("/api/plugins")
+def get_plugins():
+    """Eigene Plugins für die Einstellungen: Ordner und Zustand jedes Plugins."""
+    return jsonify({"folder": str(routes.user_folder()), "plugins": routes.overview()})
+
+
+@app.route("/api/plugin-folder", methods=["POST"])
+def open_plugin_folder():
+    """Legt den Ordner für eigene Plugins an und öffnet ihn im Finder."""
+    folder = routes.user_folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["open", str(folder)], timeout=15)
+    return jsonify({"folder": str(folder)})
+
+
+def _reexec() -> None:
+    # werkzeug macht den Server-Socket für seinen Reloader vererbbar; bliebe er offen, wäre der Port belegt.
+    fd = os.environ.pop("WERKZEUG_SERVER_FD", None)
+    if fd:
+        os.set_inheritable(int(fd), False)
+    os.execv(sys.executable, sys.orig_argv)
+
+
+@app.route("/api/restart", methods=["POST"])
+def restart():
+    """Startet das Backend neu, damit neue oder entfernte Plugins wirken; nie während eines Laufs.
+
+    execv behält die Prozess-ID, die App verfolgt also weiter dasselbe Backend.
+    """
+    with _jobs_lock:
+        busy = any(j.get("status") == "running" for j in _jobs.values())
+    if busy:
+        return jsonify({"error": tr("Benthic kann erst nach dem laufenden Lauf neu starten.")}), 409
+    logger.info("Neustart des Backends")
+    threading.Timer(0.3, _reexec).start()  # erst die Antwort senden
+    return jsonify({"ok": True})
 
 
 # --------------------------------------------------------------------------

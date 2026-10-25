@@ -1158,9 +1158,9 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .venue-tag.warn { color: var(--state-warn); border-color: currentColor; }
 .venue-tag.rank { color: var(--accent); border-color: currentColor; font-weight: 600; }
 
-#rankings-card .card-lead { margin: 0 0 var(--sp-3); max-width: 70ch; }
-.ranking-list { list-style: none; margin: var(--sp-3) 0; padding: 0; display: grid; gap: var(--sp-2); }
-.ranking-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel-2); }
+#rankings-card .card-lead, #plugins-card .card-lead { margin: 0 0 var(--sp-3); max-width: 70ch; }
+.ranking-list, .plugin-list { list-style: none; margin: var(--sp-3) 0; padding: 0; display: grid; gap: var(--sp-2); }
+.ranking-list li, .plugin-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel-2); }
 .ranking-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
 .ranking-add input[type="text"] { flex: 1 1 220px; }
 

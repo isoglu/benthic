@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from . import config
+from .i18n import tr
 
 logger = logging.getLogger("benthic")
 
@@ -103,14 +104,20 @@ class PluginAPI:
 _routes: Dict[str, Route] = {}
 _blueprints: List = []
 _ui: Dict[str, Path] = {}
+_status: Dict[str, Optional[str]] = {}  # Pfad -> None (geladen) oder Fehlertext
 _loaded = False
+
+
+def user_folder() -> Path:
+    """Ordner für eigene Plugins (in der App ~/Library/Application Support/Benthic/plugins)."""
+    return config.data_dir() / "plugins"
 
 
 def plugin_paths() -> List[Path]:
     """Plugin-Kandidaten: Ordner ``plugins`` im Paket und im Datenordner, dann ``BENTHIC_PLUGINS``."""
     out: List[Path] = []
     # Im Dev-Betrieb ist der Datenordner das Projektverzeichnis: denselben Ordner nur einmal laden.
-    for folder in dict.fromkeys((config.PROJECT_ROOT / "plugins", config.data_dir() / "plugins")):
+    for folder in dict.fromkeys((config.PROJECT_ROOT / "plugins", user_folder())):
         if folder.is_dir():
             out.extend(sorted(p for p in folder.iterdir() if not p.name.startswith((".", "_"))))
     for raw in os.environ.get("BENTHIC_PLUGINS", "").split(os.pathsep):
@@ -124,7 +131,7 @@ def _import(path: Path):
     if path.is_dir():
         init = path / "__init__.py"
         if not init.is_file():
-            raise ImportError(f"{path} ist kein Python-Paket")
+            raise ImportError(tr("{name} ist kein Python-Paket (__init__.py fehlt)", name=path.name))
         spec = importlib.util.spec_from_file_location(
             f"benthic_plugin_{name}", init, submodule_search_locations=[str(path)])
     elif path.suffix == ".py":
@@ -151,11 +158,38 @@ def load_plugins() -> None:
             register = getattr(module, "register", None)
             if not callable(register):
                 logger.warning("Plugin %s hat keine Funktion register(api)", path)
+                _status[str(path)] = tr("Keine Funktion register(api)")
                 continue
             register(PluginAPI(name))
+            _status[str(path)] = None
             logger.info("Plugin geladen: %s", name)
-        except Exception:
+        except Exception as exc:
             logger.exception("Plugin %s konnte nicht geladen werden", path)
+            _status[str(path)] = f"{type(exc).__name__}: {exc}"
+
+
+def _plugin_name(path: Path) -> str:
+    return path.stem if path.suffix == ".py" else path.name
+
+
+def overview() -> List[Dict]:
+    """Plugins für die Einstellungen: beim Start geladen oder gescheitert, seither entfernt, neu oder aus.
+
+    Neue und entfernte Plugins wirken erst nach einem Neustart (Flask nimmt danach keine Endpunkte mehr an).
+    """
+    out = []
+    for key, error in _status.items():
+        path = Path(key)
+        state = "removed" if not path.exists() else "error" if error else "loaded"
+        out.append({"name": _plugin_name(path), "state": state, "error": error})
+    folder = user_folder()
+    if folder.is_dir():
+        for path in sorted(folder.iterdir()):
+            if str(path) in _status or path.name.startswith((".", "__")) or not (path.suffix == ".py" or path.is_dir()):
+                continue
+            off = path.name.startswith("_")
+            out.append({"name": _plugin_name(path).lstrip("_"), "state": "off" if off else "new", "error": None})
+    return out
 
 
 def registered() -> List[Route]:

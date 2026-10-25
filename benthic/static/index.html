@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.1.7">
-  <link rel="stylesheet" href="/static/style.css?v=1.1.7">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.1.8">
+  <link rel="stylesheet" href="/static/style.css?v=1.1.8">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
@@ -657,6 +657,21 @@
           <div class="provider-grid" id="settings-providers"></div>
         </div>
 
+        <div data-section="sources" class="card" id="plugins-card">
+          <div class="card-head"><h2>Plugins</h2><span class="hint">eigene Download-Wege nach Open Access</span></div>
+          <p class="hint card-lead">Ein Plugin ergänzt Benthic um einen Download-Weg, etwa den Link-Resolver deiner Hochschule. Leg es in den Plugin-Ordner und starte Benthic neu. Ein Plugin ist Code, der in Benthic läuft: Leg nur Plugins hinein, die du selbst geschrieben hast oder denen du vertraust. <a href="https://github.com/isoglu/benthic/blob/main/docs/extending.md" target="_blank" rel="noopener">Wie man ein Plugin schreibt</a></p>
+          <ul class="plugin-list" id="plugin-list"></ul>
+          <label class="switch block needs-routes">
+            <input type="checkbox" id="set-routes"><span class="track" aria-hidden="true"></span>
+            <span><strong>Zusatzwege nutzen</strong><span class="hint">Wege aus installierten Plugins; nur wenn keine Open-Access-Kopie bekannt ist. KI-Werkzeuge nutzen sie nie.</span></span>
+          </label>
+          <div class="actions tight">
+            <button class="btn" id="plugins-open" type="button"><svg class="ic"><use href="#i-folder"/></svg>Plugin-Ordner öffnen</button>
+            <button class="btn" id="plugins-restart" type="button"><svg class="ic"><use href="#i-retry"/></svg>Benthic neu starten</button>
+            <span class="hint" id="plugins-status" aria-live="polite"></span>
+          </div>
+        </div>
+
         <div data-section="usage" class="card" id="usage-card">
           <div class="card-head"><h2>Nutzung und Grenzen</h2><button class="btn ghost small" id="usage-refresh" type="button">Aktualisieren</button></div>
           <p class="hint card-lead">Jede Anfrage an einen Dienst zählt Benthic hier mit. Benthic hält die Grenzen der Dienste ein, wartet bei kurzen Pausen und fragt einen Dienst nicht mehr, wenn sein Tageskontingent aufgebraucht ist. Die Arbeiten selbst verlassen den Mac nie; gesendet werden nur DOIs, Titel, Autor:innen und, für den höflichen Pool, deine E-Mail-Adresse.</p>
@@ -714,10 +729,6 @@
         <div data-section="general" class="card">
           <div class="card-head"><h2>Verhalten</h2></div>
           <div class="settings-stack">
-            <label class="switch block needs-routes">
-              <input type="checkbox" id="set-routes"><span class="track" aria-hidden="true"></span>
-              <span><strong>Zusatzwege nutzen</strong><span class="hint">Wege aus installierten Plugins; nur wenn keine Open-Access-Kopie bekannt ist. KI-Werkzeuge nutzen sie nie.</span></span>
-            </label>
             <label class="check"><input type="checkbox" id="set-skip"><span>Vorhandene überspringen</span></label>
             <label class="check"><input type="checkbox" id="set-prefer"><span>Verlagsversion bevorzugen</span></label>
             <label class="field">Parallele Downloads <input type="number" id="set-concurrency" min="1" max="8" step="1"></label>
@@ -906,6 +917,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.1.7"></script>
+  <script src="/static/app.js?v=1.1.8"></script>
 </body>
 </html>

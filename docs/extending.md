@@ -19,10 +19,11 @@ user's rights, every time Benthic starts. Only add plugins you wrote yourself
 or trust.
 
 - **Your own plugins folder**, `plugins/` in Benthic's data folder:
-  `~/Library/Application Support/Benthic/plugins` for the app. Create the
-  folder, put a plugin in it (a package folder or a single `.py` file) and
-  restart Benthic. To switch a plugin off, remove it or start its name with
-  `_`. Besides its own modules, a plugin here can import only the standard
+  `~/Library/Application Support/Benthic/plugins` for the app. In Settings ›
+  Sources and access › Plugins, click **Open plugins folder**, put a plugin in
+  it (a package folder or a single `.py` file) and click **Restart Benthic**.
+  The same card shows whether each plugin is active or why it failed. To switch
+  a plugin off, remove it or start its name with `_`. Besides its own modules, a plugin here can import only the standard
   library and the packages Benthic ships with ([requirements.txt](../requirements.txt)); a
   `requirements.txt` next to it is not installed.
 - `plugins/` next to the `benthic` package. `./macos/build_app.sh --plugin=DIR`

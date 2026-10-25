@@ -59,8 +59,41 @@ out = {
 print(json.dumps(out))
 """
 
+# Einstellungen › Plugins: Zustände, Ordner öffnen, Neustart (Befehle abgefangen, nichts wird geöffnet oder ersetzt).
+PLUGINS_CHECK = r"""
+import json, os, socket, sys
+from benthic import config
+folder = config.data_dir() / "plugins"
+(folder / "notpkg").mkdir()                      # Ordner ohne __init__.py: Fehler beim Start
+from benthic import app as appmod
+(folder / "later.py").write_text("def register(api): pass\n")
+(folder / "_off.py").write_text("def register(api): pass\n")
+(folder / "broken.py").unlink()
+c = appmod.app.test_client()
+plugins = c.get("/api/plugins").get_json()["plugins"]
+calls = []
+appmod.subprocess.run = lambda args, **k: calls.append(args)
+opened = c.post("/api/plugin-folder", json={}).get_json()["folder"]
+class Timer:
+    def __init__(self, delay, fn): self.fn = fn
+    def start(self): self.fn()
+appmod.threading.Timer = Timer
+appmod.os.execv = lambda path, argv: calls.append([path == sys.executable, argv == sys.orig_argv])
+server = socket.socket()  # wie werkzeugs Server-Socket: vererbbar, Nummer in WERKZEUG_SERVER_FD
+server.set_inheritable(True)
+os.environ["WERKZEUG_SERVER_FD"] = str(server.fileno())
+appmod._jobs["j"] = {"status": "running"}
+busy = c.post("/api/restart", json={}).status_code
+appmod._jobs["j"]["status"] = "done"
+idle = c.post("/api/restart", json={}).status_code
+print(json.dumps({"states": {p["name"]: p["state"] for p in plugins},
+                  "notpkg": next(p["error"] for p in plugins if p["name"] == "notpkg"),
+                  "folder": str(folder), "opened": opened, "calls": calls, "busy": busy, "idle": idle,
+                  "port_kept": server.get_inheritable()}))
+"""
 
-def run_check(plugins=None, data_folder=False):
+
+def run_check(plugins=None, data_folder=False, script=CHECK):
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, BENTHIC_DATA_DIR=tmp, PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
         env.pop("BENTHIC_PLUGINS", None)
@@ -74,7 +107,7 @@ def run_check(plugins=None, data_folder=False):
                 paths.append(str(f))
             if not data_folder:
                 env["BENTHIC_PLUGINS"] = os.pathsep.join(paths)
-        res = subprocess.run([sys.executable, "-c", CHECK], env=env, capture_output=True, text=True, timeout=60)
+        res = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
             raise AssertionError(res.stderr)
         return json.loads(res.stdout.strip().splitlines()[-1])
@@ -103,6 +136,16 @@ class ExtraRoutes(unittest.TestCase):
         out = run_check({"demo": PLUGIN}, data_folder=True)  # eigene Plugins im Datenordner, ohne BENTHIC_PLUGINS
         self.assertEqual([r["id"] for r in out["routes"]], ["demo"])
         self.assertEqual(out["on"]["channel"], "demo")
+
+    def test_plugins_card(self):
+        out = run_check({"demo": PLUGIN, "broken": BROKEN}, data_folder=True, script=PLUGINS_CHECK)
+        self.assertEqual(out["states"], {"demo": "loaded", "broken": "removed", "notpkg": "error",
+                                         "later": "new", "off": "off"})
+        self.assertIn("__init__.py", out["notpkg"])
+        self.assertEqual(out["opened"], out["folder"])
+        self.assertEqual(out["calls"], [["open", out["folder"]], [True, True]])  # Finder, dann genau ein execv
+        self.assertEqual((out["busy"], out["idle"]), (409, 200))  # nie mitten in einem Lauf
+        self.assertFalse(out["port_kept"])  # sonst belegt der alte Socket den Port des neuen Backends
 
     def test_tools_never_use_extra_routes(self):
         src = (ROOT / "benthic" / "mcp_server.py").read_text(encoding="utf-8")

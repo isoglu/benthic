@@ -5,6 +5,15 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.8
+
+Plugins now have their own place in the settings.
+
+- **Plugins in the settings.** Settings › Sources and access › Plugins opens
+  the plugins folder with one click, shows whether each plugin is active or
+  why it failed, and restarts Benthic so a new plugin takes effect. The Extra
+  routes switch is there too.
+
 ## 1.1.7
 
 Benthic now loads plugins you add yourself.
