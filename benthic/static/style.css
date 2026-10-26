@@ -1197,6 +1197,10 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .dc-tip { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: var(--fs-sm); }
 .dc-tip .ic { width: 16px; height: 16px; color: var(--accent); flex: none; }
 .dc-signals { margin-top: 14px; }
+.dc-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.dc-pair blockquote { margin: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--font-quote); font-size: var(--fs-sm); }
+.dc-pair blockquote b { display: block; font-family: var(--font-ui); font-size: var(--fs-xs); color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+@media (max-width: 900px) { .dc-pair { grid-template-columns: minmax(0, 1fr); } }
 .dc-sig-block { margin-top: 12px; }
 .dc-sig-block:first-of-type { margin-top: 6px; }
 .dc-sig-block strong { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
@@ -1208,7 +1212,7 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .dc-sig-block li.dc-stack { display: block; }
 
 /* Belegstellen im Volltext */
-.results tbody tr.support-row:hover td { background: none; }
+.results tbody tr.support-row:hover td, .results tbody tr.cited-row:hover td { background: none; }
 .support { display: grid; gap: 10px; padding: 4px 0 6px; }
 .support label { display: grid; gap: 6px; font-size: var(--fs-sm); font-weight: 600; }
 .support textarea { min-height: 0; font: inherit; font-weight: 400; resize: vertical; }
@@ -1248,7 +1252,14 @@ table.plain td.n { text-align: right; font-variant-numeric: tabular-nums; }
 
 .ov-source { margin: 6px 0 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--font-quote); font-size: 13px; color: var(--muted); }
 .ov-tip { margin: 6px 0 0; }
-#find-claim { width: 100%; font: inherit; resize: vertical; }
+.actions.field-more { margin-top: 8px; gap: 4px var(--sp-2); }
+.load-options { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.load-options summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; width: max-content; }
+.load-options[open] summary { margin-bottom: 8px; }
+.load-options .route { margin-top: 12px; padding-top: 0; border-top: 0; }
+.find-group + .find-group { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+.find-group h3 { margin: 0 0 4px; font-family: var(--font-quote); font-size: var(--fs-md); font-weight: 500; }
+.find-group > .hint { margin: 0 0 12px; }
 .find-list { margin: 0; padding-left: 22px; display: grid; gap: 16px; }
 .find-list .fl-title { font-weight: 600; font-size: var(--fs-md); }
 .find-list .fl-meta { color: var(--muted); font-size: var(--fs-sm); margin-top: 2px; }

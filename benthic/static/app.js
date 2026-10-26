@@ -180,7 +180,8 @@ function renderSettings() {
   $("#set-proxy").value = settings.proxy_prefix || "";
   $("#set-sources").value = (settings.library_sources || []).join("\n");
   $("#set-update-url").value = settings.update_url || "";
-  $("#house-state").textContent = settings.house_rules ? T("geladen: {name}", { name: settings.house_rules }) : T("keine geladen");
+  $("#house-state").textContent = settings.house_rules ? T("geladen: {name}", { name: settings.house_rules })
+    + (Object.keys(settings.house_course || {}).length ? " · " + T("mit Kursvorgaben") : "") : T("keine geladen");
   $("#house-remove-btn").hidden = !settings.house_rules;
   renderProviders();
   renderRoute();
@@ -450,7 +451,7 @@ async function clearLibrary() {
 }
 
 async function checkLibrary() {
-  const text = $("#doi-input").value;
+  const text = $("#verify-input").value;
   if (!parseIdentifiers(text).length) return;
   const r = await fetch("/api/library/check", {
     method: "POST",
@@ -467,7 +468,8 @@ async function checkLibrary() {
     filename: x.filename,
     error: x.present ? null : T("nicht in der Bibliothek"),
   }));
-  showView("download");
+  showView("verify");
+  showGroup("download");
   showResults(results, T("Prüfung: Bibliothek"));
 }
 
@@ -574,23 +576,45 @@ function parseIdentifiers(text) {
   return text.split(/[;,\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
-let counterTimer = null;
-function updateCounter() {
-  const text = $("#doi-input").value;
+// Ein Feld für alles: Was darin steht, entscheidet, welcher Knopf leuchtet. Nur DOIs: Laden. Erkannte Angaben:
+// Prüfen. Sonst eine Aussage oder ein Suchstring: Quellen finden. Die anderen Knöpfe bleiben anklickbar.
+const isIdentifier = (t) => /^(https?:\/\/|10\.\d{4,9}\/)/i.test(t) || /doi\.org\/10\./i.test(t);
+// Dieselbe Regel wie finder.is_search_string: Operatoren, Platzhalter oder eine Phrase ohne Satzende.
+const isSearchString = (t) => /\b(AND|OR|NOT)\b|\w\*/.test(t) || (/"[^"]{2,}"/.test(t) && !/[.!?]$/.test(t.trim()));
+let fieldIntent = "verify";
+
+function intentOf(text, s) {
   const tokens = parseIdentifiers(text);
-  const clean = tokens.every((t) => /^(https?:\/\/|10\.\d{4,9}\/)/i.test(t) || /doi\.org\/10\./i.test(t));
-  if (clean) {
-    $("#doi-counter").textContent = TN(tokens.length, "{n} DOI", "{n} DOIs");
-    return;
-  }
-  // Ganze Literaturliste: über den Parser zählen (ohne Netzwerk).
-  clearTimeout(counterTimer);
-  counterTimer = setTimeout(async () => {
-    const s = await parseSummary(text);
-    if (!s) return;
-    const extra = s.title_only + s.with_pmid;
-    $("#doi-counter").textContent = TN(s.with_doi, "{n} DOI", "{n} DOIs") + (extra ? " · " + T("{n} ohne DOI", { n: extra }) : "");
-  }, 250);
+  if (tokens.length && tokens.every(isIdentifier)) return "download";
+  // Eine Zeile mit Operatoren oder Phrase und ohne Jahr ist ein Suchstring, auch wenn der Parser einen Titel darin sieht.
+  if (!text.trim().includes("\n") && isSearchString(text) && !/\b(1[89]|20)\d{2}\b/.test(text)) return "find";
+  if (s && s.count) return "verify";
+  if (isSearchString(text) || text.trim().split(/\s+/).length >= 3) return "find";
+  return "verify";
+}
+
+function setIntent(intent) {
+  fieldIntent = intent;
+  [["verify", "#verify-btn"], ["find", "#find-btn"], ["download", "#download-btn"]]
+    .forEach(([k, sel]) => $(sel).classList.toggle("primary", k === intent));
+}
+
+function runIntent() {
+  if (fieldIntent === "find") findSources();
+  else if (fieldIntent === "download") startJob("download");
+  else startVerify();
+}
+
+// Aussagen eines Absatzes, je eine Suche (höchstens acht).
+function claimsOf(text) {
+  const parts = text.split(/(?<=[.!?])\s+(?=[A-ZÄÖÜ0-9])/).map((x) => x.trim()).filter((x) => x.split(/\s+/).length >= 5);
+  return parts.length > 1 ? parts.slice(0, 8) : [text.trim()];
+}
+
+// Unter dem Feld steht nur das Ergebnis der letzten Aktion: Prüfbericht, gefundene Arbeiten oder Download.
+const GROUPS = { verify: ["#verify-progress", "#verify-results"], find: ["#find-results"], download: ["#progress-card", "#results-card"] };
+function showGroup(name) {
+  Object.entries(GROUPS).forEach(([k, sels]) => { if (k !== name) sels.forEach((sel) => { $(sel).hidden = true; }); });
 }
 
 async function parseSummary(text) {
@@ -613,9 +637,10 @@ function setRunning(running) {
   $("#progressbar").classList.toggle("running", running);
 }
 
-async function startJob(mode, extra = {}) {
-  const text = $("#doi-input").value;
-  if (!parseIdentifiers(text).length) return;
+async function startJob(mode, extra = {}, given = null) {
+  const text = given === null ? $("#verify-input").value : given;
+  if (!parseIdentifiers(text).length) { flash("#verify-preview", T("Bitte zuerst etwas einfügen")); return; }
+  if (given === null) showGroup("download");
   setRunning(true);
   $("#retry-failed-btn").hidden = true;
   if ("Notification" in window && Notification.permission === "default" && !window.webkit) {
@@ -627,7 +652,7 @@ async function startJob(mode, extra = {}) {
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
-    flash("#doi-counter", j.error || T("Start fehlgeschlagen"));
+    flash("#verify-preview", j.error || T("Start fehlgeschlagen"));
     setRunning(false);
     return;
   }
@@ -647,11 +672,12 @@ async function startJob(mode, extra = {}) {
   $("#progress-stats").innerHTML = "";
   $("#live-now").innerHTML = "";
   $("#event-feed").innerHTML = "";
+  scrollMainTo($("#progress-card"));
   toast(mode === "check" ? T("Prüfung gestartet") : T("Download gestartet"),
     TN(j.total, "{n} DOI", "{n} DOIs") + (routesOn() && extra.extra_routes !== false ? " · " + T("Zusatzwege an") : ""));
   if (j.unresolved) {
-    toast(T("Angaben ohne DOI übersprungen"), TN(j.unresolved, "{n} Eintrag ohne DOI. Unter „Prüfen“ lässt er sich auflösen.",
-      "{n} Einträge ohne DOI. Unter „Prüfen“ lassen sie sich auflösen."));
+    toast(T("Angaben ohne DOI übersprungen"), TN(j.unresolved, "{n} Eintrag ohne DOI. „Prüfen“ löst ihn auf.",
+      "{n} Einträge ohne DOI. „Prüfen“ löst sie auf."));
   }
   pollJob(j.job_id, mode);
 }
@@ -1183,6 +1209,7 @@ async function viewHistory(jobId) {
   const j = await r.json();
   if (j.mode === "verify") {
     showView("verify");
+    showGroup("verify");
     $("#verify-progress").hidden = true;
     verifyJobId = jobId;
     verifyStyle = j.style || null;
@@ -1197,7 +1224,8 @@ async function viewHistory(jobId) {
     return;
   }
   currentJobId = jobId;
-  showView("download");
+  showView("verify");
+  showGroup("download");
   showResults(j.results || [], T("Lauf #{id}", { id: jobId }));
   scrollMainTo($("#results-card"));
 }
@@ -1260,7 +1288,7 @@ function flash(sel, msg) {
     el.textContent = el.dataset.orig || "";
     el.style.color = "";
     delete flashTimers[sel];
-    if (sel === "#doi-counter") updateCounter();
+    if (sel === "#verify-preview") runPreview();
   }, 2200);
 }
 
@@ -1329,10 +1357,23 @@ async function runPreview() {
   const text = $("#verify-input").value;
   const el = $("#verify-preview");
   el.classList.remove("ready");
-  if (!text.trim()) { el.textContent = T("Noch nichts eingefügt"); return; }
+  if (!text.trim()) { setIntent("verify"); el.textContent = T("Noch nichts eingefügt"); return; }
   const s = await parseSummary(text);
-  if (!s) return;
+  if (!s || text !== $("#verify-input").value) return;
+  setIntent(intentOf(text, s));
+  if (fieldIntent === "find") {
+    const n = isSearchString(text) ? 0 : claimsOf(text).length;
+    el.textContent = n ? TN(n, "Eine Aussage: Quellen finden sucht echte Arbeiten dazu", "{n} Aussagen: Quellen finden sucht zu jeder echte Arbeiten")
+      : T("Suchstring: Quellen finden sucht damit bei OpenAlex");
+    el.classList.add("ready");
+    return;
+  }
   if (!s.count) { el.textContent = T("Keine Literaturangaben erkannt"); return; }
+  if (fieldIntent === "download") {
+    el.textContent = TN(s.count, "{n} DOI: Laden holt sie direkt", "{n} DOIs: Laden holt sie direkt");
+    el.classList.add("ready");
+    return;
+  }
   const parts = [TN(s.count, "{n} Quelle erkannt", "{n} Quellen erkannt")];
   if (s.with_doi) parts.push(T("{n} mit DOI", { n: s.with_doi }));
   if (s.with_pmid) parts.push(T("{n} mit PMID", { n: s.with_pmid }));
@@ -1386,7 +1427,8 @@ window.benthicReceive = ({ text, source } = {}) => {
   runPreview();
   toast(T("Text empfangen"), (SEND_SOURCE[source] || SEND_SOURCE.link)() + " · " +
     TN(value.length, "{n} Zeichen", "{n} Zeichen", { n: fmtNum(value.length) }));
-  if ($("#setup").hidden) startVerify();  // während der Einrichtung nur bereitlegen
+  if (!$("#setup").hidden) return;  // während der Einrichtung nur bereitlegen
+  parseSummary(value).then((s) => (intentOf(value, s) === "find" ? findSources() : startVerify()));
 };
 
 function bookmarkletCode() {
@@ -2084,6 +2126,7 @@ function styleNotes(res, issues) {
 // Prüfbericht leeren und einem Lauf folgen (Einfügen, ganze Arbeit, Lauf eines KI-Assistenten).
 function beginVerify(jobId, doc) {
   if (seenJobs) seenJobs.add(String(jobId));
+  showGroup("verify");
   showReportTab(doc ? "document" : "sources");
   verifyResults = [];
   shownRows.clear();
@@ -2177,6 +2220,7 @@ function renderDocument(doc) {
     p.append(icon("i-legal"), document.createTextNode(T("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert.")));
     box.appendChild(p);
     box.appendChild(writingSignalsSection(doc));
+    box.appendChild(structureSection(doc));
     box.appendChild(quotesSection(doc));
     box.appendChild(overlapSection(doc));
     return;
@@ -2230,6 +2274,7 @@ function renderDocument(doc) {
   );
   box.appendChild(cols);
   box.appendChild(writingSignalsSection(doc));
+  box.appendChild(structureSection(doc));
   box.appendChild(quotesSection(doc));
   box.appendChild(overlapSection(doc));
 }
@@ -2302,14 +2347,7 @@ function writingSignalsSection(doc) {
       btn.type = "button";
       btn.className = "btn small ghost";
       btn.textContent = T("Quellen suchen");
-      btn.onclick = () => {
-        showView("find");
-        const ta = $("#find-claim");
-        if (ta) {
-          ta.value = u.sentence;
-          ta.focus();
-        }
-      };
+      btn.onclick = () => findSources(u.sentence, false);
       li.append(p, btn);
       ul.appendChild(li);
     });
@@ -2338,6 +2376,78 @@ function writingSignalsSection(doc) {
     });
     sub.append(st, hint, ul);
     sec.appendChild(sub);
+  }
+  return sec;
+}
+
+// Aufbau und roter Faden (document._structure_signals): wie die Quellen im Text arbeiten. Hinweise mit Fundstelle;
+// ob ein Absatz so gemeint ist, entscheidet, wer ihn liest.
+function structureSection(doc) {
+  const serial = doc.serial_paragraphs || [];
+  const ends = doc.end_citations || [];
+  const late = doc.conclusion_sources || [];
+  const qa = doc.question_pair;
+  if (!serial.length && !ends.length && !late.length && !qa) return document.createDocumentFragment();
+  const sec = document.createElement("div");
+  sec.className = "dc-signals dc-col" + (serial.length || ends.length || late.length ? " warn" : "");
+  const h = document.createElement("h4");
+  h.textContent = T("Aufbau und roter Faden");
+  sec.appendChild(h);
+  const block = (title, hint, items, render) => {
+    const sub = document.createElement("div");
+    sub.className = "dc-sig-block";
+    const st = document.createElement("strong");
+    st.textContent = title + (items ? ` (${items.length})` : "");
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = hint;
+    sub.append(st, p);
+    if (items) {
+      const ul = document.createElement("ul");
+      items.slice(0, 15).forEach((it) => { const li = document.createElement("li"); li.className = "dc-stack"; render(li, it); ul.appendChild(li); });
+      sub.appendChild(ul);
+    }
+    sec.appendChild(sub);
+    return sub;
+  };
+  const line = (li, bold, sentence) => {
+    const b = document.createElement("strong");
+    b.textContent = bold;
+    const p = document.createElement("p");
+    p.className = "dc-sentence";
+    p.textContent = sentence;
+    li.append(b, p);
+  };
+  if (serial.length) {
+    block(T("Quellen nacheinander nacherzählt"),
+      T("Mehrere Absätze hintereinander tragen je nur eine Quelle. Ordne nach Gedanken statt nach Autor:innen: Beginne mit der These und lass mehrere Quellen dazu sprechen, auch widersprechende."),
+      serial, (li, x) => line(li, TN(x.paragraphs, "{n} Absatz", "{n} Absätze") + ": " + x.labels.join(", ")
+        + (x.author_led ? " · " + TN(x.author_led, "{n} beginnt mit dem Namen", "{n} beginnen mit dem Namen") : ""), x.sentence));
+  }
+  if (ends.length) {
+    block(T("Ein Beleg für einen ganzen Absatz"),
+      T("Ein langer Absatz mit nur einem Zitat am Ende lässt offen, welche Aussage aus der Quelle stammt und was deine Deutung ist. Belege die einzelnen Aussagen dort, wo sie stehen."),
+      ends, (li, x) => line(li, x.label + " · " + TN(x.sentences, "{n} Satz", "{n} Sätze"), x.sentence));
+  }
+  if (late.length) {
+    block(T("Neue Quellen im Fazit"),
+      T("Diese Quellen tauchen erst im Fazit auf. Das Fazit beantwortet die Frage mit dem, was die Arbeit gezeigt hat; neue Belege gehören in den Hauptteil."),
+      late, (li, x) => line(li, x.label, x.sentence));
+  }
+  if (qa) {
+    const sub = block(T("Frage und Fazit nebeneinander"),
+      qa.missing.length ? T("Diese Begriffe der Frage kommen im Fazit nicht vor: {words}. Beantwortet das Fazit dieselbe Frage?", { words: qa.missing.join(", ") })
+        : T("Das Fazit greift die Begriffe der Frage auf. Prüfe trotzdem, ob es sie direkt beantwortet."), null);
+    const pair = document.createElement("div");
+    pair.className = "dc-pair";
+    [[T("Forschungsfrage"), qa.question], [qa.heading || T("Fazit"), qa.conclusion]].forEach(([label, text]) => {
+      const q = document.createElement("blockquote");
+      const b = document.createElement("b");
+      b.textContent = label;
+      q.append(b, document.createTextNode(text));
+      pair.appendChild(q);
+    });
+    sub.appendChild(pair);
   }
   return sec;
 }
@@ -2479,6 +2589,7 @@ const OVERLAP_KIND = {
   verbatim: () => T("Wortgleich aus der Quelle"),
   close: () => T("Fast wortgleich aus der Quelle"),
   partial: () => T("Lange wortgleiche Passage"),
+  translated: () => T("Übersetzt aus der Quelle"),
 };
 
 function overlapSection(doc) {
@@ -2517,7 +2628,7 @@ function overlapSection(doc) {
       const top = document.createElement("div");
       top.className = "wp-top";
       const tag = document.createElement("span");
-      tag.className = "chip " + (f.kind === "partial" ? "warn" : "fail");
+      tag.className = "chip " + (f.kind === "partial" || f.kind === "translated" ? "warn" : "fail");
       tag.textContent = OVERLAP_KIND[f.kind]();
       const src = document.createElement("span");
       src.className = "hint";
@@ -2537,6 +2648,12 @@ function overlapSection(doc) {
     });
     if ((res.missing_pdfs || []).length) note.appendChild(fetchQuoteSources(res.missing_pdfs, runCheck));
     if ((res.wrong_pdfs || []).length) note.append(" " + T("Nicht verglichen (PDF ist ein anderes Werk): {n}", { n: res.wrong_pdfs.length }));
+    const pending = res.translation_pending || [];
+    if (pending.length && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.benthicTranslate) {
+      note.appendChild(translatedButton(pending));
+    } else if (res.translated_checked) {
+      note.append(" " + TN(res.translated_checked, "{n} Satz auch übersetzt verglichen.", "{n} Sätze auch übersetzt verglichen."));
+    }
     const tip = document.createElement("p");
     tip.className = "hint ov-tip";
     tip.textContent = T("Setze übernommenen Wortlaut in Anführungszeichen oder formuliere ihn neu. Fachbegriffe und feste Formeln sind kein Problem; entscheiden musst du beim Lesen.");
@@ -2558,6 +2675,34 @@ function overlapSection(doc) {
     render(j);
   };
   run.onclick = runCheck;
+  // Übersetzt übernommen: die Sätze auf dem Mac in die Sprache der Quelle übersetzen, dann in der Quelle suchen.
+  const translatedButton = (pending) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn small ghost";
+    b.append(icon("i-search"), document.createTextNode(TN(pending.length, "Auch übersetzt vergleichen ({n} Satz)", "Auch übersetzt vergleichen ({n} Sätze)")));
+    b.title = T("Für Sätze in einer anderen Sprache als ihre Quelle: Der Mac übersetzt sie, Benthic sucht sie in der Quelle. Nichts verlässt den Mac.");
+    b.onclick = async () => {
+      b.disabled = true;
+      const translations = {};
+      for (let i = 0; i < pending.length; i++) {
+        b.lastChild.textContent = T("Übersetzt {i} von {n} …", { i: i + 1, n: pending.length });
+        const t = await translateText(pending[i].text, pending[i].source, pending[i].target);
+        if (t && t.text) translations[pending[i].sentence] = t.text;
+        else if (t && t.error === "unsupported") break;
+      }
+      let j = {};
+      try {
+        const r = await fetch("/api/overlap/translated", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: verifyJobId, translations }) });
+        j = await r.json();
+        if (!r.ok) throw new Error(j.error || "");
+      } catch (e) { b.lastChild.textContent = j.error || T("Abgleich fehlgeschlagen"); return; }
+      verifyOverlap = j;
+      render(j);
+    };
+    return b;
+  };
   render(verifyOverlap);
   return wrap;
 }
@@ -2932,7 +3077,7 @@ function verifyRow(res) {
   }
   if (res.doi && LOADABLE.has(res.verdict)) {
     const claims = verifyDoc ? (verifyDoc.claims || []).filter((c) => c.entry === (res.order || 0)) : [];
-    act.prepend(supportButton(tr, res.doi, claims.map((c) => c.sentence)));
+    act.prepend(supportButton(tr, res.doi, claims.map((c) => c.sentence)), citedByToggle(tr, res.doi));
   }
   tr.append(st, main, sc, act);
   return tr;
@@ -3017,25 +3162,90 @@ async function showAlternatives(btn, query) {
     ? T("Echte Arbeiten, die dem Titel am nächsten kommen. Vorschläge zum Lesen: Zitiere nur, was du gelesen hast und was deine Aussage stützt.")
     : (j.error || T("Keine passenden Arbeiten gefunden."));
   out.appendChild(lead);
-  if (list.length) {
-    const ol = document.createElement("ol");
-    list.forEach((w) => {
-      const li = document.createElement("li");
-      const t = document.createElement("a");
-      t.href = "https://doi.org/" + w.doi;
-      t.target = "_blank";
-      t.rel = "noopener";
-      t.textContent = w.title;
-      const m = document.createElement("span");
-      m.className = "m";
-      const who = (w.authors || []).length ? w.authors[0] + (w.authors.length > 1 ? T(" u. a.") : "") : "";
-      m.textContent = [who, w.venue, w.year, w.is_oa ? T("frei lesbar") : ""].filter(Boolean).join(" · ");
-      li.append(t, m);
-      ol.appendChild(li);
-    });
-    out.appendChild(ol);
-  }
+  if (list.length) out.appendChild(worksList(list));
   btn.replaceWith(out);
+}
+
+function worksList(list) {
+  const ol = document.createElement("ol");
+  list.forEach((w) => {
+    const li = document.createElement("li");
+    const t = document.createElement("a");
+    t.href = "https://doi.org/" + w.doi;
+    t.target = "_blank";
+    t.rel = "noopener";
+    t.textContent = w.title;
+    const m = document.createElement("span");
+    m.className = "m";
+    const who = (w.authors || []).length ? w.authors[0] + (w.authors.length > 1 ? T(" u. a.") : "") : "";
+    m.textContent = [who, w.venue, w.year, w.cited_by ? T("{n}× zitiert", { n: fmtNum(w.cited_by) }) : "",
+      w.is_oa ? T("frei lesbar") : ""].filter(Boolean).join(" · ");
+    li.append(t, m);
+    ol.appendChild(li);
+  });
+  return ol;
+}
+
+// Vorwärtssuche im Zitationsnetz (related.citing_works): neuere Arbeiten, die eine Quelle zitieren.
+async function citedByBox(doi) {
+  let j = {};
+  try {
+    const r = await fetch("/api/cited-by", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ doi }) });
+    j = await r.json();
+  } catch (e) { j = { error: T("Keine Verbindung") }; }
+  const out = document.createElement("div");
+  out.className = "alts";
+  const lead = document.createElement("p");
+  lead.className = "hint";
+  const list = j.works || [];
+  lead.textContent = j.error || (list.length
+    ? TN(j.total, "Seit {year} zitiert sie {n} Arbeit, die meistzitierten zuerst. Zum Lesen, nicht zum ungelesenen Zitieren.",
+      "Seit {year} zitieren sie {n} Arbeiten, die meistzitierten zuerst. Zum Lesen, nicht zum ungelesenen Zitieren.", { n: fmtNum(j.total), year: j.since })
+    : T("Seit {year} hat keine Arbeit mit DOI sie zitiert.", { year: j.since }));
+  out.appendChild(lead);
+  if (list.length) out.appendChild(worksList(list));
+  return out;
+}
+
+function citedByButton(doi) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn small ghost";
+  b.append(icon("i-arrow"), document.createTextNode(T("Zitiert von")));
+  b.title = T("Neuere Arbeiten, die diese Quelle zitieren");
+  b.onclick = async () => {
+    b.disabled = true;
+    const box = await citedByBox(doi);
+    b.closest("li").appendChild(box);
+    b.remove();
+  };
+  return b;
+}
+
+// Im Prüfbericht als Zeile unter der Quelle, wie die Belegstelle.
+function citedByToggle(tr, doi) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn ghost icon";
+  b.title = T("Neuere Arbeiten, die diese Quelle zitieren");
+  b.setAttribute("aria-label", b.title);
+  b.appendChild(icon("i-arrow"));
+  let row = null;
+  b.onclick = async () => {
+    if (row) { row.remove(); row = null; b.classList.remove("on"); return; }
+    b.classList.add("on");
+    row = document.createElement("tr");
+    row.className = "cited-row";
+    const td = document.createElement("td");
+    td.colSpan = tr.children.length;
+    td.textContent = T("Sucht …");
+    row.appendChild(td);
+    tr.after(row);
+    const box = await citedByBox(doi);
+    td.textContent = "";
+    td.appendChild(box);
+  };
+  return b;
 }
 
 // ---------------------------------------------------------------------------
@@ -3485,10 +3695,7 @@ function loadableDois() {
 function fetchVerified() {
   const dois = loadableDois();
   if (!dois.length) return;
-  $("#doi-input").value = dois.join("\n");
-  updateCounter();
-  showView("download");
-  startJob("download");
+  startJob("download", {}, dois.join("\n"));
 }
 
 async function copyDois() {
@@ -4061,7 +4268,7 @@ const TOUR = [
     title: () => T("Hier beginnt jede Prüfung"),
     text: () => (sampleShown()
       ? T("Hier liegt ein Beispiel: acht Quellen, wie sie ein Chatbot nennt, darunter eine erfundene Arbeit, falsche DOIs und eine zurückgezogene Studie. Prüf es und sieh zu, wie Benthic sie findet.")
-      : T("Füge eine Literaturliste ein oder zieh eine ganze Arbeit als PDF oder Word-Datei hierher. Benthic findet jede Quelle und meldet, was nicht stimmt.")),
+      : T("Füge eine Literaturliste, DOIs oder eine Aussage ein, oder zieh eine ganze Arbeit als PDF oder Word-Datei hierher. Benthic erkennt, was es ist, und hebt den passenden Knopf hervor.")),
     primary: () => (sampleShown() ? T("Das Beispiel prüfen") : T("Prüfen")),
     run: () => startVerify(),
     leaveWhen: () => verifyRunning() },
@@ -4072,9 +4279,9 @@ const TOUR = [
     text: () => (verifyRunning()
       ? T("Jede Angabe geht an Crossref, OpenAlex, Semantic Scholar und arXiv. Benthic vergleicht Titel, Autor:innen und Jahr und fragt die Datenbank von Retraction Watch.")
       : T("Bestätigt, passt nicht, nicht auffindbar, zurückgezogen: Jede Zeile zeigt, was Benthic gefunden hat und wo. Die bestätigten Quellen lädst du mit einem Klick, schickst sie an Zotero oder sicherst den Bericht als PDF.")) },
-  { depth: 5600, view: "find", target: () => $("#view-find > .card"),
+  { depth: 5600, view: "verify", target: () => $("#find-btn"),
     title: () => T("Eine Aussage, echte Quellen"),
-    text: () => T("Du hast einen Satz, aber noch keine Quelle? Frag keinen Chat, der sie womöglich erfindet. Benthic sucht echte Arbeiten und zeigt den Satz aus ihrem Abstract, der deiner Aussage am nächsten kommt.") },
+    text: () => T("Du hast einen Satz, aber noch keine Quelle? Schreib ihn ins selbe Feld und frag keinen Chat, der sie womöglich erfindet. Benthic sucht echte Arbeiten und zeigt den Satz aus ihrem Abstract, der deiner Aussage am nächsten kommt. Ein Suchstring mit AND und OR geht auch.") },
   { depth: 6000, view: "batch", target: () => $("#view-batch > .card"),
     title: () => T("Ein ganzer Stapel auf einmal"),
     text: () => T("Für Lehrende: Prüf einen Ordner mit Abgaben oder den Export aus Moodle oder ILIAS. Je Arbeit eine Zeile und ein eigener Bericht. Die Arbeiten bleiben auf diesem Mac.") },
@@ -4086,7 +4293,7 @@ const TOUR = [
     text: () => T("Ein kleiner Dumbo-Oktopus, der über allen Fenstern schwebt. Leg Links und Text auf ihm ab, halte Stellen als Bildschirmfoto fest, und er führt dich je Projekt in neun Schritten vom Thema bis zur Abgabe."),
     primary: () => ($("#pet-toggle").checked ? null : T("Grimpo zeigen")),
     run: () => { if (!$("#pet-toggle").checked) { $("#pet-toggle").checked = true; petBridge.postMessage({ action: "show" }); } } },
-  { depth: 7600, view: "download", target: () => $("#view-download .route"),
+  { depth: 7600, view: "verify", target: () => $("#load-options"), enter: () => { $("#load-options").open = true; },
     title: () => T("Der Weg nach unten"),
     text: () => T("Erst deine Bibliothek, dann Open Access, dann der Zugang deiner Hochschule. Benthic umgeht keine Paywall: Was nicht frei verfügbar ist, öffnet es über den Proxy deiner Bibliothek.") },
   { depth: 8336, view: "library", target: () => $("#zotero-card"),
@@ -4700,6 +4907,8 @@ function loadVerifyHealth() {
     doi: r.doi || (r.found || {}).doi || "",
     year: (r.found || {}).year || (r.claimed || {}).year || null,
     verdict: r.verdict || null,
+    type: (r.found || {}).type || null,
+    web: !!r.web,
   }));
   if (items.length) loadHealth($("#verify-health"), { items }, $("#verify-body"));
 }
@@ -4795,6 +5004,11 @@ function renderHealth(el, data) {
     if (v.jufo[k]) vrows.push([T("JUFO-Stufe {k}", { k }), v.jufo[k], T("Zeitschriften der JUFO-Stufe {k} (0 bis 3)", { k })]);
   });
   if (vrows.length) charts.appendChild(healthBars(T("Publikationsorte"), vrows, h.count));
+  const m = h.mix || {};
+  const mrows = [[T("Fachartikel"), m.journal || 0], [T("Bücher"), m.book || 0], [T("Preprints"), m.preprint || 0, T("Preprint-Server, nicht begutachtet")],
+                 [T("Berichte und Daten"), m.report || 0, T("Berichte, Statistiken, Datensätze")], [T("Webseiten"), m.web || 0],
+                 [T("Sonstige"), m.other || 0, T("Konferenzbeiträge und andere")]].filter((r) => r[1]);
+  if (mrows.length > 1) charts.appendChild(healthBars(T("Quellenarten"), mrows, h.count));
 
   el.append(head, dims);
   if (charts.children.length) el.appendChild(charts);
@@ -5025,10 +5239,9 @@ async function fetchProjectMissing() {
   const p = await r.json();
   const dois = projectMissing(p);
   if (!dois.length) return;
-  $("#doi-input").value = dois.join("\n");
-  updateCounter();
-  showView("download");
-  startJob("download", { project: id, extra_routes: false });
+  showView("verify");
+  showGroup("download");
+  startJob("download", { project: id, extra_routes: false }, dois.join("\n"));
 }
 
 // ---------------------------------------------------------------------------
@@ -5123,7 +5336,8 @@ function followClientJobs(jobs) {
     } else {
       toast(TN(j.total, "{who} lädt {n} Quelle", "{who} lädt {n} Quellen", { who }),
         j.project_name ? T("Projekt „{name}“", { name: j.project_name }) : T("Über Open Access"));
-      showView("download");
+      showView("verify");
+      showGroup("download");
       currentJobId = j.id;
       currentResults = [];
       lastSeq = 0;
@@ -5855,10 +6069,10 @@ const verifyDive = new Dive($("#verify-dive"), "verify");
 // ---------------------------------------------------------------------------
 // Views in sidebar order; plugins can add their own (window.Benthic.addView).
 let VIEW_KEYS = [];
-const VIEW_NAMES = { overview: T("Übersicht"), verify: T("Prüfen"), batch: T("Stapelprüfung"), download: "Download",
+const VIEW_NAMES = { overview: T("Übersicht"), verify: T("Quellen"), batch: T("Stapelprüfung"),
   projects: T("Projekte"), library: T("Bibliothek"), history: T("Verlauf"), settings: T("Einstellungen"),
   about: T("Über Benthic") };
-const VIEW_ICONS = { overview: "i-chart", verify: "i-verify", batch: "i-file", download: "i-download", projects: "i-folder",
+const VIEW_ICONS = { overview: "i-chart", verify: "i-verify", batch: "i-file", projects: "i-folder",
   library: "i-book", history: "i-clock", settings: "i-sliders", about: "i-user" };
 const viewHooks = {};
 
@@ -5881,8 +6095,10 @@ function paletteCommands() {
   const act = T("Aktionen");
   cmds.push(
     { group: act, label: T("Beispiel-Literaturliste prüfen"), icon: "i-verify", run: () => { showView("verify"); $("#verify-input").value = SAMPLE; runPreview(); startVerify(); } },
-    { group: act, label: T("Prüfung starten"), hint: T("Text im Feld Prüfen"), icon: "i-verify", run: () => { showView("verify"); startVerify(); } },
-    { group: act, label: T("Download starten"), hint: T("DOIs im Feld Download"), icon: "i-download", run: () => { showView("download"); startJob("download"); } },
+    { group: act, label: T("Prüfung starten"), hint: T("Text im Feld"), icon: "i-verify", run: () => { showView("verify"); startVerify(); } },
+    { group: act, label: T("Quellen finden"), hint: T("Aussage oder Suchstring im Feld"), icon: "i-search", run: () => { showView("verify"); findSources(); } },
+    { group: act, label: T("Download starten"), hint: T("DOIs im Feld"), icon: "i-download", run: () => { showView("verify"); startJob("download"); } },
+    { group: act, label: T("Suchprotokoll exportieren"), hint: T("für den Methodenteil"), icon: "i-file", run: exportSearchLog },
     { group: act, label: T("Neues Projekt anlegen"), icon: "i-plus", run: () => { showView("projects"); setTimeout(() => $("#project-name").focus(), 80); } },
     ...(ROUTES.length ? [{ group: act, label: settings.extra_routes ? T("Zusatzwege ausschalten") : T("Zusatzwege einschalten"), icon: settings.extra_routes ? "i-shield" : "i-route",
       run: () => { syncToggle("extra_routes", !settings.extra_routes); persistSetting({ extra_routes: !settings.extra_routes }); } }] : []),
@@ -6107,7 +6323,6 @@ $("#check-oa-btn").onclick = () => startJob("check");
 $("#cancel-btn").onclick = cancelJob;
 $("#export-csv-btn").onclick = () => exportJob("csv");
 $("#export-xlsx-btn").onclick = () => exportJob("xlsx");
-$("#doi-input").addEventListener("input", updateCounter);
 $("#files-refresh-btn").onclick = loadFiles;
 $("#history-refresh-btn").onclick = loadHistory;
 $("#mode-badge").onclick = () => showView("settings");
@@ -6131,86 +6346,127 @@ document.addEventListener("keydown", (e) => {
   next.click();
 });
 
-// Quellen finden (finder.py): eine Aussage, echte Arbeiten mit dem passendsten Satz aus dem Abstract.
+// Quellen finden (finder.py): echte Arbeiten mit dem passendsten Satz aus dem Abstract. Ein Absatz wird Satz für
+// Satz gesucht, ein Suchstring geht unverändert an OpenAlex. Jede Suche landet im Suchprotokoll.
 const GERMAN_HINT = /\b(und|der|die|das|nicht|ist|sind|werden|wird|eine?n?|mit|für|auf|bei|zu)\b/gi;
-async function findSources() {
-  const claim = $("#find-claim").value.trim();
-  const status = $("#find-status");
-  if (claim.split(/\s+/).length < 3) { status.textContent = T("Schreib die Aussage in einem ganzen Satz."); return; }
-  $("#find-btn").disabled = true;
-  status.textContent = T("Sucht …");
+async function findOne(claim) {
   let query = null;
-  if ((claim.match(GERMAN_HINT) || []).length >= 2) {  // deutsche Aussage: englisch sucht OpenAlex besser
+  if (!isSearchString(claim) && (claim.match(GERMAN_HINT) || []).length >= 2) {  // deutsche Aussage: englisch sucht OpenAlex besser
     const t = await translateText(claim, "de", "en");
     if (t && t.text) query = t.text;
   }
-  let j = {};
   try {
     const r = await fetch("/api/find-sources", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ claim, query, open_access_only: $("#find-oa").checked }) });
-    j = await r.json();
-  } catch (e) { j = { error: T("Keine Verbindung") }; }
-  $("#find-btn").disabled = false;
-  if (j.error) { status.textContent = j.error; return; }
-  const list = j.suggestions || [];
-  status.textContent = list.length ? (query ? T("Gesucht auf Englisch: {q}", { q: query }) : "") : T("Keine passenden Arbeiten gefunden.");
-  const ol = $("#find-list");
-  ol.innerHTML = "";
-  $("#find-results").hidden = !list.length;
-  list.forEach((w) => {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.className = "fl-title";
-    a.href = "https://doi.org/" + w.doi;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = w.title;
-    const meta = document.createElement("div");
-    meta.className = "fl-meta";
-    const who = (w.authors || []).join(", ") + ((w.author_count || 0) > 3 ? T(" u. a.") : "");
-    meta.textContent = [who, w.venue, w.year, w.cited_by ? T("{n}× zitiert", { n: fmtNum(w.cited_by) }) : ""].filter(Boolean).join(" · ");
-    li.append(a, meta);
-    if (w.passage && w.passage.text) {
-      const q = document.createElement("blockquote");
-      q.className = "fl-passage";
-      q.textContent = w.passage.text;
-      li.appendChild(q);
-      if (judgeAvailable) li.appendChild(judgeButton(claim, w.passage.text));
-    }
-    const bar = document.createElement("div");
-    bar.className = "fl-actions";
-    if (w.is_oa && webUrl(w.oa_url)) {
-      const read = document.createElement("a");
-      read.className = "btn small";
-      read.href = webUrl(w.oa_url);
-      read.target = "_blank";
-      read.rel = "noopener";
-      read.textContent = T("Frei lesen");
-      bar.appendChild(read);
-    }
-    if (activeProject) {
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "btn small ghost";
-      add.append(icon("i-plus"), document.createTextNode(T("Ins Projekt")));
-      add.onclick = async () => {
-        add.disabled = true;
-        await fetch(`/api/projects/${encodeURIComponent(activeProject)}/items`, { method: "POST",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dois: [w.doi] }) });
-        add.lastChild.textContent = T("Hinzugefügt");
-      };
-      bar.appendChild(add);
-    }
-    const doi = document.createElement("span");
-    doi.className = "mono hint";
-    doi.textContent = w.doi;
-    bar.appendChild(doi);
-    li.appendChild(bar);
-    ol.appendChild(li);
-  });
+    return Object.assign(await r.json(), { translated: query });
+  } catch (e) { return { error: T("Keine Verbindung") }; }
 }
-$("#find-btn").onclick = findSources;
-$("#find-claim").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) findSources(); });
+
+async function findSources(given = null, split = true) {
+  const text = (given === null ? $("#verify-input").value : given).trim();
+  const search = isSearchString(text);
+  if (!search && text.split(/\s+/).length < 3) { flash("#verify-preview", T("Schreib die Aussage in einem ganzen Satz.")); return; }
+  const claims = search || !split ? [text] : claimsOf(text);
+  showView("verify");
+  showGroup("find");
+  const box = $("#find-groups");
+  const status = $("#find-status");
+  box.innerHTML = "";
+  $("#find-results").hidden = false;
+  $("#find-title").textContent = search ? T("Treffer für den Suchstring") : TN(claims.length, "Arbeiten zu deiner Aussage", "Arbeiten zu deinen {n} Aussagen");
+  scrollMainTo($("#find-results"));
+  $("#find-btn").disabled = true;
+  let found = 0;
+  for (let i = 0; i < claims.length; i++) {
+    status.textContent = claims.length > 1 ? T("Sucht {i} von {n} …", { i: i + 1, n: claims.length }) : T("Sucht …");
+    const j = await findOne(claims[i]);
+    const group = document.createElement("section");
+    group.className = "find-group";
+    if (claims.length > 1) {
+      const h = document.createElement("h3");
+      h.textContent = claims[i];
+      group.appendChild(h);
+    }
+    const meta = document.createElement("p");
+    meta.className = "hint";
+    const list = j.suggestions || [];
+    found += list.length;
+    meta.textContent = j.error ? j.error : [
+      j.translated ? T("Gesucht auf Englisch: {q}", { q: j.translated }) : (search ? T("Gesucht: {q}", { q: j.query || text }) : ""),
+      typeof j.total === "number" ? TN(j.total, "{n} Treffer bei OpenAlex", "{n} Treffer bei OpenAlex", { n: fmtNum(j.total) }) : "",
+      list.length ? "" : T("Keine passenden Arbeiten gefunden."),
+    ].filter(Boolean).join(" · ");
+    group.appendChild(meta);
+    const ol = document.createElement("ol");
+    ol.className = "find-list";
+    list.forEach((w) => ol.appendChild(findItem(w, claims[i], j.log_id)));
+    if (list.length) group.appendChild(ol);
+    box.appendChild(group);
+  }
+  status.textContent = found ? "" : T("Keine passenden Arbeiten gefunden.");
+  $("#find-btn").disabled = false;
+}
+
+function findItem(w, claim, logId) {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.className = "fl-title";
+  a.href = "https://doi.org/" + w.doi;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = w.title;
+  const meta = document.createElement("div");
+  meta.className = "fl-meta";
+  const who = (w.authors || []).join(", ") + ((w.author_count || 0) > 3 ? T(" u. a.") : "");
+  meta.textContent = [who, w.venue, w.year, w.cited_by ? T("{n}× zitiert", { n: fmtNum(w.cited_by) }) : ""].filter(Boolean).join(" · ");
+  li.append(a, meta);
+  if (w.passage && w.passage.text) {
+    const q = document.createElement("blockquote");
+    q.className = "fl-passage";
+    q.textContent = w.passage.text;
+    li.appendChild(q);
+    if (judgeAvailable && !isSearchString(claim)) li.appendChild(judgeButton(claim, w.passage.text));
+  }
+  const bar = document.createElement("div");
+  bar.className = "fl-actions";
+  if (w.is_oa && webUrl(w.oa_url)) {
+    const read = document.createElement("a");
+    read.className = "btn small";
+    read.href = webUrl(w.oa_url);
+    read.target = "_blank";
+    read.rel = "noopener";
+    read.textContent = T("Frei lesen");
+    bar.appendChild(read);
+  }
+  if (activeProject) {
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "btn small ghost";
+    add.append(icon("i-plus"), document.createTextNode(T("Ins Projekt")));
+    add.onclick = async () => {
+      add.disabled = true;
+      await fetch(`/api/projects/${encodeURIComponent(activeProject)}/items`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dois: [w.doi] }) });
+      if (logId) fetch("/api/search-log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: logId, doi: w.doi }) });
+      add.lastChild.textContent = T("Hinzugefügt");
+    };
+    bar.appendChild(add);
+  }
+  bar.appendChild(citedByButton(w.doi));
+  const doi = document.createElement("span");
+  doi.className = "mono hint";
+  doi.textContent = w.doi;
+  bar.appendChild(doi);
+  li.appendChild(bar);
+  return li;
+}
+
+// Suchprotokoll: Datum, Datenbank, Suchstring, Treffer, angezeigt, übernommen; im aktiven Projekt nur dessen Suchen.
+function exportSearchLog() {
+  location.href = "/api/search-log?format=xlsx" + (activeProject ? "&project=" + encodeURIComponent(activeProject) : "");
+}
+$("#find-btn").onclick = () => findSources();
+$("#search-log-btn").onclick = exportSearchLog;
 // Derselbe Text wie connect.CHAT_PROMPT: für Chats im Browser, die Benthic nicht als Werkzeug starten können.
 $("#chat-prompt-btn").onclick = () => {
   copyValue(T("Liste alle Quellen deiner letzten Antwort einzeln auf, eine pro Zeile: Autor:innen, Jahr, Titel, Zeitschrift oder Verlag und die DOI, falls bekannt. Erfinde keine DOI; lass sie weg, wenn du sie nicht sicher weißt."));
@@ -6237,7 +6493,7 @@ document.querySelectorAll("#view-batch th[data-sort]").forEach((th) => {
   });
 });
 $("#verify-input").addEventListener("input", () => { delete $("#verify-input").dataset.name; schedulePreview(); });
-$("#verify-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) startVerify(); });
+$("#verify-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runIntent(); });
 $("#verify-file").addEventListener("change", (e) => { loadFilesInto(e.target.files); e.target.value = ""; });
 $("#verify-fetch-btn").onclick = fetchVerified;
 $("#verify-copy-btn").onclick = copyDois;
@@ -6258,6 +6514,14 @@ $("#verify-report-btn").onclick = () => verifyJobId && saveReport(verifyJobId, v
     depth = 0;
     zone.classList.remove("dragging");
     const fl = e.dataTransfer && e.dataTransfer.files;
+    const entry = e.dataTransfer && e.dataTransfer.items && e.dataTransfer.items[0] && e.dataTransfer.items[0].webkitGetAsEntry
+      && e.dataTransfer.items[0].webkitGetAsEntry();
+    if (entry && entry.isDirectory) {
+      toast(T("Ordner erkannt"), T("Ein Ordner mit Arbeiten geht an die Stapelprüfung. Wähl ihn dort noch einmal aus."));
+      showView("batch");
+      startBatch();
+      return;
+    }
     if (fl && fl.length) loadFilesInto(fl);
     else if (e.dataTransfer) { $("#verify-input").value = e.dataTransfer.getData("text"); runPreview(); }
   });
@@ -6277,6 +6541,8 @@ $("#project-select").addEventListener("change", (e) => {
 $("#project-create").onclick = createProject;
 $("#project-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createProject(); });
 $("#pd-delete").onclick = deleteProject;
+$("#pd-matrix").onclick = () => { const id = $("#project-detail").dataset.id; if (id) location.href = `/api/projects/${encodeURIComponent(id)}/matrix`; };
+$("#pd-search-log").onclick = () => { const id = $("#project-detail").dataset.id; if (id) location.href = `/api/search-log?format=xlsx&project=${encodeURIComponent(id)}`; };
 $("#pd-share").onclick = async () => {
   const id = $("#project-detail").dataset.id;
   if (!id) return;
@@ -6381,9 +6647,7 @@ document.addEventListener("keydown", (e) => {
 });
 $("#retry-failed-btn").onclick = () => {
   if (!lastFailed.length) return;
-  $("#doi-input").value = lastFailed.join("\n");
-  updateCounter();
-  startJob("download");
+  startJob("download", {}, lastFailed.join("\n"));
 };
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -6430,7 +6694,6 @@ loadRoutes();
 loadLibrary();
 loadHistory();
 loadFiles();
-updateCounter();
 // Start: wer schon Läufe hat, landet in der Übersicht, sonst in „Prüfen“.
 const initialView = (location.hash || "").replace("#", "");
 showView(initialView || "verify");

@@ -65,7 +65,7 @@ class Uebernahmen(unittest.TestCase):
         self.assertEqual(r["checked"], 5)                       # die fünf Sätze zur geladenen Quelle
         self.assertEqual(r["missing_pdfs"], ["10.1016/j.compedu.2021.104210"])
         self.assertEqual(r["no_source"], 1)                      # erfundene Quelle: nichts zu vergleichen
-        self.assertEqual(overlap.summary(r), {"verbatim": 1, "close": 1, "partial": 1})
+        self.assertEqual(overlap.summary(r), {"verbatim": 1, "close": 1, "partial": 1, "translated": 0})
 
     def test_own_words_drop_quotes_and_citations(self):
         self.assertEqual(overlap.own_words("They call it “the library” (Harris et al., 2020) and [3]."),
@@ -88,6 +88,55 @@ class Uebernahmen(unittest.TestCase):
             self.assertEqual(client.post("/api/overlap", json={"job_id": "nope"}).status_code, 404)
         finally:
             env.stop()
+
+
+GERMAN = {"claims": [
+    # Wort für Wort übersetzt, ohne Anführungszeichen
+    {"entry": 0, "label": "Harris et al. (2020)",
+     "sentence": "Die Array-Programmierung bietet eine leistungsfähige, kompakte und ausdrucksstarke Syntax für den Zugriff "
+                 "auf Daten in Vektoren, Matrizen und höherdimensionalen Arrays und deren Bearbeitung (Harris et al., 2020)."},
+    # eigene Worte zum selben Thema
+    {"entry": 0, "label": "Harris et al. (2020)",
+     "sentence": "In unserem Kurs lernen die Studierenden zuerst Tabellen und erst später eine eigene Programmiersprache "
+                 "kennen (Harris et al., 2020)."},
+]}
+# So würde der Mac die beiden Sätze ins Englische übersetzen.
+TRANSLATIONS = {
+    GERMAN["claims"][0]["sentence"]: "Array programming offers a powerful, compact and expressive syntax for accessing data "
+                                     "in vectors, matrices and higher-dimensional arrays and manipulating them.",
+    GERMAN["claims"][1]["sentence"]: "In our course, students first learn spreadsheets and only later their own programming language.",
+}
+
+
+class Uebersetzt(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.pdf = Path(self.tmp.name) / "harris.pdf"
+        self.pdf.write_bytes(b"%PDF")
+        overlap._index_cache.clear()
+        overlap._sentence_cache.clear()
+        self.patches = [mock.patch.object(biblio, "pdf_path", side_effect=lambda d: self.pdf if d.startswith("10.1038") else None),
+                        mock.patch.object(overlap.support, "_pages", return_value=SOURCE)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_pending_only_across_languages(self):
+        pending = overlap.translation_pending(GERMAN, RESULTS)
+        self.assertEqual([(x["source"], x["target"]) for x in pending], [("de", "en"), ("de", "en")])
+        self.assertNotIn("Harris", pending[0]["text"])                    # ohne Zitierklammer übersetzen
+        self.assertEqual(overlap.translation_pending(DOC, RESULTS), [])  # englisch zu englisch: der normale Abgleich
+
+    def test_translated_sentence_is_found(self):
+        found = overlap.check_translated(GERMAN, RESULTS, TRANSLATIONS)
+        self.assertEqual([f["kind"] for f in found], ["translated"])
+        self.assertEqual(found[0]["page"], 2)
+        self.assertIn("expressive syntax", found[0]["excerpt"])
+        self.assertEqual(overlap.check_translated(GERMAN, RESULTS, {}), [])
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .i18n import tr
 
@@ -118,46 +118,84 @@ def _table(results: List[Dict]):
     return [c[1] for c in COLUMNS], [_row(r) for r in results]
 
 
-def to_csv(results: List[Dict]) -> str:
-    headers, rows = _table(results)
+def table_csv(headers: List[str], rows: List[Dict]) -> str:
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow([tr(h) for h in headers])  # Spaltennamen in der eingestellten Sprache
     for row in rows:
-        writer.writerow([safe_cell(row[h]) for h in headers])
+        writer.writerow([safe_cell(row.get(h, "")) for h in headers])
     return out.getvalue()
 
 
-def to_xlsx(results: List[Dict]) -> bytes:
+def table_xlsx(title: str, headers: List[str], rows: List[Dict], widths: Optional[Dict[str, int]] = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
-
-    headers, rows = _table(results)
-    ws.title = tr("Prüfbericht") if _is_verify(results) else tr("Ergebnisse")
+    ws.title = tr(title)[:31]
     ws.append([tr(h) for h in headers])
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="08697D")
         cell.alignment = Alignment(vertical="center")
-
     for row in rows:
-        ws.append([safe_cell(row[h]) for h in headers])
-
-    widths = {
-        "DOI / Identifier": 40, "Status": 12, "Quelle": 22, "Kanal": 14,
-        "Open Access": 12, "Fassung": 20, "Datei": 48, "Titel": 48, "Fehler": 40,
-        "Nr.": 5, "Urteil": 16, "Übereinstimmung": 10, "Angabe: Titel": 48, "Angabe: Jahr": 8,
-        "DOI": 32, "Gefunden: Titel": 48, "Gefunden: Jahr": 8, "Zeitschrift": 28, "Zitiert": 8,
-        "Hinweis": 48, "Eingabe": 60,
-    }
+        ws.append([safe_cell(row.get(h, "")) for h in headers])
     for i, h in enumerate(headers, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = widths.get(h, 22)
-
+        ws.column_dimensions[get_column_letter(i)].width = (widths or {}).get(h, 22)
     ws.freeze_panes = "A2"
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+WIDTHS = {
+    "DOI / Identifier": 40, "Status": 12, "Quelle": 22, "Kanal": 14,
+    "Open Access": 12, "Fassung": 20, "Datei": 48, "Titel": 48, "Fehler": 40,
+    "Nr.": 5, "Urteil": 16, "Übereinstimmung": 10, "Angabe: Titel": 48, "Angabe: Jahr": 8,
+    "DOI": 32, "Gefunden: Titel": 48, "Gefunden: Jahr": 8, "Zeitschrift": 28, "Zitiert": 8,
+    "Hinweis": 48, "Eingabe": 60,
+}
+
+
+def to_csv(results: List[Dict]) -> str:
+    return table_csv(*_table(results))
+
+
+def to_xlsx(results: List[Dict]) -> bytes:
+    headers, rows = _table(results)
+    return table_xlsx("Prüfbericht" if _is_verify(results) else "Ergebnisse", headers, rows, WIDTHS)
+
+
+# Quellenmatrix eines Projekts: was Benthic weiß, und die Felder der Lesematrix, die beim Lesen gefüllt werden
+# (Forschungsfrage, Theorie, Begriffe, Methode, Kernergebnis, Grenzen, Nutzen für die eigene Frage).
+MATRIX_COLUMNS = ["Autor:innen und Jahr", "Titel", "Zeitschrift oder Verlag", "DOI", "Art", "Urteil", "Volltext",
+                  "Forschungsfrage der Quelle", "Theorie oder Modell", "Begriffe und Definitionen", "Methode und Stichprobe",
+                  "Kernergebnis", "Grenzen", "Nutzen für meine Frage"]
+MATRIX_WIDTHS = {"Autor:innen und Jahr": 26, "Titel": 48, "Zeitschrift oder Verlag": 28, "DOI": 30, "Art": 14,
+                 "Urteil": 14, "Volltext": 10, "Forschungsfrage der Quelle": 30, "Theorie oder Modell": 26,
+                 "Begriffe und Definitionen": 26, "Methode und Stichprobe": 28, "Kernergebnis": 36, "Grenzen": 28,
+                 "Nutzen für meine Frage": 32}
+_TYPE_LABEL = {"article": "Artikel", "book": "Buch", "book-chapter": "Buchkapitel", "preprint": "Preprint",
+               "review": "Übersicht", "dissertation": "Dissertation", "report": "Bericht", "dataset": "Datensatz"}
+
+
+def matrix_rows(items: List[Dict], meta: Dict[str, Dict]) -> List[Dict]:
+    rows = []
+    for it in items:
+        m = meta.get(str(it.get("doi") or "").lower()) or {}
+        authors = m.get("authors") or []
+        who = ", ".join(authors[:2]) + (" " + tr("u. a.") if len(authors) > 2 else "")
+        year = m.get("year") or it.get("year") or ""
+        verdict = str(it.get("verdict") or "")
+        rows.append({
+            "Autor:innen und Jahr": f"{who} ({year})" if who else str(year),
+            "Titel": str(m.get("title") or it.get("title") or ""),
+            "Zeitschrift oder Verlag": str(m.get("venue") or ""),
+            "DOI": str(it.get("doi") or ""),
+            "Art": tr(_TYPE_LABEL[m["type"]]) if m.get("type") in _TYPE_LABEL else str(m.get("type") or ""),
+            "Urteil": tr(_VERDICT_LABEL[verdict]) if verdict in _VERDICT_LABEL else "",
+            "Volltext": tr("ja") if it.get("in_library") else tr("nein"),
+        })
+    return rows

@@ -6,6 +6,46 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.1.9
+
+Ein Feld zum Prüfen, Finden und Laden von Quellen, und neue Hinweise aus einem Seminar zum wissenschaftlichen Schreiben.
+
+- **Ein Feld für alles.** Prüfen, Quellen finden und Download sind jetzt eine
+  Ansicht. Füge eine Literaturliste, DOIs, eine Aussage aus deiner Arbeit oder
+  einen Suchstring ein oder zieh eine ganze Arbeit hinein: Benthic erkennt,
+  was es ist, und hebt den passenden Knopf hervor; die anderen beiden bleiben
+  einen Klick entfernt. Ein Absatz wird Satz für Satz gesucht, und ein
+  Suchstring wie in einer Fachdatenbank, etwa
+  `"market segmentation" AND churn`, geht unverändert an OpenAlex.
+- **Suchprotokoll.** Jede Suche hält Datum, Datenbank, exakten Suchstring,
+  Trefferzahl und die übernommenen Arbeiten fest, je Projekt exportierbar für
+  den Methodenteil.
+- **Zitiert von.** Zu einer bestätigten Quelle zeigt Benthic neuere Arbeiten,
+  die sie zitieren, die meistzitierten zuerst: die Vorwärtssuche im
+  Schneeballverfahren.
+- **Aufbau einer Arbeit.** Die Prüfung einer Arbeit zeigt jetzt Absätze, die
+  nacheinander je nur eine Quelle nacherzählen, lange Absätze mit einem
+  einzigen Beleg ganz am Ende und Quellen, die erst im Fazit auftauchen, und
+  sie stellt die Forschungsfrage neben den Anfang des Fazits. Das sind
+  Hinweise mit Fundstelle, keine Bewertung.
+- **Übersetzt übernommen.** Sätze in einer anderen Sprache als ihre Quelle
+  lassen sich auf dem Mac übersetzen (ab macOS 15) und mit der Quelle
+  vergleichen. So fällt auch ein Satz auf, der Wort für Wort übersetzt ist und
+  keine Anführungszeichen trägt.
+- **Quellenmatrix.** Jedes Projekt exportiert eine Tabelle mit Autor:innen,
+  Jahr, Titel, Zeitschrift, DOI und Urteil, dazu leere Spalten für
+  Forschungsfrage der Quelle, Theorie, Methode, Kernergebnis, Grenzen und den
+  Nutzen für die eigene Frage.
+- **Quellenarten und Kursvorgaben.** Die Gesundheit der Literaturliste zeigt
+  den Anteil von Fachartikeln, Büchern, Preprints, Berichten und Webseiten.
+  Eine Hausregel-Datei kann jetzt Kursvorgaben enthalten: eine Mindestzahl an
+  Quellen, Quellenarten, die der Kurs nicht vorsieht, und einen Satz der
+  Lehrenden.
+- **Mehr Bücher gefunden.** Nach Open Library und der Deutschen
+  Nationalbibliothek fragt Benthic die Verbundkataloge des hbz (lobid) sowie
+  von GBV und SWB (K10plus), zuerst mit Titel und Jahr, damit die richtige
+  Auflage eines Lehrbuchs erscheint.
+
 ## 1.1.8
 
 Plugins haben jetzt ihren eigenen Platz in den Einstellungen.

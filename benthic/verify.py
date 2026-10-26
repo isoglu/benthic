@@ -6,7 +6,7 @@ Gedacht für Literaturlisten aus LLMs. Für jede Referenz aus ``refs.parse``:
 2. Das echte Werk holen (OpenAlex, sonst Crossref, sonst nur der DOI-Resolver).
 3. Behauptete Angaben (Titel, Autor:innen, Jahr) mit dem echten Werk vergleichen.
 4. Ohne oder mit falscher DOI: per Titel suchen (Crossref und OpenAlex, dann arXiv, Europe PMC mit PubMed,
-   Semantic Scholar, DBLP, Open Library, DNB).
+   Semantic Scholar, DBLP, Open Library, DNB, lobid, K10plus).
 5. Rückzüge erkennen (OpenAlex ``is_retracted``, Crossref ``updated-by``).
 
 Urteile: verified, corrected, partial, uncertain, mismatch, not_found, retracted.
@@ -656,7 +656,9 @@ def _search_dblp(title: str) -> List[Dict]:
     return hits or []  # type: ignore[return-value]
 
 
-def _parse_dnb_marc21(xml_text: str) -> List[Dict]:
+def _parse_dnb_marc21(xml_text, source: str = "Deutsche Nationalbibliothek",
+                      url: str = "https://d-nb.info/{id}") -> List[Dict]:
+    """MARC21-XML einer SRU-Antwort (DNB, K10plus) als Treffer."""
     if not xml_text:
         return []
     try:
@@ -711,10 +713,17 @@ def _parse_dnb_marc21(xml_text: str) -> List[Dict]:
                 "retracted": False,
                 "cited_by": None,
                 "is_oa": None,
-                "source": "Deutsche Nationalbibliothek",
-                "url": f"https://d-nb.info/{record_id}" if record_id else None,
+                "source": source,
+                "url": url.format(id=record_id) if record_id else None,
             })
     return records
+
+
+def _main_title(title: str, authors: Optional[List[str]] = None) -> str:
+    """Der Haupttitel vor dem Untertitel ("Marketing: Grundlagen …"): Kataloge suchen Titel als Phrase, und Untertitel
+    stehen dort oft anders. Ohne Namen nur, wenn der Haupttitel allein genug Wörter hat."""
+    main = re.split(r"\s*[:.]\s+|\s+[–-]\s+", title, maxsplit=1)[0].strip()
+    return main if main != title and len(main) >= 5 and (authors or len(main.split()) >= 3) else title
 
 
 def _search_dnb(title: str = "", authors: Optional[List[str]] = None, isbn: Optional[str] = None) -> List[Dict]:
@@ -752,6 +761,96 @@ def _search_dnb(title: str = "", authors: Optional[List[str]] = None, isbn: Opti
     hits = _cached(cache_key, fetch)
     _t("Deutsche Nationalbibliothek", "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
     return hits or []  # type: ignore[return-value]
+
+
+def _attempts(title: str, authors: List[str], year: Optional[str]) -> List[Tuple[str, Optional[str]]]:
+    """Suchfassungen für einen Katalog, die genaueste zuerst: Titel mit Jahr (bei Lehrbüchern mit vielen Auflagen
+    trifft das die richtige), Titel ohne Jahr, Haupttitel mit Jahr."""
+    out: List[Tuple[str, Optional[str]]] = []
+    for t, y in ((title, year), (title, None), (_main_title(title, authors), year)):
+        if t and (t, y) not in out:
+            out.append((t, y))
+    return out
+
+
+def _catalog(name: str, title: str, authors: List[str], year: Optional[str], isbn: Optional[str],
+             query: Callable[[str, Optional[str]], str], isbn_query: str, fetch_one: Callable[[str], object]) -> List[Dict]:
+    """Fragt einen Katalog nacheinander mit den Suchfassungen, bis einer etwas findet."""
+    queries = [isbn_query] if isbn else [query(t, y) for t, y in _attempts(title, authors, year)]
+    for q in queries:
+        hits = _cached(f"{name}:{q}", lambda q=q: fetch_one(q))
+        _t(name, "search", hits=len(hits) if hits is not None else None, failed=hits is None or None)
+        if hits:
+            return hits  # type: ignore[return-value]
+    return []
+
+
+def _clean_q(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r'["\\]', "", text)).strip()[:80]
+
+
+def _search_k10plus(title: str = "", authors: Optional[List[str]] = None, isbn: Optional[str] = None,
+                    year: Optional[str] = None) -> List[Dict]:
+    """K10plus, der gemeinsame Katalog der Verbünde GBV und SWB (SRU, MARC21)."""
+    authors = authors or []
+
+    def query(t: str, y: Optional[str]) -> str:
+        first = " ".join(re.sub(r"[^\w\s-]", " ", t).split()[:5])  # die ersten ganzen Wörter, ohne Satzzeichen
+        q = f'pica.tit="{first}"'
+        if authors:
+            q += f' and pica.per="{_clean_q(authors[0])}"'
+        return q + (f" and pica.jhr={y}" if y else "")
+
+    def fetch_one(q: str):
+        resp = oa._api_get("https://sru.k10plus.de/opac-de-627", params={
+            "version": "1.1", "operation": "searchRetrieve", "recordSchema": "marcxml", "maximumRecords": "3",
+            "query": q}, timeout=12.0)
+        if resp is None:
+            return _FAILED
+        # K10plus nennt keinen Zeichensatz; die Bytes gehen an den XML-Parser, der UTF-8 aus der Deklaration liest.
+        return _parse_dnb_marc21(resp.content, "K10plus (GBV, SWB)", "https://opac.k10plus.de/DB=2.1/PPNSET?PPN={id}")
+
+    if not isbn and not _clean_q(title):
+        return []
+    return _catalog("K10plus", title, authors, year, isbn, query, f"pica.isb={isbn}", fetch_one)
+
+
+def _search_lobid(title: str = "", authors: Optional[List[str]] = None, isbn: Optional[str] = None,
+                  year: Optional[str] = None) -> List[Dict]:
+    """lobid-resources, der Verbundkatalog des hbz (JSON)."""
+    authors = authors or []
+    words = lambda t: " ".join(re.sub(r"[^\w\s-]", " ", t)[:120].split())  # noqa: E731
+
+    def query(t: str, y: Optional[str]) -> str:
+        q = f"title:({words(t)})"
+        if authors:
+            q += f" AND contribution.agent.label:({words(authors[0])})"
+        return q + (f" AND publication.startDate:{y}" if y else "")
+
+    def fetch_one(q: str):
+        j = oa._json(oa._api_get("https://lobid.org/resources/search",
+                                 params={"q": q, "format": "json", "size": "3"}, timeout=12.0))
+        if j is None:
+            return _FAILED
+        out = []
+        for m in j.get("member") or []:
+            title_full = str(m.get("title") or "")
+            sub = m.get("otherTitleInformation") or []
+            if sub and isinstance(sub, list) and title_full and ":" not in title_full:
+                title_full += ": " + str(sub[0])
+            people = [((c.get("agent") or {}).get("label") or "") for c in m.get("contribution") or []
+                      if "Person" in ((c.get("agent") or {}).get("type") or [])]
+            pub = (m.get("publication") or [{}])[0] or {}
+            found_year = refs._YEAR_RE.search(str(pub.get("startDate") or ""))
+            out.append({"doi": None, "title": title_full, "authors": [refs._surname(n.split(",")[0]) for n in people if n][:12],
+                        "year": found_year.group(1) if found_year else None, "venue": (pub.get("publishedBy") or [None])[0],
+                        "type": "book", "author_count": len(people), "retracted": False, "cited_by": None, "is_oa": None,
+                        "source": "lobid (hbz)", "url": str(m.get("id") or "").split("#")[0] or None})
+        return [o for o in out if o["title"]]
+
+    if not isbn and not words(title):
+        return []
+    return _catalog("lobid", title, authors, year, isbn, query, f"isbn:{isbn}", fetch_one)
 
 
 def _lookup_openlibrary_isbn(isbn: str) -> Optional[Dict]:
@@ -862,6 +961,11 @@ def search(claimed: Dict, email: str = "") -> Tuple[Optional[Dict], int, float]:
         pick(_search_openlibrary(str(claimed["title"]), list(claimed.get("authors") or [])))
     if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
         pick(_search_dnb(str(claimed["title"]), list(claimed.get("authors") or [])))
+    # Bücher, die weder Open Library noch die DNB kennen: die Verbundkataloge (hbz, GBV und SWB).
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_lobid(str(claimed["title"]), list(claimed.get("authors") or []), year=claimed.get("year")))
+    if claimed.get("title") and (best is None or best_sim < TITLE_FOUND or best_score < 90):
+        pick(_search_k10plus(str(claimed["title"]), list(claimed.get("authors") or []), year=claimed.get("year")))
     if best:
         _t(best.get("source") or "", "best", title=best.get("title"), similarity=round(best_sim, 2), score=max(best_score, 0))
         # Eine DOI gibt es nur, wenn ein Werk klar vorn liegt. Preprints, Datensätze und Gutachten zählen nicht als
@@ -979,7 +1083,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         emit("done", status=verdict)
         return result
 
-    # ISBN ohne DOI: über Open Library und DNB auflösen.
+    # ISBN ohne DOI: über Open Library, DNB und die Verbundkataloge auflösen.
     if not doi and ref.get("isbn"):
         isbn = str(ref["isbn"])
         result["isbn"] = isbn
@@ -987,7 +1091,7 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         hit = _lookup_openlibrary_isbn(isbn)
         if not hit:
             emit("lookup", source="dnb")
-            dnb_hits = _search_dnb(isbn=isbn)
+            dnb_hits = _search_dnb(isbn=isbn) or _search_lobid(isbn=isbn) or _search_k10plus(isbn=isbn)
             if dnb_hits:
                 hit = dnb_hits[0]
         if hit:
@@ -1059,7 +1163,8 @@ def verify_ref(ref: Dict, email: str = "", on_event: Optional[Callable[[Dict], N
         _score, flags, _sim = compare(claimed, best)
         if flags:
             return finish("partial", _diff_note(flags, via_title=True), best, bscore, flags)
-        known_sources = ("Semantic Scholar", "Europe PMC", "Open Library", "DBLP", "DataCite", "Deutsche Nationalbibliothek")
+        known_sources = ("Semantic Scholar", "Europe PMC", "Open Library", "DBLP", "DataCite", "Deutsche Nationalbibliothek",
+                         "lobid (hbz)", "K10plus (GBV, SWB)")
         via = each_lang(lambda l: tr(best.get("source"), l)) if best.get("source") in ("Open Library", "Deutsche Nationalbibliothek") else best.get("source") if best.get("source") in known_sources else None
         return finish("verified", note_part("Über den Titel gefunden ({source}).", source=via) if via
                       else note_part("Über den Titel gefunden."), best, bscore)

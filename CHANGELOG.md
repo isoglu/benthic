@@ -5,6 +5,43 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.1.9
+
+One field for checking, finding and fetching sources, and new checks taken from a seminar on academic writing.
+
+- **One field for everything.** Check, Find sources and Download are now one
+  view. Paste a reference list, DOIs, a statement from your paper or a search
+  string, or drop a whole paper: Benthic recognises what it is and highlights
+  the matching button, and the other two stay one click away. A paragraph is
+  searched sentence by sentence, and a database search string such as
+  `"market segmentation" AND churn` goes to OpenAlex as written.
+- **Search log.** Every search keeps its date, database, exact search string,
+  number of results and the works you kept, exported per project for the
+  methods section.
+- **Cited by.** For a confirmed source, Benthic lists newer works that cite
+  it, most cited first: the forward half of the snowball method.
+- **Structure of a paper.** A thesis check now points out runs of paragraphs
+  that each retell a single source, long paragraphs whose only citation comes
+  at the very end and sources that first appear in the conclusion, and it shows
+  the research question next to the opening of the conclusion. These are hints
+  with a location, never a score.
+- **Translated borrowing.** Sentences written in another language than their
+  source can be translated on your Mac (macOS 15 or later) and compared with
+  the source, so a sentence translated word for word without quotation marks
+  shows up too.
+- **Source matrix.** Each project exports a spreadsheet with authors, year,
+  title, journal, DOI and verdict filled in, plus empty columns for the
+  source's research question, theory, method, key finding, limitations and
+  its use for your own question.
+- **Source types and course rules.** The list health shows the mix of journal
+  articles, books, preprints, reports and web pages. A house-rules file can now
+  carry course rules: a minimum number of sources, source types the course
+  does not allow and a note from the lecturer.
+- **More books found.** After Open Library and the German National Library,
+  Benthic asks the union catalogues of the hbz (lobid) and of GBV and SWB
+  (K10plus), by title and year first, so the right edition of a textbook
+  comes up.
+
 ## 1.1.8
 
 Plugins now have their own place in the settings.

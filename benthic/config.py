@@ -54,6 +54,7 @@ DEFAULT_SETTINGS: dict = {
     "institution": "",
     "house_rules": "",      # Name der geladenen Hausregeln einer Hochschule (house.py), leer = keine
     "house_style": "",      # Zitierstil aus den Hausregeln; leer = Stil der Arbeit erkennen
+    "house_course": {},     # Kursvorgaben aus den Hausregeln: min_sources, excluded (Quellenarten), note
     "extra_routes": False,  # Zusatzwege aus Plugins (siehe routes.py), nur nach Open Access
     "oa_providers": list(ALL_PROVIDERS),
     "unpaywall_email": "benthic-demo@example.org",
@@ -98,6 +99,8 @@ def _clean(data: dict) -> dict:
     for key in ("unpaywall_email", "core_api_key", "openalex_api_key", "semanticscholar_api_key", "elsevier_api_key", "download_dir",
                 "proxy_prefix", "institution", "update_url", "house_rules", "house_style"):
         cleaned[key] = str(cleaned[key]).strip()
+    course = cleaned["house_course"] if isinstance(cleaned["house_course"], dict) else {}
+    cleaned["house_course"] = {k: course[k] for k in ("min_sources", "excluded", "note") if k in course}
     lang = str(cleaned["language"]).strip().lower()[:2]
     cleaned["language"] = lang if lang in LANGUAGES else DEFAULT_SETTINGS["language"]
     cleaned["settings_version"] = SETTINGS_VERSION

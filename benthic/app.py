@@ -1024,6 +1024,23 @@ def find_missing_works():
     return jsonify(result)
 
 
+@app.route("/api/cited-by", methods=["POST"])
+def cited_by():
+    """Vorwärtssuche: neuere Arbeiten, die eine Quelle zitieren (related.citing_works)."""
+    data = request.get_json(silent=True) or {}
+    doi = library.normalize_doi(str(data.get("doi") or ""))
+    if not doi:
+        return jsonify({"error": tr("Keine gültige DOI")}), 400
+    try:
+        since = int(data["since"]) if data.get("since") else None
+    except (TypeError, ValueError):
+        since = None
+    out = related.citing_works(doi, since, config.load_settings().get("unpaywall_email", ""))
+    if out is None:
+        return jsonify({"error": tr("OpenAlex kennt diese Arbeit nicht oder hat nicht geantwortet.")}), 502
+    return jsonify(out)
+
+
 @app.route("/api/alternatives", methods=["POST"])
 def find_alternatives():
     """Echte Arbeiten zum Thema einer Angabe, die Benthic nicht fand (Vorschläge zum Lesen, related.alternatives)."""
@@ -1045,7 +1062,27 @@ def find_sources():
         return jsonify({"error": tr("Schreib die Aussage in einem ganzen Satz.")}), 400
     if out.get("error"):
         return jsonify({"error": tr("OpenAlex hat nicht geantwortet. Später erneut versuchen.")}), 502
+    out["log_id"] = finder.log_search(claim, out, projects.active())
     return jsonify(out)
+
+
+@app.route("/api/search-log", methods=["GET", "POST"])
+def search_log():
+    """Suchprotokoll als CSV oder XLSX (GET, auf Wunsch je Projekt), oder eine übernommene Arbeit vermerken (POST)."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        ok = finder.mark_kept(str(data.get("id") or ""), library.normalize_doi(str(data.get("doi") or "")) or "")
+        return jsonify({"ok": ok}), (200 if ok else 404)
+    pid = request.args.get("project") or None
+    headers, rows = finder.log_table(pid)
+    name = "benthic-" + (tr("suchprotokoll") if not pid else re.sub(r"[^A-Za-z0-9_-]+", "-", pid))
+    if request.args.get("format") == "xlsx":
+        return send_file(io.BytesIO(export.table_xlsx("Suchprotokoll", headers, rows, {"Suchstring": 60, "Filter": 30,
+                                                                                      "Übernommene DOIs": 48})),
+                         as_attachment=True, download_name=f"{name}.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return Response(export.table_csv(headers, rows), mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename={name}.csv"})
 
 
 @app.route("/api/request-copy")
@@ -1115,6 +1152,26 @@ def check_overlap():
     if not job or not (job.get("document") or {}).get("claims"):
         return jsonify({"error": tr("Zu diesem Lauf gibt es keine Zitate im Text.")}), 404
     result = overlap.check_document(job["document"], job.get("results") or [])
+    result["translation_pending"] = overlap.translation_pending(job["document"], job.get("results") or [])
+    _job_store(job_id, "overlap_check", result)
+    return jsonify({**result, "counts": overlap.summary(result)})
+
+
+@app.route("/api/overlap/translated", methods=["POST"])
+def check_overlap_translated():
+    """Übersetzt übernommene Sätze: die App schickt die auf dem Mac übersetzten Sätze, Benthic sucht sie in der Quelle."""
+    data = request.get_json(silent=True) or {}
+    job_id = str(data.get("job_id") or "")
+    job = _job_record(job_id)
+    if not job or not (job.get("document") or {}).get("claims"):
+        return jsonify({"error": tr("Zu diesem Lauf gibt es keine Zitate im Text.")}), 404
+    pairs = data.get("translations") or {}
+    translations = {str(k)[:2000]: str(v)[:2000] for k, v in list(pairs.items())[:200]} if isinstance(pairs, dict) else {}
+    result = dict(job.get("overlap_check") or {"findings": [], "checked": 0, "missing_pdfs": [], "wrong_pdfs": []})
+    found = overlap.check_translated(job["document"], job.get("results") or [], translations)
+    result["findings"] = [f for f in result.get("findings") or [] if f.get("kind") != "translated"] + found
+    result["translated_checked"] = len(translations)
+    result.pop("translation_pending", None)
     _job_store(job_id, "overlap_check", result)
     return jsonify({**result, "counts": overlap.summary(result)})
 
@@ -1435,7 +1492,8 @@ def reference_health():
     if not isinstance(items, list):
         return jsonify({"error": "`items` must be a list"}), 400
     s = config.load_settings()
-    return jsonify(journals.assess(items[:500], s.get("unpaywall_email", ""), bool(s.get("journal_jufo", True))))
+    return jsonify(journals.assess(items[:500], s.get("unpaywall_email", ""), bool(s.get("journal_jufo", True)),
+                                   s.get("house_course") or None))
 
 
 @app.route("/api/rankings", methods=["GET"])
@@ -1507,6 +1565,23 @@ def project_bibliography(pid: str):
     name = re.sub(r"[^A-Za-z0-9_-]+", "-", proj["name"]).strip("-") or "projekt"
     return Response(text, mimetype="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename={name}.{ext}"})
+
+
+@app.route("/api/projects/<pid>/matrix")
+def project_matrix(pid: str):
+    """Quellenmatrix zum Weiterarbeiten in Excel oder Numbers: bekannte Angaben und leere Felder der Lesematrix."""
+    proj = projects.detail(pid)
+    if not proj:
+        return jsonify({"error": tr("Projekt nicht gefunden")}), 404
+    meta = related.works_by_doi([i["doi"] for i in proj["items"]], config.load_settings().get("unpaywall_email", ""))
+    rows = export.matrix_rows(proj["items"], meta)
+    name = (re.sub(r"[^A-Za-z0-9_-]+", "-", proj["name"]).strip("-") or "projekt") + "-" + tr("quellenmatrix")
+    if request.args.get("format") == "csv":
+        return Response(export.table_csv(export.MATRIX_COLUMNS, rows), mimetype="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename={name}.csv"})
+    return send_file(io.BytesIO(export.table_xlsx("Quellenmatrix", export.MATRIX_COLUMNS, rows, export.MATRIX_WIDTHS)),
+                     as_attachment=True, download_name=f"{name}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.route("/api/projects/<pid>/bundle")
@@ -1796,6 +1871,18 @@ def export_annotated_docx(job_id: str):
             "text": f"Zweitquelle ({sc.get('match', '')}): Nach Möglichkeit das Original prüfen und zitieren.",
             "author": "Benthic",
         })
+    for x in doc.get("serial_paragraphs") or []:
+        notes.append({"needle": x.get("sentence") or "", "author": "Benthic",
+                      "text": tr("Ab hier tragen {n} Absätze nacheinander je nur eine Quelle ({labels}). Ordne nach Gedanken "
+                                 "statt nach Autor:innen und lass mehrere Quellen zu einer These sprechen.",
+                                 n=x.get("paragraphs", 3), labels=", ".join(x.get("labels") or []))})
+    for x in doc.get("end_citations") or []:
+        notes.append({"needle": x.get("sentence") or "", "author": "Benthic",
+                      "text": tr("Ein Beleg ({label}) erst am Ende eines langen Absatzes: Welche Aussage stammt aus der Quelle, "
+                                 "welche ist deine Deutung?", label=x.get("label", ""))})
+    for x in doc.get("conclusion_sources") or []:
+        notes.append({"needle": x.get("sentence") or "", "author": "Benthic",
+                      "text": tr("Neue Quelle im Fazit ({label}): Neue Belege gehören in den Hauptteil.", label=x.get("label", ""))})
     for q in job.get("quote_check") or []:
         q_note = _quote_comment(q)
         if q_note:
