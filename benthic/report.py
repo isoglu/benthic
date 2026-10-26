@@ -744,7 +744,7 @@ CHECK_ICON = ('<svg viewBox="0 0 16 16" width="16" height="16" fill="none" strok
 
 
 SOURCES = ("Crossref", "OpenAlex", "Europe PMC (PubMed)", "Semantic Scholar", "DataCite", "arXiv", "DBLP",
-           "Open Library", "Deutsche Nationalbibliothek", "Retraction Watch")
+           "Open Library", "Deutsche Nationalbibliothek", "lobid (hbz)", "K10plus (GBV, SWB)", "Retraction Watch")
 
 
 def _shell(title: str, run_title: str, cover: str, flow: str, sealed: Optional[Dict], auto_print: bool) -> str:
@@ -939,7 +939,36 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
             sec.append(_sub(tr("Aussagen mit Zahlen oder Studienbezug ohne Zitat")))
             sec.append('<div class="split list one">' + "".join(
                 f'<div class="row"><div class="item"><b class="warn">{_e(u["sentence"])}</b></div></div>' for u in unclaims[:20]) + "</div>")
-        if doc.get("cross_check") and not missing and not uncited and not years and not sec_cites and not unclaims:
+        serial = doc.get("serial_paragraphs") or []
+        ends = doc.get("end_citations") or []
+        late = doc.get("conclusion_sources") or []
+        qa = doc.get("question_pair")
+        if serial:
+            sec.append(_sub(tr("Quellen nacheinander nacherzählt")))
+            sec.append('<div class="split list one">' + "".join(
+                f'<div class="row"><div class="item"><b class="warn">{_e(tr("{n} Absätze nacheinander mit je einer Quelle", n=x["paragraphs"]))}:</b> '
+                f'{_e(", ".join(x["labels"]))}<div class="meta">{_e(x["sentence"])}</div></div></div>' for x in serial[:20]) + "</div>")
+        if ends:
+            sec.append(_sub(tr("Ein Beleg für einen ganzen Absatz")))
+            sec.append('<div class="split list one">' + "".join(
+                f'<div class="row"><div class="item"><b class="warn">{_e(x["label"])}</b> '
+                f'<span class="muted">({_e(tr("{n} Sätze", n=x["sentences"]))})</span><div class="meta">{_e(x["sentence"])}</div></div></div>'
+                for x in ends[:20]) + "</div>")
+        if late:
+            sec.append(_sub(tr("Neue Quellen im Fazit")))
+            sec.append('<div class="split list one">' + "".join(
+                f'<div class="row"><div class="item"><b class="warn">{_e(x["label"])}</b><div class="meta">{_e(x["sentence"])}</div></div></div>'
+                for x in late[:20]) + "</div>")
+        if qa:
+            sec.append(_sub(tr("Frage und Fazit nebeneinander")))
+            note = (tr("Diese Begriffe der Frage kommen im Fazit nicht vor: {words}.", words=", ".join(qa["missing"]))
+                    if qa.get("missing") else tr("Das Fazit greift die Begriffe der Frage auf."))
+            sec.append('<div class="split list"><div class="row">'
+                       f'<div class="item"><b>{_e(tr("Forschungsfrage"))}</b><div class="meta">{_e(qa["question"])}</div></div>'
+                       f'<div class="item"><b>{_e(qa.get("heading") or tr("Fazit"))}</b><div class="meta">{_e(qa["conclusion"])}</div></div>'
+                       f'</div></div><p class="muted">{_e(note)}</p>')
+        if doc.get("cross_check") and not missing and not uncited and not years and not sec_cites and not unclaims \
+                and not serial and not ends and not late:
             sec.append(f'<div class="keep"><p class="allgood">{CHECK_ICON}{_e(tr("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert."))}</p></div>')
     if n_integ:
         sec.append(_heading("sec-integrity", tr("Hinweise auf Manipulation"),
@@ -975,10 +1004,10 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
         sec.append(_heading("sec-overlap", tr("Übernahmen ohne Anführungszeichen"),
                             tr("{n} zitierende Sätze mit den Volltexten ihrer Quellen verglichen, ohne die Teile in Anführungszeichen.", n=oc.get("checked", 0))))
         kinds = {"verbatim": tr("Wortgleich aus der Quelle"), "close": tr("Fast wortgleich aus der Quelle"),
-                 "partial": tr("Lange wortgleiche Passage")}
+                 "partial": tr("Lange wortgleiche Passage"), "translated": tr("Übersetzt aus der Quelle")}
         if overlaps:
             sec.append('<div class="split quotes">' + "".join(
-                f'<div class="row quote"><div class="meta"><b class="{"warn" if f["kind"] == "partial" else "fail"}">{_e(kinds[f["kind"]])}</b>'
+                f'<div class="row quote"><div class="meta"><b class="{"warn" if f["kind"] in ("partial", "translated") else "fail"}">{_e(kinds[f["kind"]])}</b>'
                 f' · {_e(f.get("label"))}' + (f' · {_e(tr("S."))} {_e(f["page"])}' if f.get("page") else "") + "</div>"
                 f'<div>{_e(f["sentence"])}</div>'
                 + (f'<div class="meta">{_e(tr("In der Quelle:"))} <q>{_e(f["excerpt"])}</q></div>' if f.get("excerpt") else "")

@@ -7,6 +7,11 @@ und Stelle. Das ist kein Urteil über Absicht: Fachbegriffe, Definitionen und fe
 eine Stelle ein Zitat hätte sein müssen, entscheidet der Mensch, der beide liest. Es braucht keine Sammlung fremder
 Arbeiten: verglichen wird nur mit den Quellen, die die Arbeit selbst nennt, und nur mit PDFs, die kein anderes Werk sind
 (identity.py).
+
+Übersetzt übernommene Sätze (eine deutsche Arbeit, die einen englischen Satz Wort für Wort überträgt) haben keine
+wortgleichen Folgen. Dafür übersetzt die App die zitierenden Sätze auf dem Mac in die Sprache der Quelle
+(translation_pending, dann check_translated), und Benthic sucht in der Quelle einen Satz mit fast denselben tragenden
+Wörtern in beide Richtungen.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ MIN_RUN = 10      # wortgleiche Folge ab so vielen Wörtern melden
 MIN_WORDS = 8     # kürzere Sätze (ohne Zitate und Klammer) nicht prüfen
 COVERAGE = 0.7    # oder: so viel des Satzes steht wortgleich in der Quelle
 REAL = ("verified", "corrected", "partial")
+TRANSLATED_SHARE = 0.6  # übersetzt übernommen: so viel der tragenden Wörter teilen beide Sätze, in beide Richtungen
+TRANSLATED_MIN = 8      # tragende Wörter, die ein übersetzter Satz mindestens hat
 
 # Teile in Anführungszeichen (gekennzeichnete Zitate) und die Zitierklammer: nicht mitvergleichen.
 _QUOTED = re.compile(r"[\"„“”«»][^\"„“”«»]{2,}?[\"„“”«»]")
@@ -124,8 +131,94 @@ def check_document(doc: Dict, results: List[Dict]) -> Dict:
             "wrong_pdfs": sorted(wrong)}
 
 
+def _cited_sources(doc: Dict, results: List[Dict]):
+    """(Satz, Zitat, Ergebnis, PDF) für jeden zitierenden Satz, dessen Quelle als echtes Werk geladen ist."""
+    by_order = {r.get("order"): r for r in results}
+    seen: Set[Tuple[object, str]] = set()
+    for c in doc.get("claims") or []:
+        sentence = str(c.get("sentence") or "")
+        r = by_order.get(c.get("entry")) or {}
+        if not sentence or (c.get("entry"), sentence) in seen or r.get("verdict") not in REAL or not r.get("doi"):
+            continue
+        seen.add((c.get("entry"), sentence))
+        path, ident = identity.held(r["doi"], (r.get("found") or {}).get("title"), (r.get("found") or {}).get("pages"))
+        if path and ident.get("status") != identity.CONTRADICTED:
+            yield sentence, c, r, path
+
+
+def _source_language(path: Path) -> Optional[str]:
+    try:
+        return support.language(" ".join(p["text"] for p in _index(path)["pages"][:4])[:20000])
+    except Exception:
+        return None
+
+
+def translation_pending(doc: Dict, results: List[Dict], limit: int = 150) -> List[Dict]:
+    """Zitierende Sätze, deren Quelle in einer anderen Sprache geschrieben ist: Satz, seine und die Zielsprache."""
+    out: List[Dict] = []
+    langs: Dict[str, Optional[str]] = {}
+    for sentence, _c, _r, path in _cited_sources(doc, results):
+        text = own_words(sentence)
+        own = support.language(text)
+        if str(path) not in langs:
+            langs[str(path)] = _source_language(path)
+        target = langs[str(path)]
+        if own and target and own != target and len(support.tokens(text)) >= TRANSLATED_MIN:
+            out.append({"sentence": sentence, "text": text, "source": own, "target": target})
+            if len(out) >= limit:
+                break
+    return out
+
+
+_sentence_cache: Dict[Tuple[str, int], List[Tuple[int, str, Set[str]]]] = {}
+
+
+def _source_sentences(path: Path) -> List[Tuple[int, str, Set[str]]]:
+    key = (str(path), path.stat().st_mtime_ns)
+    with _lock:
+        if key in _sentence_cache:
+            return _sentence_cache[key]
+    out = []
+    for page, text in quotes._page_texts(_index(path)["pages"]):
+        for sent in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text)):
+            toks = set(support.tokens(sent))
+            if len(toks) >= TRANSLATED_MIN // 2:
+                out.append((page, sent.strip(), toks))
+    with _lock:
+        if len(_sentence_cache) > 30:
+            _sentence_cache.clear()
+        _sentence_cache[key] = out
+    return out
+
+
+def check_translated(doc: Dict, results: List[Dict], translations: Dict[str, str]) -> List[Dict]:
+    """Sätze, deren Übersetzung (``translations``: Satz -> Übersetzung) fast denselben Satz der Quelle ergibt."""
+    findings: List[Dict] = []
+    for sentence, c, r, path in _cited_sources(doc, results):
+        translated = translations.get(sentence)
+        if not translated:
+            continue
+        mine = set(support.tokens(translated))
+        if len(mine) < TRANSLATED_MIN:
+            continue
+        best = None
+        try:
+            for page, sent, theirs in _source_sentences(path):
+                shared = len(mine & theirs)
+                score = min(shared / len(mine), shared / len(theirs))
+                if score >= TRANSLATED_SHARE and (best is None or score > best[0]):
+                    best = (score, page, sent)
+        except Exception:  # beschädigte PDF
+            continue
+        if best:
+            findings.append({"entry": c.get("entry"), "label": c.get("label"), "doi": r["doi"], "sentence": sentence,
+                             "kind": "translated", "run": 0, "share": round(best[0], 2), "page": best[1],
+                             "excerpt": best[2][:600], "translated": translated})
+    return findings[:200]
+
+
 def summary(result: Optional[Dict]) -> Dict[str, int]:
-    counts = {"verbatim": 0, "close": 0, "partial": 0}
+    counts = {"verbatim": 0, "close": 0, "partial": 0, "translated": 0}
     for f in (result or {}).get("findings") or []:
         counts[f["kind"]] = counts.get(f["kind"], 0) + 1
     return counts

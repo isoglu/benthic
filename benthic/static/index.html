@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.1.8">
-  <link rel="stylesheet" href="/static/style.css?v=1.1.8">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.1.9">
+  <link rel="stylesheet" href="/static/style.css?v=1.1.9">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
@@ -82,10 +82,7 @@
           <svg class="ic"><use href="#i-chart"/></svg><span>Übersicht</span>
         </button>
         <button class="nav-item active" data-view="verify" type="button">
-          <svg class="ic"><use href="#i-verify"/></svg><span>Prüfen</span>
-        </button>
-        <button class="nav-item" data-view="find" type="button">
-          <svg class="ic"><use href="#i-search"/></svg><span>Quellen finden</span>
+          <svg class="ic"><use href="#i-verify"/></svg><span>Quellen</span>
         </button>
         <button class="nav-item" data-view="batch" type="button">
           <svg class="ic"><use href="#i-file"/></svg><span>Stapelprüfung</span>
@@ -96,9 +93,6 @@
         </button>
         <button class="nav-item" data-view="library" type="button">
           <svg class="ic"><use href="#i-book"/></svg><span>Bibliothek</span>
-        </button>
-        <button class="nav-item" data-view="download" type="button">
-          <svg class="ic"><use href="#i-download"/></svg><span>Download</span>
         </button>
         <span class="nav-sep" aria-hidden="true"></span>
         <button class="nav-item" data-view="history" type="button">
@@ -193,30 +187,70 @@
         </div>
       </section>
 
-      <!-- Prüfen: Paste anything + Hallucination-Check -->
+      <!-- Quellen: ein Feld für Prüfen, Quellen finden und Laden. Was im Feld steht, entscheidet, welcher Knopf leuchtet. -->
       <section class="view active" id="view-verify">
         <header class="view-head">
-          <h1>Quellen prüfen</h1>
-          <p>Füge eine LLM-Antwort, eine Literaturliste, BibTeX oder RIS ein. Benthic findet jede Quelle, prüft, ob es sie gibt und ob sie zur Angabe passt, und meldet zurückgezogene Arbeiten.</p>
+          <h1>Quellen prüfen, finden und laden</h1>
+          <p>Füge eine LLM-Antwort, eine Literaturliste, BibTeX, RIS oder DOIs ein, schreib eine Aussage aus deiner Arbeit oder einen Suchbegriff, oder zieh eine ganze Arbeit hierher. Benthic erkennt, was es ist, und hebt den passenden Knopf hervor.</p>
         </header>
 
         <div class="card">
           <div class="dropzone" id="verify-drop">
-            <textarea id="verify-input" spellcheck="false" aria-label="Literaturangaben"
-              placeholder="Hier einfügen, zum Beispiel die Literaturliste aus ChatGPT oder Claude.&#10;&#10;Oder eine ganze Arbeit als PDF oder Word-Datei hierherziehen, oder eine .bib-, .ris-, .txt- oder .md-Datei."></textarea>
+            <textarea id="verify-input" spellcheck="false" aria-label="Literaturangaben, DOIs, Aussage oder Suchbegriff"
+              placeholder="Hier einfügen, zum Beispiel die Literaturliste aus ChatGPT oder Claude, ein paar DOIs, eine Aussage aus deiner Arbeit oder einen Suchbegriff wie &quot;market segmentation&quot; AND churn.&#10;&#10;Oder eine ganze Arbeit als PDF oder Word-Datei hierherziehen, oder eine .bib-, .ris-, .txt- oder .md-Datei."></textarea>
             <div class="drop-overlay" aria-hidden="true"><svg class="ic"><use href="#i-upload"/></svg>Datei loslassen</div>
           </div>
           <div class="actions">
             <button class="btn primary" id="verify-btn" type="button"><svg class="ic"><use href="#i-verify"/></svg>Prüfen</button>
-            <label class="btn" for="verify-file"><svg class="ic"><use href="#i-upload"/></svg>Datei laden</label>
-            <input type="file" id="verify-file" accept=".bib,.ris,.xml,.txt,.md,.markdown,.csv,.nbib,.pdf,.docx,.tex,.ltx,.zip" multiple hidden>
-            <button class="btn ghost" id="verify-sample" type="button">Beispiel einfügen</button>
-            <button class="btn ghost" id="chat-prompt-btn" type="button" title="Einen Text für ChatGPT, Gemini oder Claude kopieren, der eine saubere Quellenliste anfordert"><svg class="ic"><use href="#i-copy"/></svg>Text für Chatbots</button>
-            <button class="btn ghost" id="watch-file-btn" type="button" title="Bei jedem Sichern neu prüfen"><svg class="ic"><use href="#i-clock"/></svg>Datei beobachten</button>
-            <span class="counter" id="verify-preview">Noch nichts eingefügt</span>
+            <button class="btn" id="find-btn" type="button"><svg class="ic"><use href="#i-search"/></svg>Quellen finden</button>
+            <button class="btn" id="download-btn" type="button"><svg class="ic"><use href="#i-download"/></svg>Laden</button>
+            <span class="counter" id="verify-preview" aria-live="polite">Noch nichts eingefügt</span>
             <span class="project-hint" hidden></span>
           </div>
+          <div class="actions field-more">
+            <label class="btn ghost small" for="verify-file"><svg class="ic"><use href="#i-upload"/></svg>Datei laden</label>
+            <input type="file" id="verify-file" accept=".bib,.ris,.xml,.txt,.md,.markdown,.csv,.nbib,.pdf,.docx,.tex,.ltx,.zip" multiple hidden>
+            <button class="btn ghost small" id="verify-sample" type="button">Beispiel einfügen</button>
+            <button class="btn ghost small" id="chat-prompt-btn" type="button" title="Einen Text für ChatGPT, Gemini oder Claude kopieren, der eine saubere Quellenliste anfordert"><svg class="ic"><use href="#i-copy"/></svg>Text für Chatbots</button>
+            <button class="btn ghost small" id="watch-file-btn" type="button" title="Bei jedem Sichern neu prüfen"><svg class="ic"><use href="#i-clock"/></svg>Datei beobachten</button>
+            <label class="check"><input type="checkbox" id="find-oa"><span>Beim Finden nur frei lesbare</span></label>
+          </div>
           <div class="watch-files" id="watch-files" hidden></div>
+          <details class="load-options" id="load-options">
+            <summary>Wie Benthic lädt</summary>
+            <p class="hint">Laden nimmt DOIs oder eine ganze Literaturliste. Benthic prüft zuerst die Bibliothek, dann Open Access, und zeigt sonst den Weg über deinen Hochschulzugang.</p>
+            <div class="route" aria-label="Ablauf">
+              <div class="route-stage surface">
+                <span class="route-depth">Oberfläche</span>
+                <span class="route-name"><svg class="ic"><use href="#i-library"/></svg>Bibliothek</span>
+              </div>
+              <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
+              <div class="route-stage shallow">
+                <span class="route-depth">Open Access</span>
+                <span class="route-sources" id="cascade"></span>
+              </div>
+              <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
+              <div class="route-stage deep needs-routes" id="route-extra">
+                <span class="route-depth">Zusatzwege</span>
+                <span class="route-name"><svg class="ic"><use href="#i-route"/></svg><span id="route-extra-label"></span></span>
+              </div>
+              <svg class="ic route-arrow needs-routes" aria-hidden="true"><use href="#i-chevron"/></svg>
+              <div class="route-stage legal-deep">
+                <span class="route-depth">Hochschulzugang</span>
+                <span class="route-name"><svg class="ic"><use href="#i-link"/></svg>Proxy-Link</span>
+              </div>
+            </div>
+            <div class="quick-toggles">
+              <label class="switch needs-routes"><input type="checkbox" id="quick-routes"><span class="track" aria-hidden="true"></span><span>Zusatzwege nach Open Access</span></label>
+              <label class="check"><input type="checkbox" id="quick-skip"><span>Vorhandene überspringen</span></label>
+              <label class="check"><input type="checkbox" id="quick-prefer"><span>Verlagsversion bevorzugen</span></label>
+              <label class="field">Parallel <input type="number" id="quick-concurrency" min="1" max="8" step="1"></label>
+            </div>
+            <div class="actions">
+              <button class="btn small" id="check-oa-btn" type="button">Nur prüfen (mit OA)</button>
+              <button class="btn ghost small" id="check-library-btn" type="button">Nur prüfen (Bibliothek)</button>
+            </div>
+          </details>
         </div>
 
         <div class="card" id="verify-progress" hidden>
@@ -270,78 +304,14 @@
             <button class="btn" id="verify-report-btn" type="button" title="Bericht als PDF sichern"><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
           </div>
         </div>
-      </section>
 
-      <!-- Quellen finden: echte Arbeiten zu einer Aussage (finder.py) -->
-      <section class="view" id="view-find">
-        <header class="view-head">
-          <h1>Quellen finden</h1>
-          <p>Schreib eine Aussage aus deiner Arbeit. Benthic sucht echte Arbeiten dazu und zeigt den Satz aus ihrem Abstract, der ihr am nächsten kommt. So musst du keinen Chat nach Quellen fragen, der sie womöglich erfindet. Lies eine Arbeit, bevor du sie zitierst.</p>
-        </header>
-        <div class="card">
-          <label class="sr-only" for="find-claim">Aussage</label>
-          <textarea id="find-claim" rows="3" placeholder="Zum Beispiel: Sprachmodelle erfinden in Literaturlisten häufig Quellen."></textarea>
-          <div class="actions">
-            <button class="btn primary" id="find-btn" type="button"><svg class="ic"><use href="#i-search"/></svg>Echte Quellen suchen</button>
-            <label class="check"><input type="checkbox" id="find-oa"><span>Nur frei lesbare</span></label>
-            <span class="hint" id="find-status" aria-live="polite"></span>
-          </div>
-        </div>
         <div class="card" id="find-results" hidden>
-          <ol class="find-list" id="find-list"></ol>
-        </div>
-      </section>
-
-      <!-- Download -->
-      <section class="view" id="view-download">
-        <header class="view-head">
-          <h1>Download</h1>
-          <p>DOIs oder eine ganze Literaturliste einfügen. Benthic prüft zuerst die Bibliothek, dann Open Access, und zeigt sonst den Weg über deinen Hochschulzugang.</p>
-        </header>
-
-        <div class="card">
           <div class="card-head">
-            <h2>DOIs einfügen</h2>
-            <span class="hint">getrennt durch <kbd>;</kbd> <kbd>,</kbd> oder Zeilenumbruch</span>
+            <h2 id="find-title">Gefundene Arbeiten</h2>
+            <button class="btn ghost small" id="search-log-btn" type="button" title="Datum, Datenbank, Suchstring und Treffer jeder Suche, für den Methodenteil"><svg class="ic"><use href="#i-file"/></svg>Suchprotokoll</button>
           </div>
-          <textarea id="doi-input" spellcheck="false" aria-label="DOIs"
-            placeholder="10.1038/s41586-020-2649-2&#10;10.1126/science.1065467&#10;10.1016/j.cell.2019.01.001"></textarea>
-          <div class="actions">
-            <button class="btn primary" id="download-btn" type="button"><svg class="ic"><use href="#i-download"/></svg>Download starten</button>
-            <button class="btn" id="check-oa-btn" type="button">Nur prüfen (mit OA)</button>
-            <button class="btn ghost" id="check-library-btn" type="button">Nur prüfen (Bibliothek)</button>
-            <span class="counter" id="doi-counter">0 DOIs</span>
-            <span class="project-hint" hidden></span>
-          </div>
-
-          <div class="route" aria-label="Ablauf">
-            <div class="route-stage surface">
-              <span class="route-depth">Oberfläche</span>
-              <span class="route-name"><svg class="ic"><use href="#i-library"/></svg>Bibliothek</span>
-            </div>
-            <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
-            <div class="route-stage shallow">
-              <span class="route-depth">Open Access</span>
-              <span class="route-sources" id="cascade"></span>
-            </div>
-            <svg class="ic route-arrow" aria-hidden="true"><use href="#i-chevron"/></svg>
-            <div class="route-stage deep needs-routes" id="route-extra">
-              <span class="route-depth">Zusatzwege</span>
-              <span class="route-name"><svg class="ic"><use href="#i-route"/></svg><span id="route-extra-label"></span></span>
-            </div>
-            <svg class="ic route-arrow needs-routes" aria-hidden="true"><use href="#i-chevron"/></svg>
-            <div class="route-stage legal-deep">
-              <span class="route-depth">Hochschulzugang</span>
-              <span class="route-name"><svg class="ic"><use href="#i-link"/></svg>Proxy-Link</span>
-            </div>
-          </div>
-
-          <div class="quick-toggles">
-            <label class="switch needs-routes"><input type="checkbox" id="quick-routes"><span class="track" aria-hidden="true"></span><span>Zusatzwege nach Open Access</span></label>
-            <label class="check"><input type="checkbox" id="quick-skip"><span>Vorhandene überspringen</span></label>
-            <label class="check"><input type="checkbox" id="quick-prefer"><span>Verlagsversion bevorzugen</span></label>
-            <label class="field">Parallel <input type="number" id="quick-concurrency" min="1" max="8" step="1"></label>
-          </div>
+          <p class="hint" id="find-status" aria-live="polite"></p>
+          <div id="find-groups"></div>
         </div>
 
         <div class="card" id="progress-card" hidden>
@@ -444,6 +414,8 @@
             <button class="btn" id="pd-recheck" type="button"><svg class="ic"><use href="#i-verify"/></svg>Alle Quellen neu prüfen</button>
             <button class="btn" id="pd-watch-now" type="button"><svg class="ic"><use href="#i-shield"/></svg>Rückzüge jetzt prüfen</button>
             <button class="btn" id="pd-report" type="button" hidden><svg class="ic"><use href="#i-file"/></svg>PDF-Bericht</button>
+            <button class="btn" id="pd-matrix" type="button" title="Tabelle mit allen Quellen und den Feldern der Lesematrix: Forschungsfrage, Theorie, Begriffe, Methode, Kernergebnis, Grenzen, Nutzen für deine Frage"><svg class="ic"><use href="#i-file"/></svg>Quellenmatrix</button>
+            <button class="btn" id="pd-search-log" type="button" title="Datum, Datenbank, Suchstring und Treffer jeder Suche in diesem Projekt, für den Methodenteil"><svg class="ic"><use href="#i-search"/></svg>Suchprotokoll</button>
             <button class="btn" id="pd-share" type="button"><svg class="ic"><use href="#i-file"/></svg>Als Datei teilen</button>
             <button class="btn" id="pd-activate" type="button">Aktiv setzen</button>
             <button class="btn ghost danger" id="pd-delete" type="button">Projekt löschen</button>
@@ -917,6 +889,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.1.8"></script>
+  <script src="/static/app.js?v=1.1.9"></script>
 </body>
 </html>

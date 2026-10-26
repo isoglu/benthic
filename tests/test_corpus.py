@@ -7,6 +7,7 @@ aufgezeichnet ist, lässt den Fall scheitern: dann hat sich die Kaskade geänder
 aufgezeichnet werden.
 
     python -m tests.test_corpus --record [id ...]   Antworten neu aufzeichnen (braucht Netz)
+    python -m tests.test_corpus --top-up [id ...]   nur fehlende Anfragen nachholen (neue Quelle in der Kaskade)
     python -m tests.test_corpus --score             Urteile, Trefferquote und Fehlalarme ausgeben
 """
 
@@ -38,6 +39,14 @@ def _strip(body: str) -> str:
         return json.dumps(walk(json.loads(body)), ensure_ascii=False)
     except ValueError:
         return body  # XML (arXiv, DNB) bleibt, wie es kam
+
+
+def _body(resp) -> str:
+    """Antworttext; XML ohne Zeichensatz im Content-Type (K10plus) ist UTF-8, nicht das Latin-1 von requests."""
+    kind = resp.headers.get("Content-Type", "").lower()
+    if "charset" not in kind and resp.content[:5] == b"<?xml":
+        return resp.content.decode("utf-8", "replace")
+    return resp.text
 
 
 def _key(url, params) -> str:
@@ -182,7 +191,7 @@ def record(ids) -> int:
                         failed.append(f"{url} {status}")
                     calls.append({"url": url, "params": params or {}, "status": status,
                                   "type": "" if resp is None else resp.headers.get("Content-Type", ""),
-                                  "body": "" if resp is None else _strip(resp.text)})
+                                  "body": "" if resp is None else _strip(_body(resp))})
                     return resp
                 res = _verify(case, api)
                 if not failed:
@@ -198,9 +207,50 @@ def record(ids) -> int:
     return 1 if failed_any else 0
 
 
+def top_up(ids) -> int:
+    """Spielt die Aufzeichnung ab und holt nur Anfragen, die darin fehlen, live nach. So bleiben die alten Antworten,
+    wie sie waren, und eine neue Quelle am Ende der Kaskade (lobid, K10plus) braucht kein OpenAlex-Budget."""
+    from benthic import oa
+    real_get = oa._api_get
+    failed_any = 0
+    with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"BENTHIC_DATA_DIR": tmp}):
+        for case in [c for c in CASES if not ids or c["id"] in ids]:
+            path = HERE / "responses" / f"{case['id']}.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            calls = {_key(c["url"], c["params"]): c for c in data["calls"]}
+            added, failed = [], []
+
+            def api(url, params=None, headers=None, timeout=20.0):
+                key = _key(url, params)
+                if key not in calls:
+                    resp = real_get(url, params=params, headers=headers, timeout=max(timeout, 60.0))
+                    status = None if resp is None else resp.status_code
+                    if status is None or status == 429 or status >= 500:
+                        failed.append(f"{url} {status}")
+                    calls[key] = {"url": url, "params": params or {}, "status": status,
+                                  "type": "" if resp is None else resp.headers.get("Content-Type", ""),
+                                  "body": "" if resp is None else _strip(_body(resp))}
+                    added.append(calls[key])
+                call = calls[key]
+                return None if call["status"] is None else _Reply(call)
+            res = _verify(case, api)
+            if failed:
+                failed_any += 1
+                print(f"{case['id']}: nicht gespeichert, Ausfälle: {failed}", file=sys.stderr)
+                continue
+            if added:
+                data["calls"] += added
+                data["topped_up"] = time.strftime("%Y-%m-%d")
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
+            print(f"{case['id']:26} +{len(added):<3} {res['verdict']:10} {'; '.join(problems(case, res)) or 'ok'}")
+    return 1 if failed_any else 0
+
+
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--record"]:
         sys.exit(record(sys.argv[2:]))
+    if sys.argv[1:2] == ["--top-up"]:
+        sys.exit(top_up(sys.argv[2:]))
     if sys.argv[1:2] == ["--score"]:
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"BENTHIC_DATA_DIR": tmp}):
             print(score([(c, replay(c)[0]) for c in CASES]))

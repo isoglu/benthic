@@ -5,11 +5,15 @@ Benthic liest die Literaturverzeichnisse deiner bestätigten Quellen (OpenAlex `
 gebündelt; sonst die offenen Referenzlisten bei Crossref), zählt, wie viele deiner Quellen ein Werk
 zitieren, und zeigt die häufigsten, die nicht schon in deiner Liste stehen. Das ersetzt keine Recherche,
 ist aber ein schneller Blick, ob ein Grundlagentext fehlt.
+
+Die andere Richtung des Schneeballverfahrens (citing_works): neuere Arbeiten, die eine Quelle zitieren, die
+meistzitierten zuerst. Sie zeigen, wie die Forschung ein Modell seitdem weitergeführt oder kritisiert hat.
 """
 
 from __future__ import annotations
 
 import re
+import time
 from collections import Counter
 from typing import Dict, Iterable, List, Optional
 
@@ -120,6 +124,50 @@ def missing_works(dois: Iterable[str], email: str = "", top: int = 12) -> Dict:
         if len(out) >= top:
             break
     return {"sources": n, "of": len(own), "source": source, "least": least, "suggestions": out}
+
+
+def works_by_doi(dois: List[str], email: str = "") -> Dict[str, Dict]:
+    """Autor:innen, Jahr, Titel, Ort und Art je DOI aus OpenAlex, gebündelt; was fehlt, fehlt (offline: leer)."""
+    out: Dict[str, Dict] = {}
+    for group in _chunks([d for d in dois if d], BATCH):
+        j = oa._json(oa._api_get("https://api.openalex.org/works", params={
+            "filter": "doi:" + "|".join(group), "per_page": len(group), **_mailto(email),
+            "select": "doi,display_name,publication_year,authorships,primary_location,type"})) or {}
+        for w in j.get("results") or []:
+            names = [((a.get("author") or {}).get("display_name") or "") for a in w.get("authorships") or []]
+            out[str(w.get("doi") or "").lower().replace("https://doi.org/", "")] = {
+                "title": w.get("display_name") or "", "year": w.get("publication_year"), "type": w.get("type") or "",
+                "authors": [oa._surname(n) for n in names if n],
+                "venue": ((w.get("primary_location") or {}).get("source") or {}).get("display_name") or ""}
+    return out
+
+
+def citing_works(doi: str, since: Optional[int] = None, email: str = "", top: int = 8) -> Optional[Dict]:
+    """Arbeiten mit DOI, die ``doi`` zitieren, ab ``since`` (sonst die letzten fünf Jahre), meistzitierte zuerst,
+    ohne zurückgezogene. None, wenn OpenAlex nicht antwortet oder das Werk nicht kennt."""
+    w = oa._json(oa._api_get(f"https://api.openalex.org/works/doi:{doi}", params={"select": "id,cited_by_count",
+                                                                                   **_mailto(email)}))
+    if not w or not w.get("id"):
+        return None
+    since = since or time.localtime().tm_year - 4
+    wid = str(w["id"]).rsplit("/", 1)[-1]
+    j = oa._json(oa._api_get("https://api.openalex.org/works", params={
+        "filter": f"cites:{wid},publication_year:>{since - 1},is_retracted:false,has_doi:true",
+        "sort": "cited_by_count:desc", "per-page": top, **_mailto(email),
+        "select": "id,doi,display_name,publication_year,authorships,cited_by_count,primary_location,type,open_access"}))
+    if j is None:
+        return None
+    out = []
+    for c in j.get("results") or []:
+        names = [((a.get("author") or {}).get("display_name") or "") for a in c.get("authorships") or []]
+        out.append({"doi": str(c.get("doi") or "").replace("https://doi.org/", ""), "title": c.get("display_name") or "",
+                    "year": c.get("publication_year"), "authors": [oa._surname(n) for n in names if n][:3],
+                    "author_count": len(names), "cited_by": c.get("cited_by_count"), "type": c.get("type"),
+                    "venue": ((c.get("primary_location") or {}).get("source") or {}).get("display_name"),
+                    "is_oa": bool((c.get("open_access") or {}).get("is_oa"))})
+    total = (j.get("meta") or {}).get("count")
+    return {"doi": doi, "since": since, "cited_by": w.get("cited_by_count"),
+            "total": total if isinstance(total, int) else len(out), "works": [x for x in out if x["doi"] and x["title"]]}
 
 
 def alternatives(query: str, email: str = "", top: int = 4) -> List[Dict]:

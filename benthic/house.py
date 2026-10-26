@@ -1,7 +1,8 @@
 """Hausregeln einer Hochschule: eine JSON-Datei, die Benthic einliest.
 
 Sie setzt nur, was eine Hochschule vorgeben kann: Name, Proxy-Link, Kontaktadresse für den höflichen Pool,
-OpenAlex-Key, den verlangten Zitierstil und eigene Rankinglisten. Update-Adresse, Ordner, Bibliotheken und
+OpenAlex-Key, den verlangten Zitierstil, eigene Rankinglisten und Kursvorgaben (Mindestzahl der Quellen, Quellenarten,
+die der Kurs nicht vorsieht, ein Satz der Lehrenden); die Gesundheit der Literaturliste meldet dann, was davon abweicht. Update-Adresse, Ordner, Bibliotheken und
 Zusatzwege bleiben bei der Person, die Benthic nutzt. Jede:r kann die Datei von Hand laden; ein Dienst der
 Hochschule verteilt später nur dieselbe Datei.
 
@@ -9,7 +10,8 @@ Hochschule verteilt später nur dieselbe Datei.
      "settings": {"institution": "...", "proxy_prefix": "https://...", "unpaywall_email": "...",
                   "openalex_api_key": "..."},
      "style": "apa",
-     "rankings": [{"name": "VHB-JOURQUAL 4", "csv": "Journal Title,ISSN,Rating\\nNature,0028-0836,A+\\n"}]}
+     "rankings": [{"name": "VHB-JOURQUAL 4", "csv": "Journal Title,ISSN,Rating\\nNature,0028-0836,A+\\n"}],
+     "course": {"min_sources": 15, "excluded": ["web"], "note": "Mindestens 15 Fachquellen, keine Blogs."}}
 """
 
 from __future__ import annotations
@@ -25,6 +27,30 @@ KIND = "house-rules"
 VERSION = 1
 SETTINGS = ("institution", "proxy_prefix", "unpaywall_email", "openalex_api_key")
 MAX_RANKINGS = 20
+EXCLUDABLE = tuple(k for k in journals.MIX_KINDS if k != "journal")
+
+
+def _course(given) -> Dict:
+    """Kursvorgaben prüfen: Mindestzahl (1 bis 500), ausgeschlossene Quellenarten, ein kurzer Satz."""
+    bad = ValueError(tr("Die Kursvorgaben in der Datei sind unvollständig."))
+    if not isinstance(given, dict):
+        raise bad
+    out: Dict = {}
+    if given.get("min_sources") is not None:
+        try:
+            out["min_sources"] = int(given["min_sources"])
+        except (TypeError, ValueError):
+            raise bad from None
+        if not 1 <= out["min_sources"] <= 500:
+            raise bad
+    excluded = given.get("excluded") or []
+    if not isinstance(excluded, list) or any(k not in EXCLUDABLE for k in excluded):
+        raise bad
+    if excluded:
+        out["excluded"] = sorted(set(excluded))
+    if str(given.get("note") or "").strip():
+        out["note"] = str(given["note"]).strip()[:300]
+    return out
 
 
 def apply(data: bytes) -> Dict:
@@ -51,6 +77,8 @@ def apply(data: bytes) -> Dict:
     if wanted and wanted not in style.STYLES:
         raise ValueError(tr("Unbekannter Zitierstil: {style}", style=wanted))
 
+    course = _course(rules.get("course") or {})
+
     lists = rules.get("rankings") or []
     if not isinstance(lists, list) or len(lists) > MAX_RANKINGS:
         raise ValueError(tr("Die Rankinglisten in der Datei sind unvollständig."))
@@ -69,11 +97,11 @@ def apply(data: bytes) -> Dict:
     for name, raw in tables:
         journals.import_ranking(name, name + ".csv", raw)
     title = str(rules.get("name") or "").strip()[:120] or tr("Hausregeln")
-    config.save_settings({**values, "house_rules": title, "house_style": wanted})
+    config.save_settings({**values, "house_rules": title, "house_style": wanted, "house_course": course})
     return {"name": title, "settings": sorted(values), "style": style.STYLES.get(wanted, ""),
-            "rankings": [name for name, _ in tables]}
+            "rankings": [name for name, _ in tables], "course": course}
 
 
 def remove() -> None:
     """Hausregeln abwählen: Name und Zitierstil fallen weg; übernommene Angaben und Listen bleiben änderbar."""
-    config.save_settings({"house_rules": "", "house_style": ""})
+    config.save_settings({"house_rules": "", "house_style": "", "house_course": {}})

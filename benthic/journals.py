@@ -381,7 +381,33 @@ def _num(x: float) -> str:
     return f"{x:g}".replace(".", ",") if current_lang() == "de" else f"{x:g}"
 
 
-def health(items: List[Dict], this_year: Optional[int] = None) -> Dict:
+# Quellenarten: welche Quelle trägt welche Aussage? Fachartikel und Bücher den Forschungsstand, Berichte und Daten
+# Marktzahlen, Webseiten Beispiele. Ein hoher Anteil der letzten beiden ist ein Hinweis, kein Fehler.
+MIX_KINDS = ("journal", "book", "preprint", "report", "web", "other")
+MIX_NAMES = {"journal": ("{n} Fachartikel", "{n} Fachartikel"), "book": ("{n} Buch", "{n} Bücher"),
+             "preprint": ("{n} Preprint", "{n} Preprints"), "report": ("{n} Bericht oder Datensatz", "{n} Berichte oder Daten"),
+             "web": ("{n} Webseite", "{n} Webseiten"), "other": ("{n} sonstige", "{n} sonstige")}
+GREY_SHARE_NOTE = 0.3
+
+
+def source_kind(item: Dict) -> Optional[str]:
+    """Art einer Quelle aus dem Prüfergebnis (Webseite, Typ des Datensatzes) oder ihrem Publikationsort."""
+    if item.get("web"):
+        return "web"
+    t = str(item.get("type") or "").lower()
+    v = item.get("venue") or {}
+    if "preprint" in t or t == "posted-content" or v.get("preprint"):
+        return "preprint"
+    if t.startswith("book") or t in ("monograph", "edited-book", "reference-book") or v.get("type") == "book series":
+        return "book"
+    if t in ("report", "report-component", "dataset", "standard"):
+        return "report"
+    if t in ("journal-article", "article", "review", "letter", "editorial") or v.get("type") == "journal":
+        return "journal"
+    return "other" if t or v else None
+
+
+def health(items: List[Dict], this_year: Optional[int] = None, course: Optional[Dict] = None) -> Dict:
     """Bewertet eine Literaturliste.
 
     Jedes Element: {"verdict": Urteil oder None, "year": Jahr, "has_pdf": bool,
@@ -441,6 +467,35 @@ def health(items: List[Dict], this_year: Optional[int] = None) -> Dict:
         dims.append({"key": "age", "label": tr("Aktualität"), "state": "unknown",
                      "headline": tr("Keine Jahresangaben"), "detail": tr("Prüfe die Liste, dann ergänzt Benthic die Jahre.")})
 
+    # Quellenarten
+    kinds = [source_kind(i) for i in items]
+    mix = {k: kinds.count(k) for k in MIX_KINDS}
+    mix["unknown"] = kinds.count(None)
+    typed = n - mix["unknown"]
+    if typed:
+        parts = [_plural(mix[k], *MIX_NAMES[k]) for k in MIX_KINDS if mix[k]]
+        grey = mix["web"] + mix["report"]
+        if grey / typed > GREY_SHARE_NOTE:
+            state, detail = "notes", tr("{pct} % sind Webseiten, Berichte oder Daten. Sie tragen Marktzahlen und Beispiele; "
+                                        "für den Forschungsstand braucht es begutachtete Fachliteratur.", pct=_pct(grey, typed))
+        else:
+            state, detail = "ok", tr("Überwiegend Fachartikel und Bücher.")
+        dims.append({"key": "mix", "label": tr("Quellenarten"), "state": state, "headline": ", ".join(parts[:3]),
+                     "detail": detail})
+
+    # Kursvorgaben aus den Hausregeln (house.py): Mindestzahl zitierfähiger Quellen, Arten, die der Kurs nicht vorsieht
+    if course:
+        problems = []
+        usable = n - count(BAD)
+        if course.get("min_sources") and usable < course["min_sources"]:
+            problems.append(tr("{n} zitierfähige Quellen, verlangt sind mindestens {min}", n=usable, min=course["min_sources"]))
+        for k in course.get("excluded") or []:
+            if mix.get(k):
+                problems.append(tr("{what}, die der Kurs nicht vorsieht", what=_plural(mix[k], *MIX_NAMES[k])))
+        detail = "; ".join(problems[1:] + ([course["note"]] if course.get("note") else []))
+        dims.append({"key": "course", "label": tr("Kursvorgaben"), "state": "notes" if problems else "ok",
+                     "headline": problems[0] if problems else tr("Erfüllt"), "detail": detail})
+
     # Publikationsorte
     venues = [i.get("venue") for i in items]
     known = [v for v in venues if v]
@@ -488,13 +543,13 @@ def health(items: List[Dict], this_year: Optional[int] = None) -> Dict:
     states = [d["state"] for d in dims if d["key"] != "access"]
     overall = "critical" if "critical" in states else "notes" if "notes" in states else "ok"
     label = tr({"critical": "Kritisch", "notes": "Mit Hinweisen", "ok": "Gesund"}[overall])
-    return {"state": overall, "label": label, "count": n, "dimensions": dims, "age": age, "venues": ven}
+    return {"state": overall, "label": label, "count": n, "dimensions": dims, "age": age, "venues": ven, "mix": mix}
 
 
 # --------------------------------------------------------------------------
 # Alles zusammen: Publikationsorte ergänzen, dann bewerten
 # --------------------------------------------------------------------------
-def assess(items: List[Dict], email: str = "", use_jufo: bool = True) -> Dict:
+def assess(items: List[Dict], email: str = "", use_jufo: bool = True, course: Optional[Dict] = None) -> Dict:
     """items: [{doi, year, verdict, has_pdf?}] -> {"health": ..., "venues": {doi: Ort mit JUFO und Rängen}}."""
     from concurrent.futures import ThreadPoolExecutor
     clean = [i for i in items if isinstance(i, dict)]
@@ -529,6 +584,6 @@ def assess(items: List[Dict], email: str = "", use_jufo: bool = True) -> Dict:
                     "flags": flags_by_id.get(key) or []}
             out_venues[doi] = info
         enriched.append({"verdict": item.get("verdict"), "year": item.get("year"), "has_pdf": item.get("has_pdf"),
-                         "venue": v, "jufo": info.get("jufo") if info else None,
+                         "type": item.get("type"), "web": bool(item.get("web")), "venue": v, "jufo": info.get("jufo") if info else None,
                          "flags": info.get("flags") if info else []})
-    return {"health": health(enriched), "venues": out_venues, "rankings": [r.get("name") for r in rankings]}
+    return {"health": health(enriched, course=course), "venues": out_venues, "rankings": [r.get("name") for r in rankings]}

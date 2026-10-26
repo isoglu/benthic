@@ -61,6 +61,19 @@ _EMPIRICAL_CLAIM_RE = re.compile(
     r"\bp\s*[<=]\s*0?[.,]\d+\b)",
     re.IGNORECASE,
 )
+# Kapitel am Schluss einer Arbeit und Sätze, die die Forschungsfrage nennen (für die Hinweise zum Fazit und Frage und Fazit nebeneinander).
+# Die ganze Zeile ist die Überschrift ("5 Fazit und Ausblick", "6. Conclusion"), sonst wäre es ein Satz oder eine
+# Tabellenzeile wie "Summary statistics".
+_CONCLUSION_RE = re.compile(r"^(?:[0-9IVX]{1,4}(?:\.\d{1,2})*\.?\s+)?(?:fazit|schlussbetrachtung|schlussfolgerung(?:en)?|schluss|"
+                            r"zusammenfassung|resümee|conclusions?|concluding remarks|diskussion und fazit|"
+                            r"discussion and conclusions?)(?:\s+(?:und|and|&)\s+[^\W\d_]+)?\s*$", re.IGNORECASE)
+_QUESTION_RE = re.compile(r"\b(?:forschungsfragen?|leitfragen?|fragestellung|research questions?|guiding questions?)\b",
+                          re.IGNORECASE)
+# Wörter, die in jeder Frage und jedem Fazit stehen und deshalb nichts über den roten Faden sagen.
+_FRAME_WORDS = {"welche", "welcher", "welches", "inwiefern", "inwieweit", "wieweit", "dieser", "diese", "dieses", "werden",
+                "wurde", "wurden", "haben", "können", "sowie", "zwischen", "arbeit", "forschungsfrage", "fragestellung",
+                "leitfrage", "beantwortet", "beantworten", "which", "these", "there", "their", "about", "between", "would",
+                "could", "should", "research", "question", "thesis", "paper", "study", "answer", "answered", "lautet"}
 _SELF_DATA_RE = re.compile(
     r"\b(?:tabelle|abbildung|kapitel|abschnitt|stichprobe|eigene\s+erhebung|unsere\s+befragung|"
     r"table|figure|section|chapter|our\s+sample|our\s+survey|in\s+this\s+thesis|in\s+dieser\s+arbeit)\b",
@@ -492,6 +505,160 @@ def find_quotes(text: str, citations: List[Dict]) -> List[Dict]:
     return out[:300]
 
 
+def paragraphs(text: str) -> List[Dict]:
+    """Absätze und Überschriften mit Anfang und Ende in ``text``.
+
+    Word und Markdown liefern einen Absatz je Zeile, ein PDF eine Zeile je Satzspiegelzeile: Dort endet ein Absatz
+    an einer Leerzeile oder an einer kurzen Zeile, die mit einem Satzzeichen schließt. Kurze Zeilen ohne Satzzeichen
+    sind Überschriften (oder Kopfzeilen); reine Seitenzahlen fallen weg.
+    """
+    lines, pos = [], 0
+    for ln in text.split("\n"):
+        lines.append((pos, ln))
+        pos += len(ln) + 1
+    lengths = sorted(len(ln.strip()) for _, ln in lines if len(ln.strip()) >= 20)
+    if not lengths:
+        return []
+    typical = lengths[int(len(lengths) * 0.8)]  # die Breite des Satzspiegels: volle Zeilen überwiegen
+    wrapped = typical < 140
+    out: List[Dict] = []
+    cur: List[int] = []
+
+    def close() -> None:
+        if cur:
+            out.append({"start": cur[0], "end": cur[1], "heading": False})
+            cur.clear()
+
+    for start, ln in lines:
+        line = ln.strip()
+        if not line:
+            close()
+            continue
+        if re.fullmatch(r"\d{1,4}", line):
+            continue
+        # Überschrift: kurz, ohne Satzzeichen am Ende, groß oder mit Nummer beginnend, und im PDF deutlich kürzer
+        # als eine Zeile des Satzspiegels (in zweispaltigen PDFs sind auch Fließtextzeilen kurz).
+        if (len(line) <= 90 and len(line.split()) <= 12 and not re.search(r"[.,;:!?)\]\"”“»«-]$", line)
+                and (line[:1].isupper() or line[:1].isdigit()) and (not wrapped or len(line) < 0.7 * typical)):
+            close()
+            out.append({"start": start, "end": start + len(ln), "heading": True})
+            continue
+        if cur:
+            cur[1] = start + len(ln)
+        else:
+            cur.extend([start, start + len(ln)])
+        if not wrapped or (re.search(r"[.!?:][\"”“»«')]*$", line) and len(line) < 0.75 * typical):
+            close()
+    close()
+    return out
+
+
+def _sentence_ends(text: str, start: int, end: int) -> List[int]:
+    return [m.start() for m in _END.finditer(text, start, end) if _is_end(text, m.start())]
+
+
+def _structure_signals(text: str, citations: List[Dict]) -> Dict:
+    """Wie die Quellen im Text arbeiten: Absätze, die nur eine Quelle nacherzählen, ein Beleg erst am Ende eines
+    langen Absatzes, neue Quellen im Fazit und die Forschungsfrage neben dem Fazit. Hinweise mit Fundstelle, keine
+    Bewertung; ob ein Absatz so gemeint ist, entscheidet, wer ihn liest."""
+    paras = paragraphs(text)
+    matched = sorted((c for c in citations if "pos" in c and c.get("entry") is not None), key=lambda c: c["pos"])
+    every = sorted((c for c in citations if "pos" in c), key=lambda c: c["pos"])
+    first_char = lambda p: p["start"] + len(text[p["start"]:p["end"]]) - len(text[p["start"]:p["end"]].lstrip())
+
+    # 1. Aneinanderreihung: drei oder mehr Absätze nacheinander, die je nur eine Quelle nacherzählen, statt Quellen
+    #    nach Gedanken zu ordnen; dazu, wie viele davon mit dem Namen der Autor:in beginnen.
+    serial: List[Dict] = []
+    run: List[Dict] = []
+
+    def flush() -> None:
+        if len(run) >= 3:
+            labels: List[str] = []
+            for r in run:
+                if r["label"] not in labels:
+                    labels.append(r["label"])
+            serial.append({"paragraphs": len(run), "sentence": _sentence(text, first_char(run[0]["p"])),
+                           "labels": labels[:6], "author_led": sum(1 for r in run if r["author_led"])})
+        run.clear()
+
+    for p in paras:
+        para = text[p["start"]:p["end"]]
+        inside = [c for c in matched if p["start"] <= c["pos"] < p["end"]]
+        if p["heading"] or len(para.split()) < 40 or not inside:
+            flush()
+            continue
+        lead = inside[0]
+        author_led = lead["kind"] == "author-year" and para.lstrip().startswith(str(lead.get("surname") or "\0"))
+        if len({c["entry"] for c in inside}) == 1:
+            run.append({"p": p, "label": lead["label"], "author_led": author_led})
+        else:
+            flush()
+    flush()
+
+    # 2. Ein Beleg für einen ganzen Absatz: vier oder mehr Sätze und nur ein Zitat in Klammern ganz am Ende
+    #    ("… (vgl. Reinartz 2004)."). Dann bleibt offen, welche Aussage aus der Quelle stammt.
+    end_cited: List[Dict] = []
+    for p in paras:
+        if p["heading"] or len(text[p["start"]:p["end"]].split()) < 100:
+            continue
+        ends = _sentence_ends(text, p["start"], p["end"])
+        inside = [c for c in every if p["start"] <= c["pos"] < p["end"]]
+        if len(ends) < 5 or not inside or len({c["pos"] for c in inside}) > 1:  # eine Klammer, ein Beleg
+            continue
+        tail = p["start"] + len(text[p["start"]:p["end"]].rstrip()) - 80
+        if all(c["pos"] > tail and not c["label"].endswith(")") for c in inside):
+            end_cited.append({"sentence": _sentence(text, first_char(p)), "label": inside[-1]["label"],
+                              "sentences": len(ends)})
+            if len(end_cited) >= 30:
+                break
+
+    # 3. Das Fazit: letzte passende Überschrift in der zweiten Hälfte (die erste ist oft das Inhaltsverzeichnis
+    #    oder eine Zusammenfassung vorn).
+    heads = [p for p in paras if p["heading"] and p["start"] >= 0.5 * len(text)
+             and _CONCLUSION_RE.match(text[p["start"]:p["end"]].strip())]
+    head = heads[-1] if heads else None
+    new_sources: List[Dict] = []
+    if head:
+        # Das Fazit endet an Anmerkungen, Anhang oder Danksagung (PDFs setzen Endnoten oft dahinter); Fußnoten eines
+        # PDFs ("1 See …") zählen nicht als Fazit.
+        stop = next((p["start"] for p in paras if p["heading"] and p["start"] > head["end"]
+                     and re.match(r"^(?:[0-9IVX]{1,4}\.?\s+|[A-Z]\s+)?(?:notes|endnotes|footnotes|anmerkungen|appendi\w*|"
+                                  r"anhang|anlagen?|acknowledg\w*|danksagung|tables?|figures?)\b",
+                                  text[p["start"]:p["end"]].strip(), re.IGNORECASE)), len(text))
+        before = {c["entry"] for c in matched if c["pos"] < head["start"]}
+        for c in matched:
+            if head["end"] < c["pos"] < stop and c["entry"] not in before and not re.match(r"\d{1,3}\s", c["sentence"]):
+                before.add(c["entry"])
+                new_sources.append({"label": c["label"], "entry": c["entry"], "sentence": c["sentence"]})
+
+    # 4. Frage und Fazit nebeneinander: der Satz mit der Forschungsfrage aus dem ersten Drittel neben dem Anfang des Fazits.
+    pair = None
+    if head:
+        question = ""
+        for m in _QUESTION_RE.finditer(text, 0, int(len(text) * 0.4)):
+            if any(p["heading"] and p["start"] <= m.start() < p["end"] for p in paras):
+                continue
+            question = _sentence(text, m.start())
+            if "?" not in question:  # "Die Forschungsfrage lautet:" und die Frage im nächsten Satz
+                q = text.find("?", m.end(), m.end() + 400)
+                if q != -1:
+                    question = _sentence(text, q - 1)
+            break
+        ends = _sentence_ends(text, head["end"], min(len(text), head["end"] + 1500))
+        opening = re.sub(r"\s+", " ", text[head["end"]:ends[1] + 1 if len(ends) > 1 else head["end"] + 600]).strip()
+        if question and opening:
+            rest = refs.fold(text[head["end"]:head["end"] + 12000])
+            missing = []
+            for w in re.findall(r"[^\W\d_]{5,}", question):  # wie geschrieben zeigen, gefaltet vergleichen
+                folded = refs.fold(w)
+                if folded not in _FRAME_WORDS and folded[:6] not in rest and w not in missing:
+                    missing.append(w)
+            pair = {"question": question, "heading": text[head["start"]:head["end"]].strip(),
+                      "conclusion": opening[:600], "missing": missing[:8]}
+    return {"serial_paragraphs": serial[:20], "end_citations": end_cited, "conclusion_sources": new_sources[:30],
+            "question_pair": pair}
+
+
 def find_writing_signals(body: str, citations: List[Dict]) -> Dict[str, List[Dict]]:
     """Findet Zweitzitate und empirische/statistische Aussagen ohne Beleg."""
     text = _normalised(body)
@@ -529,6 +696,7 @@ def find_writing_signals(body: str, citations: List[Dict]) -> Dict[str, List[Dic
     return {
         "secondary_citations": secondary,
         "uncited_claims": uncited,
+        **_structure_signals(text, citations),
     }
 
 
@@ -633,7 +801,9 @@ def analyse(text: str) -> Dict:
     # Hochgestellte Zahlen (Nature, Science) liest kein PDF-Text als Zitat; dann lieber nichts
     # behaupten als fast jeden Eintrag "nie zitiert" nennen.
     readable = bool(parsed) and len(cited_entries) >= max(1, round(0.3 * len(parsed)))
-    signals = find_writing_signals(body, citations) if readable else {"secondary_citations": [], "uncited_claims": []}
+    signals = find_writing_signals(body, citations) if readable else {
+        "secondary_citations": [], "uncited_claims": [], "serial_paragraphs": [], "end_citations": [],
+        "conclusion_sources": [], "question_pair": None}
     return {
         "has_bibliography": bool(entries),
         "style": style,
@@ -645,6 +815,10 @@ def analyse(text: str) -> Dict:
         "uncited": uncited[:200] if readable else [],
         "secondary_citations": signals["secondary_citations"],
         "uncited_claims": signals["uncited_claims"],
+        "serial_paragraphs": signals["serial_paragraphs"],    # Absätze, die Quellen nacheinander nacherzählen
+        "end_citations": signals["end_citations"],            # ein Beleg erst am Ende eines langen Absatzes
+        "conclusion_sources": signals["conclusion_sources"],  # Quellen, die erst im Fazit auftauchen
+        "question_pair": signals["question_pair"],        # Forschungsfrage neben dem Anfang des Fazits
         "integrity": integrity.scan(body),  # unsichtbare Zeichen, fremde Buchstaben, gequälte Phrasen
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": find_quotes(_normalised(body), citations),
