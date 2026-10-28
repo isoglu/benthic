@@ -878,8 +878,13 @@ def annotate_docx(data: bytes, notes: List[Dict[str, str]]) -> bytes:
     paras = list(doc_root.iter(_W + "p"))
     para_texts = []
     for p in paras:
-        txt = "".join(el.text for el in p.iter(_W + "t") if el.text)
-        para_texts.append(re.sub(r"\s+", " ", txt).lower())
+        parts = []
+        for el in p.iter():
+            if el.tag == (_W + "t") and el.text:
+                parts.append(el.text)
+            elif el.tag in (_W + "tab", _W + "br", _W + "cr"):
+                parts.append(" ")
+        para_texts.append(re.sub(r"\s+", " ", "".join(parts)).lower())
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     added = 0

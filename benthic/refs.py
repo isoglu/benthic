@@ -436,6 +436,14 @@ def parse_endnote_xml(text: str) -> List[Ref]:
             continue
 
         r = _empty("endnote_xml", "")
+        for contrib in rec.iter():
+            ctag = contrib.tag.split("}")[-1].lower()
+            if ctag == "authors":
+                for au in contrib.iter():
+                    if au.tag.split("}")[-1].lower() == "author":
+                        a_val = "".join(au.itertext()).strip()
+                        if a_val:
+                            r["authors"].append(_surname(a_val))
         for el in rec.iter():
             ltag = el.tag.split("}")[-1].lower()
             if ltag == "title" and not r["title"]:
@@ -446,7 +454,7 @@ def parse_endnote_xml(text: str) -> List[Ref]:
                 v_val = "".join(el.itertext()).strip()
                 if v_val:
                     r["venue"] = v_val
-            elif ltag == "author":
+            elif ltag == "author" and not r["authors"]:
                 a_val = "".join(el.itertext()).strip()
                 if a_val:
                     r["authors"].append(_surname(a_val))
@@ -610,7 +618,11 @@ def parse_text(text: str) -> List[Ref]:
 # Einstieg
 # --------------------------------------------------------------------------
 def detect_format(text: str) -> str:
-    if re.search(r"@\s*(article|book|inproceedings|incollection|misc|phdthesis|techreport|online|report|conference)\s*[{(]", text, re.IGNORECASE):
+    if re.search(
+        r"@\s*(article|book|inbook|inproceedings|incollection|misc|phdthesis|mastersthesis|thesis|techreport|online|report|conference|unpublished|proceedings|booklet|manual|collection)\s*[{(]",
+        text,
+        re.IGNORECASE,
+    ):
         return "bibtex"
     if re.search(r"^TY  - ", text, re.MULTILINE) and re.search(r"^ER  -", text, re.MULTILINE):
         return "ris"

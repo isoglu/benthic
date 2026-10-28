@@ -625,6 +625,7 @@ footer.run .pno { margin-left: auto; color: #4a5a75; font-variant-numeric: tabul
 .quote q { font: italic 9.4pt/1.42 ui-serif, "New York", "Iowan Old Style", Georgia, serif; color: #0b1830; quotes: "\\201C" "\\201D"; }
 .quote .meta { color: #4a5a75; font-size: 7.6pt; margin-top: .8mm; }
 .quote .meta b { font-weight: 650; }
+.quote mark.ov { background: #e3f5f8; color: #064f5e; padding: 0 .8mm; border-radius: .8mm; }
 .snotes .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6mm; }
 .snotes .sn { display: grid; grid-template-columns: 6mm 1fr; gap: 1.6mm; padding: 1mm 0; border-bottom: .2mm solid #eef2f7; font-size: 7.8pt; line-height: 1.35; }
 .snotes .sn .n { color: #4a5a75; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
@@ -745,6 +746,27 @@ CHECK_ICON = ('<svg viewBox="0 0 16 16" width="16" height="16" fill="none" strok
 
 SOURCES = ("Crossref", "OpenAlex", "Europe PMC (PubMed)", "Semantic Scholar", "DataCite", "arXiv", "DBLP",
            "Open Library", "Deutsche Nationalbibliothek", "lobid (hbz)", "K10plus (GBV, SWB)", "Retraction Watch")
+
+
+def _mark_shared(text: str, other: str) -> str:
+    """Hebt gemeinsame Inhaltwörter (> 3 Zeichen) in text hervor."""
+    if not text or not other:
+        return _e(text)
+    other_words = {w.lower() for w in re.findall(r"\w{4,}", other)}
+    if not other_words:
+        return _e(text)
+    out = []
+    last = 0
+    for m in re.finditer(r"\w+", text):
+        out.append(_e(text[last:m.start()]))
+        w = m.group(0)
+        if len(w) >= 4 and w.lower() in other_words:
+            out.append(f'<mark class="ov">{_e(w)}</mark>')
+        else:
+            out.append(_e(w))
+        last = m.end()
+    out.append(_e(text[last:]))
+    return "".join(out)
 
 
 def _shell(title: str, run_title: str, cover: str, flow: str, sealed: Optional[Dict], auto_print: bool) -> str:
@@ -995,7 +1017,7 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
                                   stated=q.get("stated_page"), found=q.get("printed_page") or q.get("page"))
             rows.append(f'<div class="row quote"><q>{_e(q.get("quote"))}</q><div class="meta"><b class="{QUOTE_COLOR.get(status, "")}">'
                         f'{_e(tr(QUOTE_LABEL.get(status, "Nicht prüfbar")))}</b> · {_e(q.get("label"))}{_e(page)}</div>'
-                        + (f'<div class="meta">{_e(tr("In der Quelle:"))} {_e(q.get("excerpt"))}</div>' if status == "close" and q.get("excerpt") else "")
+                        + (f'<div class="meta">{_e(tr("In der Quelle:"))} {_mark_shared(q.get("excerpt") or "", q.get("quote") or "")}</div>' if status == "close" and q.get("excerpt") else "")
                         + "".join(f'<div class="meta">{_e(line)}</div>' for line in _quote_notes(q))
                         + "</div>")
         sec.append('<div class="split quotes">' + "".join(rows) + "</div>")
@@ -1009,8 +1031,8 @@ def render(job: Dict, job_id: str, auto_print: bool = False) -> str:
             sec.append('<div class="split quotes">' + "".join(
                 f'<div class="row quote"><div class="meta"><b class="{"warn" if f["kind"] in ("partial", "translated") else "fail"}">{_e(kinds[f["kind"]])}</b>'
                 f' · {_e(f.get("label"))}' + (f' · {_e(tr("S."))} {_e(f["page"])}' if f.get("page") else "") + "</div>"
-                f'<div>{_e(f["sentence"])}</div>'
-                + (f'<div class="meta">{_e(tr("In der Quelle:"))} <q>{_e(f["excerpt"])}</q></div>' if f.get("excerpt") else "")
+                f'<div>{_mark_shared(f.get("sentence") or "", f.get("excerpt") or "")}</div>'
+                + (f'<div class="meta">{_e(tr("In der Quelle:"))} <q>{_mark_shared(f.get("excerpt") or "", f.get("sentence") or "")}</q></div>' if f.get("excerpt") else "")
                 + "</div>" for f in overlaps) + "</div>")
         else:
             sec.append(f'<div class="keep"><p class="allgood">{CHECK_ICON}{_e(tr("Kein Satz übernimmt Wortlaut seiner Quelle ohne Anführungszeichen."))}</p></div>')

@@ -74,6 +74,42 @@ class Grimpo(unittest.TestCase):
         views = {t["view"] for s in g["steps"] for t in s["tasks"] if t["view"]}
         self.assertTrue(views <= {"projects", "find", "verify"})   # nur Ansichten, die es in der App gibt
 
+    def test_live(self):
+        from benthic import app as appmod, quota
+        job = {"id": "live-1", "mode": "verify", "status": "running", "origin": "mcp:claude", "total": 4, "done": 1,
+               "results": [{"big": "x" * 1000}], "active": {"10.1/a": {"phase": "lookup", "source": "openalex"}}}
+        with mock.patch.dict(appmod._jobs, {"live-1": job, "old": {"id": "old", "status": "done", "active": {}}}), \
+                mock.patch.object(quota, "_log", [{"at": 200.0, "service": "openalex", "url": "u2", "status": 200, "ms": 5},
+                                                  {"at": 100.0, "service": "crossref", "url": "u1", "status": 503, "ms": 9}]), \
+                mock.patch.dict(quota._inflight, {1: {"at": 300.0, "service": "web", "url": "https://x.org/a.pdf"}}):
+            j = self.client.get("/api/live").get_json()
+            self.assertEqual([x["id"] for x in j["jobs"]], ["live-1"])           # nur laufende Läufe
+            self.assertEqual(j["jobs"][0]["active"], [{"identifier": "10.1/a", "phase": "lookup", "source": "openalex"}])
+            self.assertNotIn("results", j["jobs"][0])                            # jede Sekunde: ohne Ergebnisse
+            self.assertEqual([e["at"] for e in j["log"]], [200.0, 100.0])
+            self.assertEqual(j["inflight"][0]["service"], "web")
+            self.assertEqual([e["at"] for e in self.client.get("/api/live?after=150").get_json()["log"]], [200.0])
+        self.assertIsInstance(self.client.get("/api/health").get_json()["started"], float)  # neu nach jedem Neustart
+
+    def test_plugin_switch(self):
+        from benthic import routes
+        folder = routes.user_folder()
+        folder.mkdir(parents=True)
+        (folder / "demo.py").write_text("def register(api): pass\n")
+        state = lambda: {p["name"]: (p["state"], p["own"]) for p in self.client.get("/api/plugins").get_json()["plugins"]}
+        self.assertEqual(state(), {"demo": ("new", True)})
+        self.assertEqual(self.client.post("/api/plugins/switch", json={"name": "demo", "on": False}).status_code, 200)
+        self.assertTrue((folder / "_demo.py").exists())                         # aus wie von Hand: ein _ davor
+        self.assertEqual(state(), {"demo": ("off", True)})
+        self.client.post("/api/plugins/switch", json={"name": "demo", "on": True})
+        self.assertTrue((folder / "demo.py").exists())
+        for name in ("nope", "../demo", ""):
+            self.assertEqual(self.client.post("/api/plugins/switch", json={"name": name, "on": False}).status_code, 400)
+        with mock.patch.dict(routes._status, {str(folder / "demo.py"): None}):  # beim Start geladen
+            self.assertEqual(state(), {"demo": ("loaded", True)})
+            self.client.post("/api/plugins/switch", json={"name": "demo", "on": False})
+            self.assertEqual(state(), {"demo": ("stopping", True)})              # läuft bis zum Neustart, kein Doppel
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,60 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.2.2
+
+See what Benthic is doing, and everything an AI assistant does with it.
+
+- **Live view in Grimpo.** Grimpo now opens on a Live tab: the check that is
+  running and the references it is working on, requests to the databases as
+  they go out and come back, the services used today, and a ring around Grimpo
+  that fills as a check progresses.
+- **Every AI call on record.** When an AI assistant uses Benthic over MCP, each
+  call now appears in the app and in Grimpo: what it did, whether it finished,
+  how long it took and how much text went back to the assistant. The record
+  stays on your Mac and survives restarts, and checks an assistant started are
+  marked in History.
+- **Plugins from Grimpo.** Plugin routes and each of your own plugins can be
+  switched on and off in Grimpo; Benthic restarts when you say so.
+- **A restart that knows it worked.** Restarting from Settings no longer
+  reports a failure after a restart that succeeded.
+
+## 1.2.1
+
+Find the passage in your own PDFs that backs a sentence, and see how a LaTeX thesis cites its sources.
+
+- **Evidence in your own PDFs.** A claim without a citation in the writing
+  signals now has "Search own PDFs": Benthic looks through the PDFs already
+  downloaded for this check and shows the passage that comes closest, with its
+  page and the words that matched. Below the threshold it says nothing rather
+  than pointing at a source that does not carry the claim.
+- **LaTeX citation graph.** A LaTeX check now draws the keys of your .bib next
+  to the main file, coloured by verdict: cited and confirmed, cited but not
+  confirmed, missing from the .bib, never cited. A click jumps to the source in
+  the report.
+- **What a quotation shares.** Where a quotation is close but not identical,
+  "In the source:" now marks the words it shares with the original, so the
+  difference is visible instead of described.
+- **The Word file stays.** An uploaded .docx is kept with the run, so the
+  annotated Word document can be downloaded again later, not only while the
+  window is open. The last 25 files are kept.
+- **Cleaner .bib, better imports.** The cleaned .bib reads the entry type from
+  the entry itself, fills missing fields from the raw entry and lists the
+  fields that disagree with the record; BibTeX recognises inbook, thesis,
+  proceedings, booklet, manual and other types it used to skip; EndNote XML
+  finds authors nested under contributors.
+- **For AI assistants.** Over MCP a check now reports field discrepancies,
+  references that mix real authors with an invented title, secondary citations
+  and claims without a citation; two new tools export the cleaned .bib and the
+  annotated Word document.
+
+## 1.2.0
+
+There is no 1.2.0. It put to sea on 21 October and was called back to port the
+same evening to sail on as 1.1.4. Sailors say you must ask Poseidon before you
+rename a ship; we forgot, and he kept the old name. GitHub agrees: a released
+name can never be used again. So the voyage continues at 1.2.1.
+
 ## 1.1.9
 
 One field for checking, finding and fetching sources, and new checks taken from a seminar on academic writing.

@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, Response, has_request_context, jsonify, request, send_file, send_from_directory
 
-from . import __app_name__, __version__, batch, biblio, clips, config, connect, document, export, finder, guide, history, house, i18n, integrity, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
+from . import __app_name__, __version__, activity, batch, biblio, clips, config, connect, document, export, finder, guide, history, house, i18n, integrity, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
 from .i18n import tr
 from .fetcher import BenthicDownloader
 
@@ -110,18 +110,6 @@ _jobs_lock = threading.Lock()
 _cancel_events: Dict[str, threading.Event] = {}
 _job_ids = None  # itertools.count ab der ersten freien Laufnummer (siehe _new_job_id)
 
-# Wer nutzt Benthic gerade? (LLM-Clients über MCP, für die Anzeige in der App)
-_activity: Dict = {"clients": {}, "events": []}
-_activity_lock = threading.Lock()
-
-
-def _note_activity(client: str, tool: str = "", summary: str = "") -> None:
-    with _activity_lock:
-        now = time.time()
-        _activity["clients"][client] = {"client": client, "last_seen": now}
-        if tool:
-            _activity["events"].append({"ts": now, "client": client, "tool": tool, "summary": summary[:200]})
-            del _activity["events"][:-50]
 
 
 def _new_job_id() -> str:
@@ -381,7 +369,7 @@ def _run_job(job_id: str, identifiers: List[str], output_dir, settings: Dict, mo
         logger.exception("Projekt-Übernahme fehlgeschlagen")
     summary = _summary(job, mode)
     summary.update({k: job.get(k) for k in ("schema", "origin", "project", "project_name", "document", "style",
-                                            "quote_check", "missing_works", "docx_path", "docx_name")})
+                                            "quote_check", "overlap_check", "missing_works", "docx_path", "docx_name")})
     if not job.get("no_history"):  # Stapelprüfungen speichern ihre Läufe selbst (batch.py)
         history.append(summary)
 
@@ -452,9 +440,12 @@ def i18n_script():
     return resp
 
 
+_started = time.time()  # neu bei jedem Start, auch nach execv: daran erkennt die Oberfläche das neue Backend
+
+
 @app.route("/api/health")
 def health():
-    return jsonify({"app": __app_name__, "version": __version__, "ok": True})
+    return jsonify({"app": __app_name__, "version": __version__, "ok": True, "started": _started})
 
 
 # --------------------------------------------------------------------------
@@ -486,6 +477,17 @@ def plugin_asset(name: str, filename: str):
 def get_plugins():
     """Eigene Plugins für die Einstellungen: Ordner und Zustand jedes Plugins."""
     return jsonify({"folder": str(routes.user_folder()), "plugins": routes.overview()})
+
+
+@app.route("/api/plugins/switch", methods=["POST"])
+def switch_plugin():
+    """Ein eigenes Plugin ein- oder ausschalten (Grimpo); wirkt nach dem Neustart."""
+    data = request.get_json(silent=True) or {}
+    try:
+        routes.switch(str(data.get("name") or ""), bool(data.get("on")))
+    except (ValueError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"plugins": routes.overview()})
 
 
 @app.route("/api/plugin-folder", methods=["POST"])
@@ -724,17 +726,32 @@ def check_document():
     proj = projects.find(project) if project else None
     analysis.update(name=name, characters=size)
     extra: Dict = {"document": analysis}
+    raw_docx_bytes: Optional[bytes] = None
     if name.lower().endswith(".docx"):
         extra["docx_name"] = name
         if path is not None and path.is_file():
             try:
-                extra["docx_bytes"] = path.read_bytes()
+                raw_docx_bytes = path.read_bytes()
+                extra["docx_bytes"] = raw_docx_bytes
             except Exception:
                 pass
             extra["docx_path"] = str(path)
         elif items and items[0][1]:
-            extra["docx_bytes"] = items[0][1]
+            raw_docx_bytes = items[0][1]
+            extra["docx_bytes"] = raw_docx_bytes
     job_id, dir_note = _launch_job("verify", identifiers, config.load_settings(), proj, extra)
+    if raw_docx_bytes and not extra.get("docx_path"):
+        try:
+            up_dir = config.data_dir() / "uploads"
+            up_dir.mkdir(parents=True, exist_ok=True)
+            saved_docx = up_dir / f"{job_id}.docx"
+            saved_docx.write_bytes(raw_docx_bytes)
+            _job_store(job_id, "docx_path", str(saved_docx))
+            old_files = sorted(up_dir.glob("*.docx"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for stale in old_files[25:]:
+                stale.unlink(missing_ok=True)
+        except Exception:
+            pass
     return jsonify({"job_id": job_id, "total": len(identifiers), "mode": "verify", "document": analysis,
                     "project": proj["id"] if proj else None})
 
@@ -1194,6 +1211,52 @@ def find_support():
     return jsonify(result)
 
 
+@app.route("/api/support/scan-job", methods=["POST"])
+def scan_job_support():
+    """Durchsucht alle geladenen PDFs eines Prüflaufs nach Belegstellen für eine unbelegte Aussage."""
+    data = request.get_json(silent=True) or {}
+    job_id = str(data.get("job_id") or "").strip()
+    claim = str(data.get("claim") or "").strip()
+    if not job_id:
+        return jsonify({"error": tr("Unbekannter Lauf")}), 400
+    if len(claim) < 12:
+        return jsonify({"error": tr("Bitte eine Aussage eingeben, mindestens ein paar Wörter.")}), 400
+    job = _job_record(job_id)
+    if not job:
+        return jsonify({"error": tr("Unbekannter Lauf")}), 404
+    matches = []
+    scanned = 0
+    seen_dois = set()
+    for r in job.get("results") or []:
+        if r.get("verdict") not in projects.REAL:
+            continue
+        doi = library.normalize_doi(str(r.get("doi") or (r.get("found") or {}).get("doi") or ""))
+        if not doi or doi in seen_dois or not biblio.pdf_path(doi):
+            continue
+        seen_dois.add(doi)
+        scanned += 1
+        res = support.find(doi, claim[:1000], k=2)
+        if res.get("available") and res.get("passages"):
+            best = res["passages"][0]
+            if best.get("score", 0) >= 0.08:
+                found_meta = r.get("found") or {}
+                authors = found_meta.get("authors") or []
+                first_author = authors[0].split()[-1] if authors else doi
+                year = found_meta.get("year") or ""
+                label = f"{first_author} ({year})" if year else str(first_author)
+                matches.append({
+                    "doi": doi,
+                    "label": label,
+                    "title": found_meta.get("title") or r.get("title") or doi,
+                    "page": best.get("page"),
+                    "text": best.get("text") or "",
+                    "terms": best.get("terms") or [],
+                    "score": best.get("score", 0),
+                })
+    matches.sort(key=lambda m: -m.get("score", 0))
+    return jsonify({"scanned": scanned, "matches": matches[:3]})
+
+
 @app.route("/api/watch")
 def watch_status():
     return jsonify(watch.status())
@@ -1304,6 +1367,8 @@ def list_jobs():
     with _jobs_lock:
         items = [{k: j.get(k) for k in ("id", "mode", "status", "origin", "project", "project_name",
                                           "total", "done", "created_at")} for j in _jobs.values()]
+    for j in items:
+        j["origin_name"] = activity.name(j["origin"]) if activity.is_ai(j["origin"]) else None
     items.sort(key=lambda j: j.get("created_at") or 0, reverse=True)
     return jsonify({"jobs": items[:20]})
 
@@ -1312,23 +1377,37 @@ def list_jobs():
 def _track_clients():
     client = request.headers.get("X-Benthic-Client")
     if client:
-        _note_activity(client)
+        activity.seen(client)
+
+
+@app.route("/api/live")
+def live():
+    """Was Benthic gerade tut, für Grimpo: laufende Läufe, Anfragen unterwegs und seit `after`, Dienste, KI-Werkzeuge."""
+    after = request.args.get("after", 0.0, type=float)
+    now = time.time()
+    with _jobs_lock:
+        jobs = [{"id": j["id"], "mode": j["mode"], "project_name": j.get("project_name"),
+                 "who": activity.name(j.get("origin")) if activity.is_ai(j.get("origin")) else None,
+                 "total": j.get("total") or 0, "done": j.get("done") or 0,
+                 "active": [dict(a, identifier=k) for k, a in (j.get("active") or {}).items()]}
+                for j in _jobs.values() if j.get("status") == "running"]
+    usage = quota.status()
+    return jsonify({"now": now, "jobs": jobs, "inflight": quota.inflight(),
+                    "log": [e for e in usage["log"] if e["at"] > after][:20],
+                    "services": [s for s in usage["services"] if s["today"] or s["paused_until"]],
+                    "clients": [c for c in activity.clients() if c["connected"] and activity.is_ai(c["client"])],
+                    "calls": activity.recent(5)})
 
 
 @app.route("/api/activity", methods=["GET"])
 def get_activity():
-    now = time.time()
-    with _activity_lock:
-        clients = [dict(c, connected=now - c["last_seen"] < 300) for c in _activity["clients"].values()]
-        events = list(reversed(_activity["events"][-20:]))
-    return jsonify({"clients": clients, "events": events})
+    """KI-Werkzeuge über MCP: verbundene Clients und ihre letzten Aufrufe (activity.py)."""
+    return jsonify({"clients": activity.clients(), "events": activity.recent(20)})
 
 
 @app.route("/api/activity", methods=["POST"])
 def post_activity():
-    data = request.get_json(silent=True) or {}
-    _note_activity(request.headers.get("X-Benthic-Client") or "mcp", str(data.get("tool") or ""),
-                   str(data.get("summary") or ""))
+    activity.note(request.headers.get("X-Benthic-Client") or "mcp", request.get_json(silent=True) or {})
     return jsonify({"ok": True})
 
 
@@ -1409,6 +1488,9 @@ def set_active_project():
 @app.route("/api/projects/<pid>", methods=["GET"])
 def get_project(pid: str):
     d = projects.detail(pid)
+    for item in (d or {}).get("items") or []:
+        if activity.is_ai(item.get("source")):
+            item["source_name"] = activity.name(item["source"])
     return jsonify(d) if d else (jsonify({"error": tr("Projekt nicht gefunden")}), 404)
 
 
@@ -1811,6 +1893,8 @@ def export_annotated_docx(job_id: str):
 
     for claim in doc.get("claims") or []:
         entry_idx = claim.get("entry")
+        if entry_idx in commented_entries:
+            continue
         res = results.get(entry_idx)
         if res:
             verdict = res.get("verdict")
@@ -1848,27 +1932,32 @@ def export_annotated_docx(job_id: str):
     for ym in doc.get("year_mismatch") or []:
         notes.append({
             "needle": ym.get("sentence") or ym.get("label") or "",
-            "text": f"Jahresabweichung: Im Text {ym.get('cited_year')}, im Verzeichnis {ym.get('list_year')} ({ym.get('list_label')})",
+            "text": tr(
+                "Jahresabweichung: Im Text {cited}, im Verzeichnis {listed} ({label})",
+                cited=ym.get("cited_year") or "",
+                listed=ym.get("list_year") or "",
+                label=ym.get("list_label") or "",
+            ),
             "author": "Benthic",
         })
 
     for m in doc.get("missing_in_list") or []:
         notes.append({
             "needle": m.get("sentence") or m.get("label") or "",
-            "text": f"Fehlt im Literaturverzeichnis: {m.get('label')}",
+            "text": tr("Fehlt im Literaturverzeichnis: {label}", label=m.get("label") or ""),
             "author": "Benthic",
         })
 
     for uc in doc.get("uncited_claims") or []:
         notes.append({
             "needle": uc.get("sentence") or uc.get("claim") or "",
-            "text": "Aussage mit Zahlen oder Studienbezug ohne Zitat: Bitte mit einer Quelle belegen.",
+            "text": tr("Aussage mit Zahlen oder Studienbezug ohne Zitat: Bitte mit einer Quelle belegen."),
             "author": "Benthic",
         })
     for sc in doc.get("secondary_citations") or []:
         notes.append({
             "needle": sc.get("match") or sc.get("sentence") or sc.get("needle") or "",
-            "text": f"Zweitquelle ({sc.get('match', '')}): Nach Möglichkeit das Original prüfen und zitieren.",
+            "text": tr("Zweitquelle ({match}): Nach Möglichkeit das Original prüfen und zitieren.", match=sc.get("match") or ""),
             "author": "Benthic",
         })
     for x in doc.get("serial_paragraphs") or []:
@@ -1894,11 +1983,12 @@ def export_annotated_docx(job_id: str):
 
     annotated = document.annotate_docx(data, notes)
     stem = Path(name).stem or "dokument"
+    suffix = tr("kommentiert")
     return send_file(
         io.BytesIO(annotated),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         as_attachment=True,
-        download_name=f"{stem}-benthic-kommentiert.docx",
+        download_name=f"{stem}-benthic-{suffix}.docx",
     )
 
 
@@ -1907,15 +1997,19 @@ def export_annotated_docx(job_id: str):
 # --------------------------------------------------------------------------
 @app.route("/api/history")
 def get_history():
-    return jsonify({"summaries": history.summaries(), "stats": history.stats()})
+    rows = history.summaries()
+    for row in rows:
+        origin = row.pop("origin", None)
+        row["origin_name"] = activity.name(origin) if activity.is_ai(origin) else None  # von einem KI-Werkzeug gestartet
+    return jsonify({"summaries": rows, "stats": history.stats()})
 
 
 @app.route("/api/history/<job_id>")
 def get_history_item(job_id: str):
-    item = history.get(job_id)
+    item = _job_record(job_id)
     if not item:
         return jsonify({"error": tr("Unbekannter Lauf")}), 404
-    return jsonify(item)
+    return jsonify({k: v for k, v in item.items() if k != "docx_bytes"})
 
 
 # --------------------------------------------------------------------------

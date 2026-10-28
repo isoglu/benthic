@@ -336,5 +336,48 @@ class RegistryCoverage(unittest.TestCase):
         self.assertEqual(res.get("pattern"), "wrong_doi")
 
 
+class Belegstellen(unittest.TestCase):
+    """Belegstelle für eine unbelegte Aussage: die PDFs eines Laufs durchsuchen (scan-job)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = mock.patch.dict(os.environ, {"BENTHIC_DATA_DIR": self.tmp.name})
+        self.env.start()
+        from benthic import app as appmod, history
+        history.append(JOB)
+        self.client = ui_client(appmod.app)
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def scan(self, **body):
+        return self.client.post("/api/support/scan-job", json=body)
+
+    def test_unknown_run_and_short_claim_are_rejected(self):
+        self.assertEqual(self.scan(job_id="9999", claim="Ein hinreichend langer Satz.").status_code, 404)
+        self.assertEqual(self.scan(job_id="", claim="Ein hinreichend langer Satz.").status_code, 400)
+        self.assertEqual(self.scan(job_id="4242", claim="zu kurz").status_code, 400)
+
+    def test_only_real_verdicts_are_scanned_and_matches_carry_page(self):
+        found = {"available": True, "passages": [{"text": "…", "page": 7, "terms": ["citation"], "score": 0.4}]}
+        with mock.patch("benthic.biblio.pdf_path", return_value="/tmp/x.pdf"), \
+                mock.patch("benthic.support.find", return_value=found):
+            data = self.scan(job_id="4242", claim="Citation reliability of language models").get_json()
+        self.assertEqual(data["scanned"], 2)  # verified + partial, nicht not_found oder retracted
+        self.assertEqual({m["doi"] for m in data["matches"]},
+                         {"10.1038/s41586-020-2649-2", "10.1145/3065386"})
+        self.assertEqual(data["matches"][0]["page"], 7)
+        self.assertEqual(data["matches"][0]["score"], 0.4)
+
+    def test_weak_passage_is_not_offered(self):
+        found = {"available": True, "passages": [{"text": "…", "page": 1, "terms": [], "score": 0.01}]}
+        with mock.patch("benthic.biblio.pdf_path", return_value="/tmp/x.pdf"), \
+                mock.patch("benthic.support.find", return_value=found):
+            data = self.scan(job_id="4242", claim="Citation reliability of language models").get_json()
+        self.assertEqual(data["scanned"], 2)
+        self.assertEqual(data["matches"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

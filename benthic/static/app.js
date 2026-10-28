@@ -1171,6 +1171,12 @@ function renderHistory(items) {
     const when = document.createElement("span");
     when.textContent = it.finished_at ? new Date(it.finished_at * 1000).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" }) : "";
     kind.append(k, when);
+    if (it.origin_name) {  // von einem KI-Werkzeug über MCP gestartet
+      const via = document.createElement("span");
+      via.className = "via";
+      via.textContent = T("über {name}", { name: it.origin_name });
+      kind.appendChild(via);
+    }
     const chips = document.createElement("div");
     chips.className = "chips";
     const add = (key, n) => { if (n) chips.appendChild(chip(key, `${n} ${STATES[key].label}`)); };
@@ -1216,6 +1222,7 @@ async function viewHistory(jobId) {
     verifyQuotes = j.quote_check || null;
     verifyOverlap = j.overlap_check || null;
     verifyMissing = j.missing_works || null;
+    verifyResults = (j.results || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
     renderDocument(j.document || null);  // zuerst: die Zeilen holen sich daraus ihre Zitatstellen
     renderVerify(j.results || [], T("Prüfbericht #{id}", { id: jobId }), false);
     renderStyle(verifyStyle);
@@ -1543,6 +1550,7 @@ async function pollWatchFiles() {
 let batchId = null;
 let batchTimer = null;
 let batchSort = { key: null, dir: -1 };
+let batchFilter = "all";
 let batchData = null;
 const batchOpen = new Set();
 const batchNotified = new Set();
@@ -1695,10 +1703,42 @@ async function showBatch(id) {
 function renderBatchRows() {
   const b = batchData;
   if (!b) return;
+  let pillBox = $("#batch-filter-pills");
+  if (!pillBox) {
+    const filterWrap = $(".batch-filter");
+    if (filterWrap) {
+      pillBox = document.createElement("div");
+      pillBox.id = "batch-filter-pills";
+      pillBox.className = "batch-pills";
+      filterWrap.appendChild(pillBox);
+    }
+  }
+  if (pillBox) {
+    pillBox.innerHTML = "";
+    [
+      ["all", T("Alle")],
+      ["not_found", T("Erfundene Quellen")],
+      ["retracted", T("Zurückgezogen")],
+      ["quotes_bad", T("Zitate auffällig")],
+    ].forEach(([key, label]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn small ghost" + (batchFilter === key ? " on" : "");
+      btn.textContent = label;
+      btn.onclick = () => {
+        batchFilter = key;
+        renderBatchRows();
+      };
+      pillBox.appendChild(btn);
+    });
+  }
   const body = $("#batch-body");
   body.innerHTML = "";
   let rows = [...(b.rows || [])];
   if ($("#batch-only-problems").checked) rows = rows.filter((r) => r.flagged || r.state === "error");
+  if (batchFilter === "not_found") rows = rows.filter((r) => (r.not_found || 0) > 0);
+  else if (batchFilter === "retracted") rows = rows.filter((r) => (r.retracted || 0) > 0);
+  else if (batchFilter === "quotes_bad") rows = rows.filter((r) => (r.quotes_bad || 0) > 0);
   if (batchSort.key) {
     rows.sort((x, y) => {
       const a = x[batchSort.key] ?? "", c = y[batchSort.key] ?? "";
@@ -1916,7 +1956,9 @@ function updateReportTabs() {
   };
   const doc = verifyDoc || {};
   const docCount = (doc.missing_in_list || []).length + (doc.uncited || []).length + (doc.year_mismatch || []).length +
-    (verifyQuotes || []).filter((q) => ["not_found", "close", "misattributed"].includes(q.status)).length;
+    (doc.uncited_claims || []).length + (doc.secondary_citations || []).length +
+    (verifyQuotes || []).filter((q) => ["not_found", "close", "misattributed"].includes(q.status)).length +
+    ((verifyOverlap && verifyOverlap.findings) || []).length;
   const styleCount = verifyStyle && verifyStyle.applicable ? Object.values(verifyStyle.entries || {}).filter((v) => v && v.length).length : 0;
   const labels = { sources: T("Quellen"), document: T("Abgleich und Zitate"), style: T("Zitierstil"), list: T("Liste") };
   const counts = { sources: verifyResults.length, document: docCount, style: styleCount };
@@ -2024,11 +2066,34 @@ function renderStyle(report) {
       bibBtn.type = "button";
       bibBtn.className = "btn small";
       bibBtn.append(icon("i-download"), document.createTextNode(T("Bereinigte .bib-Datei laden")));
-      bibBtn.onclick = () => {
-        window.location.href = `/api/jobs/${encodeURIComponent(verifyJobId)}/cleaned.bib`;
-      };
+      bibBtn.onclick = () => downloadJobFile(`/api/jobs/${encodeURIComponent(verifyJobId)}/cleaned.bib`, "cleaned.bib");
       box.appendChild(bibBtn);
     }
+  }
+}
+
+async function downloadJobFile(url, fallbackName) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      toast(T("Download fehlgeschlagen"), j.error || "");
+      return;
+    }
+    const disp = r.headers.get("Content-Disposition") || "";
+    const m = disp.match(/filename="([^"]+)"/);
+    const name = (m && m[1]) || fallbackName;
+    const blob = await r.blob();
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(u);
+  } catch (e) {
+    toast(T("Download fehlgeschlagen"), T("Keine Verbindung"));
   }
 }
 
@@ -2189,9 +2254,7 @@ function renderDocument(doc) {
     docxBtn.type = "button";
     docxBtn.className = "btn small";
     docxBtn.append(icon("i-download"), document.createTextNode(T("Kommentiertes Word-Dokument laden")));
-    docxBtn.onclick = () => {
-      window.location.href = `/api/jobs/${encodeURIComponent(verifyJobId)}/annotated.docx`;
-    };
+    docxBtn.onclick = () => downloadJobFile(`/api/jobs/${encodeURIComponent(verifyJobId)}/annotated.docx`, "annotated.docx");
     head.appendChild(docxBtn);
   }
   box.appendChild(head);
@@ -2207,7 +2270,9 @@ function renderDocument(doc) {
     p.className = "hint dc-note";
     p.textContent = T("Die Zitate im Text ließen sich nicht sicher lesen, zum Beispiel hochgestellte Zahlen. Benthic prüft deshalb nur das Verzeichnis.");
     box.appendChild(p);
+    box.appendChild(writingSignalsSection(doc));
     box.appendChild(quotesSection(doc));
+    box.appendChild(overlapSection(doc));
     return;
   }
   const missing = doc.missing_in_list || [];
@@ -2219,6 +2284,7 @@ function renderDocument(doc) {
     p.className = "dc-ok";
     p.append(icon("i-legal"), document.createTextNode(T("Jedes Zitat steht im Verzeichnis, und jeder Eintrag wird zitiert.")));
     box.appendChild(p);
+    if (doc.style === "latex") box.appendChild(renderLatexGraph(doc, verifyResults));
     box.appendChild(writingSignalsSection(doc));
     box.appendChild(structureSection(doc));
     box.appendChild(quotesSection(doc));
@@ -2256,10 +2322,19 @@ function renderDocument(doc) {
   cols.append(
     col("warn", doc.style === "latex" ? T("Zitiert, aber nicht in der .bib-Datei") : T("Im Text zitiert, im Verzeichnis nicht gefunden"), missing, (m) => {
       const li = document.createElement("li");
+      const top = document.createElement("div");
+      top.className = "dc-miss-head";
       const b = document.createElement("strong");
       b.textContent = m.label;
-      li.appendChild(b);
-      if (m.count > 1) { const c = document.createElement("span"); c.className = "hint"; c.textContent = ` ${m.count}×`; li.appendChild(c); }
+      top.appendChild(b);
+      if (m.count > 1) { const c = document.createElement("span"); c.className = "hint"; c.textContent = ` ${m.count}×`; top.appendChild(c); }
+      const searchBtn = document.createElement("button");
+      searchBtn.type = "button";
+      searchBtn.className = "btn small ghost";
+      searchBtn.append(icon("i-search"), document.createTextNode(T("Quelle suchen")));
+      searchBtn.onclick = () => showAlternatives(searchBtn, `${m.label} ${(m.sentence || "").slice(0, 120)}`);
+      top.appendChild(searchBtn);
+      li.appendChild(top);
       const s = document.createElement("p");
       s.className = "dc-sentence";
       s.textContent = m.sentence;
@@ -2273,6 +2348,7 @@ function renderDocument(doc) {
     }),
   );
   box.appendChild(cols);
+  if (doc.style === "latex") box.appendChild(renderLatexGraph(doc, verifyResults));
   box.appendChild(writingSignalsSection(doc));
   box.appendChild(structureSection(doc));
   box.appendChild(quotesSection(doc));
@@ -2319,6 +2395,99 @@ function integritySection(doc) {
   return sec;
 }
 
+function renderLatexGraph(doc, results) {
+  const nodes = [];
+  const uncitedSet = new Set((doc.uncited || []).map((u) => String(u.label || "").split(" · ")[0].trim()));
+  (results || []).forEach((r) => {
+    const keyMatch = (r.input || "").match(/^\[([^\]]+)\]/);
+    const key = keyMatch ? keyMatch[1] : `#${r.order || 0}`;
+    const isUncited = uncitedSet.has(key);
+    let state = "warn";
+    if (["verified", "corrected", "partial"].includes(r.verdict)) state = isUncited ? "muted" : "ok";
+    else if (["not_found", "mismatch", "retracted"].includes(r.verdict)) state = "fail";
+    nodes.push({ key, label: (r.claimed && r.claimed.title) || r.input || key, state, order: r.order || 0, uncited: isUncited });
+  });
+  (doc.missing_in_list || []).forEach((m) => {
+    nodes.push({ key: m.label, label: m.sentence || m.label, state: "fail", order: null, missing: true });
+  });
+  if (!nodes.length) return document.createDocumentFragment();
+  const sec = document.createElement("div");
+  sec.className = "dc-col latex-graph-box";
+  const head = document.createElement("div");
+  head.className = "dq-head";
+  const h = document.createElement("h4");
+  h.textContent = T("LaTeX-Zitiernetz");
+  const hint = document.createElement("span");
+  hint.className = "hint";
+  hint.textContent = T("Klicke auf einen Schlüssel, um zur Quelle im Bericht zu springen.");
+  head.append(h, hint);
+  sec.appendChild(head);
+
+  const shown = nodes.slice(0, 28);
+  const rowH = 26;
+  const H = Math.max(90, shown.length * rowH + 24);
+  const W = 680;
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("class", "latex-graph-svg");
+  const midY = Math.round(H / 2);
+
+  shown.forEach((n, idx) => {
+    const y = 18 + idx * rowH;
+    if (!n.uncited) {
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", `M 148 ${midY} C 230 ${midY}, 240 ${y}, 316 ${y}`);
+      path.setAttribute("class", `lg-edge ${n.state}`);
+      if (n.missing) path.setAttribute("stroke-dasharray", "4 3");
+      svg.appendChild(path);
+    }
+    const g = document.createElementNS(ns, "g");
+    g.setAttribute("class", `lg-node ${n.state}`);
+    g.setAttribute("transform", `translate(316, ${y})`);
+    const circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("r", "5");
+    const text = document.createElementNS(ns, "text");
+    text.setAttribute("x", "12");
+    text.setAttribute("y", "4");
+    const suffix = n.missing ? ` (${T("fehlt in .bib")})` : (n.uncited ? ` (${T("nicht zitiert")})` : "");
+    text.textContent = midTrunc(n.key + suffix, 48);
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${n.key}: ${n.label}`;
+    g.append(title, circle, text);
+    if (n.order) {
+      g.style.cursor = "pointer";
+      g.onclick = () => {
+        showReportTab("sources");
+        const row = document.querySelector(`#verify-body tr[data-order="${n.order}"]`);
+        if (row) {
+          scrollMainTo(row);
+          row.classList.add("reveal");
+          setTimeout(() => row.classList.remove("reveal"), 1400);
+        }
+      };
+    }
+    svg.appendChild(g);
+  });
+
+  const root = document.createElementNS(ns, "g");
+  root.setAttribute("class", "lg-root");
+  root.setAttribute("transform", `translate(16, ${midY - 16})`);
+  const rect = document.createElementNS(ns, "rect");
+  rect.setAttribute("width", "132");
+  rect.setAttribute("height", "32");
+  rect.setAttribute("rx", "8");
+  const rText = document.createElementNS(ns, "text");
+  rText.setAttribute("x", "66");
+  rText.setAttribute("y", "20");
+  rText.setAttribute("text-anchor", "middle");
+  rText.textContent = midTrunc(doc.name || "main.tex", 18);
+  root.append(rect, rText);
+  svg.appendChild(root);
+  sec.appendChild(svg);
+  return sec;
+}
+
 function writingSignalsSection(doc) {
   const uncited = doc.uncited_claims || [];
   const secondary = doc.secondary_citations || [];
@@ -2340,9 +2509,64 @@ function writingSignalsSection(doc) {
     const ul = document.createElement("ul");
     uncited.slice(0, 15).forEach((u) => {
       const li = document.createElement("li");
+      li.className = "dc-sig-item";
+      const row = document.createElement("div");
+      row.className = "dc-sig-row";
       const p = document.createElement("p");
       p.className = "dc-sentence";
       p.textContent = u.sentence;
+      const acts = document.createElement("div");
+      acts.className = "dc-sig-acts";
+      if (verifyJobId) {
+        const scanBtn = document.createElement("button");
+        scanBtn.type = "button";
+        scanBtn.className = "btn small ghost";
+        scanBtn.textContent = T("In eigenen PDFs suchen");
+        scanBtn.onclick = async () => {
+          scanBtn.disabled = true;
+          let box = li.querySelector(".dc-scan-out");
+          if (!box) {
+            box = document.createElement("div");
+            box.className = "dc-scan-out";
+            li.appendChild(box);
+          }
+          box.innerHTML = "";
+          box.appendChild(spinnerLine(T("Suche im Volltext …")));
+          let j = {};
+          try {
+            const r = await fetch("/api/support/scan-job", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ job_id: verifyJobId, claim: u.sentence }),
+            });
+            j = await r.json();
+          } catch (e) { j = { error: T("Keine Verbindung") }; }
+          scanBtn.disabled = false;
+          box.innerHTML = "";
+          const hits = j.hits || [];
+          if (!hits.length) {
+            const empty = document.createElement("p");
+            empty.className = "hint";
+            empty.textContent = j.scanned
+              ? T("Keine passende Stelle in {n} geladenen PDFs gefunden.", { n: j.scanned })
+              : T("Noch keine PDFs dieser Prüfung in der Bibliothek geladen.");
+            box.appendChild(empty);
+            return;
+          }
+          hits.forEach((h) => {
+            const q = document.createElement("blockquote");
+            q.className = "support-passage";
+            const meta = document.createElement("div");
+            meta.className = "support-meta";
+            meta.textContent = [h.title || h.doi, T("S. {page}", { page: h.page }), T("{n} % der tragenden Wörter", { n: Math.round((h.coverage || 0) * 100) })]
+              .filter(Boolean).join(" · ");
+            const txt = document.createElement("p");
+            highlightTerms(txt, h.text || "", h.terms || []);
+            q.append(meta, txt);
+            box.appendChild(q);
+          });
+        };
+        acts.appendChild(scanBtn);
+      }
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn small ghost";
@@ -2470,6 +2694,20 @@ function yearMismatch(items) {
     p.className = "dc-sentence";
     p.textContent = y.list_label;
     li.append(b, p);
+    const r = (verifyResults || []).find((x) => x.order === y.entry);
+    const foundYear = r && r.found && r.found.year;
+    if (foundYear) {
+      const hint = document.createElement("p");
+      hint.className = "hint dc-year-verdict";
+      if (String(foundYear) === String(y.cited_year)) {
+        hint.textContent = T("In den Katalogen steht {year} (wie im Text). Korrigiere das Jahr im Verzeichnis.", { year: foundYear });
+      } else if (String(foundYear) === String(y.list_year)) {
+        hint.textContent = T("In den Katalogen steht {year} (wie im Verzeichnis). Korrigiere das Jahr im Text.", { year: foundYear });
+      } else {
+        hint.textContent = T("In den Katalogen steht {year}.", { year: foundYear });
+      }
+      li.appendChild(hint);
+    }
     ul.appendChild(li);
   });
   sec.append(t, ul);
@@ -2577,6 +2815,7 @@ function quotesSection(doc) {
     if (!r || !r.ok) { note.textContent = j.error || T("Abgleich fehlgeschlagen"); return; }
     verifyQuotes = j.quotes;
     render(j.quotes);
+    updateReportTabs();
   };
   run.onclick = runCheck;
   render(verifyQuotes);
@@ -2641,7 +2880,7 @@ function overlapSection(doc) {
       if (f.excerpt) {
         const theirs = document.createElement("blockquote");
         theirs.className = "ov-source";
-        theirs.textContent = f.excerpt;
+        highlightSharedWords(theirs, f.excerpt, f.sentence);
         li.appendChild(theirs);
       }
       ul.appendChild(li);
@@ -2673,6 +2912,7 @@ function overlapSection(doc) {
     if (!r || !r.ok) { note.textContent = j.error || T("Abgleich fehlgeschlagen"); return; }
     verifyOverlap = j;
     render(j);
+    updateReportTabs();
   };
   run.onclick = runCheck;
   // Übersetzt übernommen: die Sätze auf dem Mac in die Sprache der Quelle übersetzen, dann in der Quelle suchen.
@@ -2746,7 +2986,8 @@ function quoteItem(q) {
     const k = document.createElement("span");
     k.className = "k";
     k.textContent = q.status === "close" ? T("In der Quelle:") : T("Ähnlichste Stelle:");
-    ex.append(k, document.createTextNode(` ${q.excerpt}`));
+    ex.append(k, document.createTextNode(" "));
+    highlightSharedWords(ex, q.excerpt, q.quote);
     li.appendChild(ex);
   }
   quoteNotes(q).forEach((line) => {
@@ -2756,6 +2997,27 @@ function quoteItem(q) {
     li.appendChild(m);
   });
   return li;
+}
+
+function highlightSharedWords(el, text, referenceText) {
+  const fold = (w) => w.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const refWords = new Set(
+    String(referenceText || "")
+      .split(/\s+/)
+      .map((part) => fold(part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")))
+      .filter((w) => w.length >= 4),
+  );
+  String(text || "").split(/(\s+)/).forEach((part) => {
+    const clean = fold(part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""));
+    if (clean.length >= 4 && refWords.has(clean)) {
+      const m = document.createElement("mark");
+      m.className = "ov-mark";
+      m.textContent = part;
+      el.appendChild(m);
+    } else {
+      el.appendChild(document.createTextNode(part));
+    }
+  });
 }
 
 function fetchQuoteSources(dois, again) {
@@ -2801,6 +3063,7 @@ function pollVerify(jobId) {
     }
     renderVerifyProgress(job);
     renderPaused(job);
+    verifyResults = (job.results || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
     if (job.document) renderDocument(job.document);
     renderVerify(job.results || [], job.document ? T("Prüfbericht: {name}", { name: job.document.name }) : T("Prüfbericht"), true);
     if (job.status === "done" || job.status === "cancelled") {
@@ -2810,6 +3073,8 @@ function pollVerify(jobId) {
       const parts = VERDICT_ORDER.filter((v) => c[v]).map((v) => `${c[v]} ${STATES[v].label.toLowerCase()}`);
       notify(T("Benthic: Prüfung fertig"), [TN((job.results || []).length, "{n} Quelle", "{n} Quellen"), ...parts].join(" · "));
       verifyStyle = job.style || null;
+      verifyResults = (job.results || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+      if (job.document) renderDocument(job.document);
       renderVerify(job.results || [], job.document ? T("Prüfbericht: {name}", { name: job.document.name }) : T("Prüfbericht"), false);
       renderStyle(verifyStyle);
       loadVerifyHealth();
@@ -2919,6 +3184,7 @@ function renderVerify(results, title, animate) {
 
 function verifyRow(res) {
   const tr = document.createElement("tr");
+  tr.dataset.order = String(res.order || 0);
   tr.dataset.doi = String(res.doi || (res.found || {}).doi || "").toLowerCase();
   const st = document.createElement("td");
   st.className = "c-state";
@@ -2985,6 +3251,30 @@ function verifyRow(res) {
       }
       dBox.appendChild(pill);
     });
+    const fixDoi = res.doi || found.doi;
+    if (fixDoi && ["corrected", "partial"].includes(res.verdict)) {
+      const fixBtn = document.createElement("button");
+      fixBtn.type = "button";
+      fixBtn.className = "btn small ghost diff-copy-btn";
+      fixBtn.textContent = T("Korrigierte Angabe kopieren");
+      fixBtn.onclick = async () => {
+        fixBtn.disabled = true;
+        try {
+          const st = (verifyStyle && verifyStyle.style) || "apa";
+          const j = await (await fetch("/api/format?" + new URLSearchParams({ doi: fixDoi, style: st }))).json();
+          if (j.text) {
+            copyValue(j.text);
+            toast(T("Angabe kopiert"), j.text.slice(0, 120));
+          } else {
+            toast(T("Keine Fassung geladen"), j.error || "");
+          }
+        } catch (e) {
+          toast(T("Keine Fassung geladen"), T("Keine Verbindung"));
+        }
+        fixBtn.disabled = false;
+      };
+      dBox.appendChild(fixBtn);
+    }
     main.appendChild(dBox);
   }
 
@@ -4857,10 +5147,10 @@ function projectRow(pid, it) {
   a.title = it.doi;
   meta.appendChild(a);
   if (it.year) { const y = document.createElement("span"); y.textContent = it.year; meta.appendChild(y); }
-  if (it.source && it.source.startsWith("mcp")) {
+  if (it.source_name) {  // Namen der KI-Werkzeuge kommen vom Backend (activity.py)
     const c = document.createElement("span");
     c.className = "via";
-    c.textContent = T("über {name}", { name: clientName(it.source) });
+    c.textContent = T("über {name}", { name: it.source_name });
     meta.appendChild(c);
   }
   main.append(title, meta);
@@ -5119,6 +5409,7 @@ const PLUGIN_STATES = {
   error:   ["fail", T("Fehler")],
   new:     ["warn outline", T("Neu, wirkt nach dem Neustart")],
   removed: ["warn outline", T("Entfernt, weg nach dem Neustart")],
+  stopping: ["warn outline", T("Ausgeschaltet, aus nach dem Neustart")],
   off:     ["library outline", T("Aus (Name beginnt mit _)")],
 };
 
@@ -5145,20 +5436,20 @@ async function openPluginFolder() {
   loadPlugins();
 }
 
+const backendStart = async () => { try { return (await (await fetch("/api/health", { cache: "no-store" })).json()).started; } catch (e) { return null; } };
+
 async function restartBenthic() {
+  const before = await backendStart();
   const r = await fetch("/api/restart", { method: "POST" });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { toast(T("Neustart nicht möglich"), j.error || ""); return; }
   $("#plugins-restart").disabled = true;
   $("#plugins-status").textContent = T("Benthic startet neu …");
-  // Erst warten, bis das alte Backend weg ist, dann, bis das neue antwortet.
-  let down = false;
+  // Das neue Backend erkennt man an seiner Startzeit; das alte ist oft weniger als eine halbe Sekunde weg.
   for (let i = 0; i < 120; i++) {
     await new Promise((res) => setTimeout(res, 250));
-    let up = false;
-    try { up = (await fetch("/api/health", { cache: "no-store" })).ok; } catch (e) { /* startet noch */ }
-    if (!up) down = true;
-    else if (down) { location.reload(); return; }
+    const started = await backendStart();
+    if (started && started !== before) { location.reload(); return; }
   }
   $("#plugins-restart").disabled = false;
   $("#plugins-status").textContent = T("Neustart fehlgeschlagen. Beende Benthic und öffne es wieder.");
@@ -5252,20 +5543,6 @@ let activityTimer = null;
 
 // Name des MCP-Clients (clientInfo.name) für die Anzeige; Reihenfolge zählt:
 // "codex-mcp-client" enthält "code", "cursor-vscode" auch.
-const CLIENT_NAMES = [
-  ["claude", "Claude"], ["codex", "Codex"], ["chatgpt", "ChatGPT"], ["antigravity", "Antigravity"],
-  ["gemini", "Gemini"], ["cursor", "Cursor"], ["grok", "Grok"], ["devin", "Devin"], ["windsurf", "Windsurf"],
-  ["zed", "Zed"], ["goose", "Goose"], ["kiro", "Kiro"], ["perplexity", "Perplexity"], ["raycast", "Raycast"],
-  ["lm", "LM Studio"], ["code", "VS Code"],
-];
-
-function clientName(origin) {
-  const raw = String(origin || "").replace(/^mcp:?/, "").toLowerCase();
-  if (!raw) return "Claude";
-  const hit = CLIENT_NAMES.find(([key]) => raw.includes(key));
-  return hit ? hit[1] : raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
 function ago(ts) {
   const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
   if (s < 60) return T("vor {n} s", { n: s });
@@ -5286,20 +5563,30 @@ async function pollActivity() {
   activityTimer = setTimeout(pollActivity, 3000);
 }
 
+// Jeder Werkzeugaufruf eines KI-Werkzeugs über MCP, mit Stand, Dauer und wie viel Text an das Werkzeug ging.
 function renderActivity(act) {
   const live = (act.clients || []).filter((c) => c.client.startsWith("mcp") && c.connected)
     .sort((a, b) => b.last_seen - a.last_seen);
+  const events = act.events || [];
+  const busy = events.find((e) => e.status === "running");
   const pill = $("#ai-status");
-  pill.classList.toggle("on", !!live.length);
-  $("#ai-status-text").textContent = live.length
-    ? T("{name} aktiv · {ago}", { name: clientName(live[0].client), ago: ago(live[0].last_seen) }) : T("KI: nicht verbunden");
+  pill.classList.toggle("on", !!live.length || !!busy);
+  $("#ai-status-text").textContent = busy ? T("{name} arbeitet: {what}", { name: busy.name, what: busy.summary || busy.tool })
+    : live.length ? T("{name} aktiv · {ago}", { name: live[0].name, ago: ago(live[0].last_seen) }) : T("KI: nicht verbunden");
+  pill.title = busy ? T("{name} nutzt Benthic gerade über MCP", { name: busy.name }) : T("KI-Anbindung in den Einstellungen");
   const status = $("#ai-card-status");
   status.innerHTML = "";
-  status.appendChild(live.length ? chip("verified", T("{name} verbunden", { name: clientName(live[0].client) }))
+  status.appendChild(live.length ? chip("verified", T("{name} verbunden", { name: live[0].name }))
     : chip("library", T("Noch keine Verbindung")));
   const box = $("#ai-activity");
   box.innerHTML = "";
-  (act.events || []).slice(0, 6).forEach((e) => {
+  if (events.length) {
+    const head = document.createElement("p");
+    head.className = "hint";
+    head.textContent = T("Was KI-Werkzeuge über MCP getan haben, jeder Aufruf (nur auf diesem Mac gespeichert):");
+    box.appendChild(head);
+  }
+  events.slice(0, 12).forEach((e) => {
     const row = document.createElement("div");
     row.className = "activity-row";
     const t = document.createElement("span");
@@ -5307,10 +5594,21 @@ function renderActivity(act) {
     t.textContent = ago(e.ts);
     const c = document.createElement("span");
     c.className = "c";
-    c.textContent = clientName(e.client);
+    c.textContent = e.name;
     const m = document.createElement("span");
     m.textContent = e.summary || e.tool;
-    row.append(t, c, m);
+    m.title = e.tool;
+    const st = document.createElement("span");
+    st.className = "st";
+    if (e.status === "running") st.appendChild(chip("running"));
+    else if (e.status === "error") st.appendChild(chip("fail"));
+    else if (e.status === "gone") st.appendChild(chip("cancelled", T("Ohne Abschluss")));
+    else if (e.status === "done") {
+      const secs = (e.ms || 0) / 1000;
+      st.textContent = [secs < 10 ? secs.toLocaleString(LOCALE, { maximumFractionDigits: 1 }) + " s" : Math.round(secs) + " s",
+        e.chars != null ? T("{n} Zeichen an {name}", { n: e.chars.toLocaleString(LOCALE), name: e.name }) : ""].filter(Boolean).join(" · ");
+    }
+    row.append(t, c, m, st);
     box.appendChild(row);
   });
 }
@@ -5324,10 +5622,10 @@ function followClientJobs(jobs) {
   jobs.forEach((j) => {
     if (seenJobs.has(j.id)) return;
     seenJobs.add(j.id);
-    if (!String(j.origin || "").startsWith("mcp")) return;
+    if (!j.origin_name) return;  // nur Läufe, die ein KI-Werkzeug gestartet hat
     // Auch schnelle Läufe zeigen (z. B. aus dem Cache), solange sie frisch sind.
     if (j.status !== "running" && Date.now() / 1000 - (j.created_at || 0) > 60) return;
-    const who = clientName(j.origin);
+    const who = j.origin_name;
     if (j.mode === "verify") {
       toast(TN(j.total, "{who} prüft {n} Quelle", "{who} prüft {n} Quellen", { who }),
         j.project_name ? T("Projekt „{name}“", { name: j.project_name }) : T("Live in Benthic"));
@@ -5361,6 +5659,7 @@ async function loadMcp() {
       check_open_access: T("Open Access prüfen"), get_job: T("Laufstatus"), search_library: T("Bibliothek durchsuchen"),
       get_fulltext: T("Artikel lesen"), list_projects: T("Projekte auflisten"), create_project: T("Projekt anlegen"),
       project_status: T("Projektstatus"), export_bibliography: T("Literaturverzeichnis"),
+      export_cleaned_bib: T("Bereinigte .bib-Datei"), export_annotated_docx: T("Kommentiertes Word-Dokument"),
     };
     (j.tools || []).forEach((t) => {
       const c = document.createElement("span");
@@ -6638,7 +6937,7 @@ $("#su-folder-pick").onclick = async () => {
   if (path) $("#su-folder").value = path;
 };
 $("#su-file-pick").onclick = async () => {
-  const path = await pickPath("file", ["bib", "ris", "md", "txt", "sqlite", "nbib"], "~");
+  const path = await pickPath("file", ["bib", "ris", "xml", "md", "txt", "sqlite", "nbib"], "~");
   if (path) { $("#su-file").value = path; setup.choice = "file"; renderChoices(); }
 };
 document.addEventListener("keydown", (e) => {
@@ -6671,6 +6970,14 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
       renderMode();
     });
   });
+// Grimpo schaltet die Zusatzwege auch um: hier nachziehen, damit „Speichern“ den neuen Stand nicht überschreibt.
+window.addEventListener("storage", async (e) => {
+  if (e.key !== "benthic-routes") return;
+  try { settings.extra_routes = !!(await (await fetch("/api/settings")).json()).extra_routes; } catch (err) { return; }
+  syncToggle("extra_routes", settings.extra_routes);
+  renderRoute();
+  renderMode();
+});
 $("#ranking-add-btn").onclick = importRanking;
 $("#house-load-btn").onclick = loadHouseRules;
 $("#plugins-open").onclick = openPluginFolder;

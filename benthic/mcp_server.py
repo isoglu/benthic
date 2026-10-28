@@ -12,6 +12,7 @@ Werkzeuge nutzen nie Zusatzwege aus Plugins: Downloads laufen immer mit
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -159,11 +160,21 @@ def _version_notice(backend: Optional[str]) -> Optional[str]:
     return notice
 
 
-def _activity(tool: str, summary: str) -> None:
+# Jeder Werkzeugaufruf meldet sich in der App (activity.py): beim Start, mit dem, was er tut, und am Ende.
+_call = threading.local()
+_call_ids = itertools.count(1)
+
+
+def _report(**fields) -> None:
     try:
-        _http("POST", "/api/activity", {"tool": tool, "summary": summary}, timeout=3)
+        _http("POST", "/api/activity", {"id": getattr(_call, "id", None), **fields}, timeout=3)
     except (urllib.error.URLError, OSError):
         pass
+
+
+def _activity(tool: str, summary: str) -> None:
+    """Was der laufende Aufruf tut, in Worten für die App."""
+    _report(tool=tool, summary=summary, status="running")
 
 
 def _wait_job(job_id: str, wait: float) -> Dict:
@@ -209,6 +220,17 @@ def _fmt_verify(job: Dict) -> str:
         line = " ".join(bits)
         if r.get("note"):
             line += f"\n   Note: {_en(r.get('note_parts') or r['note'])}"
+        diffs = r.get("field_diffs") or {}
+        if isinstance(diffs, dict):
+            diff_parts = [
+                f"{k}: claimed '{dv.get('claimed')}' vs found '{dv.get('found')}'"
+                for k, dv in diffs.items()
+                if isinstance(dv, dict) and dv.get("status") not in ("ok", None)
+            ]
+            if diff_parts:
+                line += "\n   Field discrepancies: " + "; ".join(diff_parts)
+        if r.get("chimera"):
+            line += "\n   Warning: Chimera reference (mixes metadata from different works)."
         pub = r.get("published_version")
         if pub:
             line += (f"\n   Published since: doi:{pub['doi']} ({pub.get('venue') or pub.get('type')}, {pub.get('year')}). "
@@ -338,6 +360,14 @@ def _fmt_document(job: Dict) -> str:
     if quotes:
         head.append(f"{len(quotes)} direct quotations with a cited source; call check_quotes with job_id "
                     f"{job.get('id')} to compare them with the downloaded full texts.")
+    sec_cites = d.get("secondary_citations") or []
+    if sec_cites:
+        head.append(f"Secondary citations ('cited in' / 'zit. nach') found ({len(sec_cites)}): "
+                    + "; ".join(f"{s.get('match')} (p. {s.get('page')})" for s in sec_cites[:10]))
+    unclaims = d.get("uncited_claims") or []
+    if unclaims:
+        head.append(f"Empirical or numeric claims without an in-text citation ({len(unclaims)}): "
+                    + "; ".join(f"\"{u.get('sentence', '')[:120]}\"" for u in unclaims[:8]))
     return "\n".join(head) + "\n\n" + _fmt_verify(job)
 
 
@@ -538,6 +568,7 @@ def t_check_open_access(a: Dict) -> str:
 
 
 def t_get_job(a: Dict) -> str:
+    _activity("get_job", tr("liest das Ergebnis von Lauf #{id}", id=str(a.get("job_id", ""))))
     status, job = _http("GET", f"/api/jobs/{urllib.parse.quote(str(a.get('job_id', '')))}")
     if status != 200 or not isinstance(job, dict):
         raise ValueError("unknown job_id")
@@ -550,6 +581,7 @@ def t_search_library(a: Dict) -> str:
     q = {"q": str(a.get("query") or ""), "limit": int(a.get("limit") or 25)}
     if a.get("project"):
         q["project"] = str(a["project"])
+    _activity("search_library", tr("durchsucht deine Bibliothek: „{query}“", query=q["q"]))
     status, data = _http("GET", "/api/library/search?" + urllib.parse.urlencode(q))
     if status != 200:
         raise ValueError(data.get("error") if isinstance(data, dict) else "search failed")
@@ -573,6 +605,7 @@ def t_get_fulltext(a: Dict) -> str:
 
 
 def t_list_projects(a: Dict) -> str:
+    _activity("list_projects", tr("liest die Liste deiner Projekte"))
     _s, data = _http("GET", "/api/projects")
     items = data.get("projects") or []
     if not items:
@@ -594,6 +627,7 @@ def t_create_project(a: Dict) -> str:
 
 
 def t_project_status(a: Dict) -> str:
+    _activity("project_status", tr("liest Projekt „{name}“", name=str(a.get("project") or "")))
     status, p = _http("GET", f"/api/projects/{urllib.parse.quote(str(a.get('project') or ''), safe='')}")
     if status != 200:
         raise ValueError("project not found")
@@ -677,6 +711,7 @@ def t_assess_references(a: Dict) -> str:
         body = {"items": [{"doi": d} for d in a["dois"]]}
     else:
         raise ValueError("give a project or a list of DOIs")
+    _activity("assess_references", tr("bewertet eine Literaturliste"))
     status, r = _http("POST", "/api/health", body, timeout=120.0)
     if status != 200:
         raise ValueError((r or {}).get("error") or "assessment failed")
@@ -708,6 +743,7 @@ def t_export_bibliography(a: Dict) -> str:
     q = {"format": a.get("format", "bibtex"), "style": a.get("style", "apa"), "as": "json",
          "only": "verified" if a.get("only_verified", True) else "all"}
     pid = urllib.parse.quote(str(a.get("project") or ""), safe="")
+    _activity("export_bibliography", tr("exportiert das Literaturverzeichnis von Projekt „{name}“", name=str(a.get("project") or "")))
     status, data = _http("GET", f"/api/projects/{pid}/bibliography?" + urllib.parse.urlencode(q), timeout=90)
     if status != 200:
         raise ValueError(data.get("error") if isinstance(data, dict) else "export failed")
@@ -788,6 +824,7 @@ def t_corrected_bibliography(a: Dict) -> str:
     if not job_id:
         raise ValueError("give the job_id of a verify_references or check_document run")
     q = urllib.parse.urlencode({"style": a.get("style", "apa")})
+    _activity("corrected_bibliography", tr("erstellt ein korrigiertes Literaturverzeichnis aus Lauf #{id}", id=str(a.get("job_id"))))
     status, r = _http("GET", f"/api/jobs/{job_id}/corrected?{q}", timeout=120.0)
     if status != 200:
         raise ValueError((r or {}).get("error") or "failed")
@@ -802,6 +839,7 @@ def t_request_copy(a: Dict) -> str:
     doi = str(a.get("doi") or "").strip()
     if not doi:
         raise ValueError("give a DOI")
+    _activity("request_copy", tr("entwirft eine Bitte um eine Kopie von {doi}", doi=doi))
     status, r = _http("GET", "/api/request-copy?" + urllib.parse.urlencode({"doi": doi}), timeout=30.0)
     if status != 200:
         raise ValueError((r or {}).get("error") or "failed")
@@ -809,6 +847,50 @@ def t_request_copy(a: Dict) -> str:
     people = ", ".join(c["name"] + (f" ({c['orcid']})" if c.get("orcid") else "") for c in r.get("contacts") or []) or "unknown"
     return (f"Contact: {people}. The e-mail address is usually on the publisher's page: {r.get('landing_url')}\n\n"
             f"Subject: {r['subject'][lang]}\n\n{r['body'][lang]}[name]")
+
+
+def t_export_cleaned_bib(a: Dict) -> str:
+    job_id = str(a.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    _activity("export_cleaned_bib", tr("exportiert bereinigte .bib-Datei"))
+    url = f"{BASE}/api/jobs/{urllib.parse.quote(job_id)}/cleaned.bib"
+    req = urllib.request.Request(url, headers={"X-Benthic-Origin": _client})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            bib_text = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"could not export .bib (HTTP {exc.code})")
+    out_path = str(a.get("output_path") or "").strip()
+    if out_path:
+        p = os.path.expanduser(out_path)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(bib_text)
+        return f"Saved cleaned BibTeX to {p}\n\n{bib_text}"
+    return bib_text
+
+
+def t_export_annotated_docx(a: Dict) -> str:
+    job_id = str(a.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    _activity("export_annotated_docx", tr("exportiert kommentierte Word-Datei"))
+    url = f"{BASE}/api/jobs/{urllib.parse.quote(job_id)}/annotated.docx"
+    req = urllib.request.Request(url, headers={"X-Benthic-Origin": _client})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"no Word .docx file available for job {job_id} (HTTP {exc.code})")
+    out_path = str(a.get("output_path") or "").strip()
+    if not out_path:
+        out_path = os.path.expanduser(f"~/Downloads/benthic-{job_id}-annotated.docx")
+    else:
+        out_path = os.path.expanduser(out_path)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "wb") as fh:
+        fh.write(data)
+    return f"Saved annotated Word document with margin comments to {out_path} ({len(data)} bytes)."
 
 
 _S = {"type": "string"}
@@ -992,6 +1074,22 @@ TOOLS: List[Dict] = [
                     "are in the library. Give a project, or DOIs for a quick look without verdicts.",
      "inputSchema": {"type": "object", "properties": {"project": _S, "dois": _DOIS}},
      "annotations": {"readOnlyHint": True, "openWorldHint": True}, "handler": t_assess_references},
+    {"name": "export_cleaned_bib", "title": "Export cleaned .bib file",
+     "description": "Export a cleaned BibTeX (.bib) file from a verification or check_document run (job_id): "
+                    "original cite keys are preserved, metadata and DOIs are updated from verified registries, "
+                    "and retracted/invented entries are commented out with a warning.",
+     "inputSchema": {"type": "object", "properties": {
+         "job_id": _S, "output_path": {"type": "string", "description": "Optional path to save the .bib file on disk."}},
+         "required": ["job_id"]},
+     "annotations": {"readOnlyHint": False}, "handler": t_export_cleaned_bib},
+    {"name": "export_annotated_docx", "title": "Export annotated Word .docx",
+     "description": "For a check_document run on a Word (.docx) file: save a copy of the document with native Word "
+                    "margin comments attached to every flagged in-text citation, year mismatch, missing bibliography "
+                    "entry, secondary citation, uncited empirical claim and quotation discrepancy.",
+     "inputSchema": {"type": "object", "properties": {
+         "job_id": _S, "output_path": {"type": "string", "description": "Optional path to save the annotated .docx file."}},
+         "required": ["job_id"]},
+     "annotations": {"readOnlyHint": False}, "handler": t_export_annotated_docx},
 ]
 _HANDLERS = {t["name"]: t["handler"] for t in TOOLS}
 
@@ -1025,12 +1123,16 @@ def _call_tool(mid: Any, params: Dict) -> None:
         _error(mid, -32602, f"Unknown tool: {name}")
         return
     health: Dict = {}
+    _call.id = f"{os.getpid()}-{next(_call_ids)}"
+    started = time.monotonic()
     try:
         health = ensure_backend()
+        _report(tool=name, status="running")
         text, failed = handler(params.get("arguments") or {}), False
     except Exception as exc:  # Werkzeugfehler gehen als Ergebnis zurück, damit das LLM reagieren kann
         log(f"{name}: {exc}")
         text, failed = f"Error: {exc}", True
+    _report(tool=name, status="error" if failed else "done", ms=int(1000 * (time.monotonic() - started)), chars=len(text))
     notice = _version_notice(str(health.get("version") or "") or None)
     if notice:
         text = f"{notice}\n\n{text}"

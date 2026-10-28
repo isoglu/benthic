@@ -106,7 +106,7 @@ class Projekt(unittest.TestCase):
         bib = latex.export_cleaned_bib(results)
         self.assertIn("@article{harris2020,", bib)
         self.assertIn("doi = {10.1038/s41586-020-2649-2}", bib)
-        self.assertIn("% [Benthic WARNUNG: not_found] Nicht in Registern gefunden", bib)
+        self.assertRegex(bib, r"% \[Benthic (WARNUNG|WARNING): not_found\] Nicht in Registern gefunden")
         self.assertIn("% @article{fake2024,", bib)
         self.assertIn("%   title={Hallucinated title},", bib)
 

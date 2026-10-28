@@ -6,6 +6,62 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.2.2
+
+Sehen, was Benthic gerade tut, und alles, was ein KI-Assistent damit macht.
+
+- **Live-Ansicht in Grimpo.** Grimpo öffnet jetzt mit dem Reiter „Live“: die
+  laufende Prüfung und die Angaben, an denen sie gerade arbeitet, Anfragen an
+  die Datenbanken, während sie hinausgehen und zurückkommen, die heute
+  genutzten Dienste und ein Ring um Grimpo, der sich mit dem Fortschritt füllt.
+- **Jeder KI-Aufruf im Protokoll.** Nutzt ein KI-Assistent Benthic über MCP,
+  erscheint jetzt jeder Aufruf in der App und in Grimpo: was er getan hat, ob
+  er fertig wurde, wie lange er dauerte und wie viel Text an den Assistenten
+  zurückging. Das Protokoll bleibt auf deinem Mac und übersteht Neustarts;
+  Prüfungen, die ein Assistent gestartet hat, sind im Verlauf markiert.
+- **Plugins aus Grimpo.** Zusatzwege und jedes eigene Plugin lassen sich in
+  Grimpo ein- und ausschalten; Benthic startet neu, wenn du es sagst.
+- **Ein Neustart, der weiß, dass er geklappt hat.** Ein Neustart aus den
+  Einstellungen meldet keinen Fehler mehr, wenn er gelungen ist.
+
+## 1.2.1
+
+Finde die Stelle in deinen eigenen PDFs, die einen Satz belegt, und sieh, wie eine LaTeX-Arbeit ihre Quellen zitiert.
+
+- **Beleg in den eigenen PDFs.** Eine Aussage ohne Zitat in den Hinweisen zum
+  Belegen hat jetzt „In eigenen PDFs suchen“: Benthic durchsucht die für diese
+  Prüfung geladenen PDFs und zeigt die Stelle, die am nächsten kommt, mit Seite
+  und den Wörtern, die gepasst haben. Unter der Schwelle sagt es nichts, statt
+  eine Quelle zu zeigen, die die Aussage nicht trägt.
+- **LaTeX-Zitiernetz.** Eine LaTeX-Prüfung zeichnet die Schlüssel deiner .bib
+  neben die Hauptdatei, gefärbt nach Urteil: zitiert und bestätigt, zitiert
+  aber nicht bestätigt, fehlt in der .bib, nicht zitiert. Ein Klick springt zur
+  Quelle im Bericht.
+- **Was ein Zitat mit der Quelle teilt.** Weicht ein wörtliches Zitat leicht ab,
+  markiert „In der Quelle:“ jetzt die Wörter, die es mit dem Original teilt;
+  der Unterschied ist zu sehen statt nur beschrieben.
+- **Die Word-Datei bleibt.** Eine hochgeladene .docx bleibt beim Lauf liegen,
+  das kommentierte Word-Dokument lässt sich auch später noch laden, nicht nur
+  solange das Fenster offen ist. Die letzten 25 Dateien bleiben erhalten.
+- **Sauberere .bib, bessere Importe.** Die bereinigte .bib liest die Art aus dem
+  Eintrag selbst, füllt fehlende Felder aus dem Roheintrag und nennt die
+  Felder, die von der Angabe abweichen; BibTeX erkennt inbook, thesis,
+  proceedings, booklet, manual und weitere Arten, die es bisher übersprang;
+  EndNote-XML findet Autor:innen, die unter contributors stehen.
+- **Für KI-Assistenten.** Über MCP meldet eine Prüfung jetzt Feldabweichungen,
+  Mischangaben aus echten Autor:innen und erfundenem Titel, Zitate aus zweiter
+  Hand und Aussagen ohne Zitat; zwei neue Werkzeuge exportieren die bereinigte
+  .bib und das kommentierte Word-Dokument.
+
+## 1.2.0
+
+Ein 1.2.0 gibt es nicht. Es lief am 21. Oktober aus und wurde noch am selben
+Abend in den Hafen zurückgerufen, um als 1.1.4 weiterzufahren. Seeleute sagen,
+wer ein Schiff umtauft, muss vorher Poseidon fragen; wir haben es vergessen,
+und er hat den alten Namen behalten. GitHub sieht es genauso: Ein
+veröffentlichter Name lässt sich nie wieder vergeben. Darum geht die Reise bei
+1.2.1 weiter.
+
 ## 1.1.9
 
 Ein Feld zum Prüfen, Finden und Laden von Quellen, und neue Hinweise aus einem Seminar zum wissenschaftlichen Schreiben.

@@ -103,7 +103,7 @@ def _is_blocked(r: Dict) -> bool:
 def summaries() -> List[Dict]:
     keys = (
         "id", "mode", "created_at", "finished_at", "total", "done",
-        "ok", "oa", "routes", "present", "blocked", "absent", "errors", "verdicts",
+        "ok", "oa", "routes", "present", "blocked", "absent", "errors", "verdicts", "origin",
     )
     out = []
     for item in load():
