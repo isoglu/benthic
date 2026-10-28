@@ -51,8 +51,8 @@ def python_msgids():
 
 
 def js_msgids():
-    """Texte in T("…") und TN(n, "…", "…") aus app.js."""
-    src = (PKG / "static" / "app.js").read_text(encoding="utf-8")
+    """Texte in T("…") und TN(n, "…", "…") aus app.js und Grimpo (pet.html)."""
+    src = "".join((PKG / "static" / f).read_text(encoding="utf-8") for f in ("app.js", "pet.html"))
     lit = r'"((?:[^"\\]|\\.)*)"'
     out = re.findall(r"(?<!function )\bT\(\s*" + lit, src)
     for one, other in re.findall(r"(?<!function )\bTN\([^\"\n]*?" + lit + r",\s*" + lit, src):

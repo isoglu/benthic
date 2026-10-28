@@ -108,6 +108,78 @@ button { font: inherit; color: inherit; }
 .clip .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .doi { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent); }
 .empty { color: var(--muted); text-align: center; padding: 20px 6px; }
+
+/* Live: was Benthic gerade tut. Die Ansicht wird einmal gebaut und nur nachgeführt, damit laufende Bewegungen nicht neu
+   beginnen. Jede neue Antwort eines Dienstes ist ein Echo auf dem Sonar, neue Zeilen steigen auf wie Blasen. */
+.now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--panel-2); }
+.now-words { display: grid; gap: 1px; min-width: 0; }
+.now b { font: 650 14.5px/1.25 var(--font-title); }
+.now span, .row .m, .row .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now span { color: var(--muted); font-size: 12px; }
+.scope { position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%; overflow: hidden;
+         color: var(--state-activity); background: var(--accent-soft); }
+.scope::before, .scope::after { content: ""; position: absolute; border-radius: 50%; border: 1px solid currentColor; opacity: .3; }
+.scope::before { inset: 4px; } .scope::after { inset: 14px; }
+.sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(transparent 0 72%, currentColor);
+         opacity: .2; animation: sweep 3.2s linear infinite; transition: opacity .8s ease; }
+body.busy .sweep { opacity: .6; }
+@keyframes sweep { to { transform: rotate(1turn); } }
+.blip { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: currentColor;
+        box-shadow: 0 0 6px currentColor; animation: blip 1.9s ease-out forwards; }
+@keyframes blip { 0% { opacity: 0; transform: scale(.3); } 10% { opacity: 1; transform: scale(1.5); } 100% { opacity: 0; transform: scale(.9); } }
+.live .progress { margin: 8px 2px 0; }
+.live .progress[hidden], .live section[hidden] { display: none; }
+.live .progress i { transition: width .6s var(--ease-out); }
+.live h3 { margin: 14px 0 6px; font: 650 12.5px/1.2 var(--font-ui); color: var(--muted); }
+.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 10px;
+       border-radius: 10px; background: var(--panel-2); font-size: 12.5px; }
+.row .t { display: grid; min-width: 0; }
+.row .m { font-weight: 600; }
+.row .s { color: var(--muted); font-size: 12px; }
+.log .row .t { display: flex; gap: 6px; align-items: baseline; }
+.log .row .m { flex: none; max-width: 60%; }
+.log .row .s { font: 11.5px var(--font-mono); }
+.meta { font: 11.5px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dot { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
+.dot.ping::after { animation: ring .9s ease-out; }
+@keyframes ring { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(3.4); } }
+.row.busy .dot { background: var(--state-activity); animation: glow 1.4s ease-in-out infinite; }
+@keyframes glow { 50% { opacity: .35; transform: scale(.7); } }
+.row.ok .dot { background: var(--state-legal); }
+.row.bad .dot { background: var(--state-fail); }
+.svcs { display: flex; flex-wrap: wrap; gap: 6px; }
+.svc { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); font-size: 12px; }
+.svc .dot { background: var(--state-activity); color: var(--state-activity); }
+.svc b { font: 600 11.5px var(--font-mono); font-variant-numeric: tabular-nums; }
+.svc.paused { background: var(--state-warn-bg); color: var(--state-warn); }
+.svc.paused .dot { background: var(--state-warn); }
+.plugins { display: grid; gap: 10px; }
+.plugins > .btn { justify-self: start; }
+.hint { color: var(--muted); font-size: 12px; }
+.switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track { position: relative; flex: none; width: 34px; height: 20px; margin-top: 1px; border-radius: 999px;
+                 background: var(--border-strong); transition: background var(--dur-fast); }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+                        background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .28); transition: transform var(--dur) var(--ease-out); }
+.switch input:checked + .track { background: var(--state-deep); }
+.switch input:checked + .track::after { transform: translateX(14px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--focus); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .45; }
+.switch > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.restart { display: flex; align-items: center; gap: 10px; }
+.restart .hint { flex: 1; }
+
+/* Zugeklappt: ein Ring um Grimpo zeigt, wie weit ein Lauf ist; Antworten der Dienste ziehen als Echo hinaus. */
+#pet #ring { position: absolute; inset: 0; z-index: -1; width: 112px; height: 112px; margin: 0; filter: none; pointer-events: none; }
+#ring circle { fill: none; transform-box: fill-box; transform-origin: center; }
+.ring-track, .ring-fill { stroke-width: 2.5; opacity: 0; transition: opacity .6s ease, stroke-dasharray .8s var(--ease-out); }
+.ring-track { stroke: var(--g-ink); stroke-opacity: .14; }
+.ring-fill { stroke: var(--state-activity); stroke-linecap: round; stroke-dasharray: 0 100; transform: rotate(-90deg); }
+body.running .ring-track, body.running .ring-fill { opacity: 1; }
+.ring-ping { stroke: var(--state-activity); stroke-width: 1.5; opacity: 0; }
 </style>
 </head>
 <body>
@@ -118,7 +190,8 @@ button { font: inherit; color: inherit; }
     </div>
     <div class="note" id="note" hidden role="status"><span id="note-text"></span><button class="btn" id="note-go" type="button">Ansehen</button></div>
     <div class="tabs" role="tablist" aria-label="Grimpo">
-      <button type="button" role="tab" id="tab-guide" aria-selected="true" aria-controls="pane">Weg</button>
+      <button type="button" role="tab" id="tab-live" aria-selected="true" aria-controls="pane">Live</button>
+      <button type="button" role="tab" id="tab-guide" aria-selected="false" aria-controls="pane">Weg</button>
       <button type="button" role="tab" id="tab-clips" aria-selected="false" aria-controls="pane">Fundstücke</button>
       <button type="button" role="tab" id="tab-tools" aria-selected="false" aria-controls="pane">Werkzeuge</button>
     </div>
@@ -144,6 +217,11 @@ button { font: inherit; color: inherit; }
         <circle class="alert-dot" cx="70" cy="24" r="5"/>
       </g></g></g></g>
     </svg>
+    <svg id="ring" viewBox="0 0 112 112" aria-hidden="true">
+      <circle class="ring-track" cx="56" cy="56" r="51"/>
+      <circle class="ring-fill" cx="56" cy="56" r="51" pathLength="100"/>
+      <circle class="ring-ping" cx="56" cy="56" r="40"/>
+    </svg>
   </div>
 
 <script src="/i18n.js"></script>
@@ -151,6 +229,15 @@ button { font: inherit; color: inherit; }
 (() => {
   "use strict";
   const I18N = window.PD_I18N || {};
+  const syncTheme = () => {
+    try {
+      const th = localStorage.getItem("benthic-theme") || "";
+      if (th === "light" || th === "dark") document.documentElement.dataset.theme = th;
+      else delete document.documentElement.dataset.theme;
+    } catch (e) {}
+  };
+  syncTheme();
+  window.addEventListener("storage", (e) => { if (!e.key || e.key === "benthic-theme") syncTheme(); });
   const T = (de, vars) => { const s = I18N[de] || de; return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s; };
   const $ = (s) => document.querySelector(s);
   const pet = $("#pet");
@@ -214,7 +301,7 @@ button { font: inherit; color: inherit; }
     clearTimeout(moodTimer);
     if (ms) moodTimer = setTimeout(() => setMood(""), ms);
   }
-  setInterval(() => { if (!document.body.classList.contains("open") && Date.now() - lastTouch > 10 * 60 * 1000 && mood !== "sleep") setMood("sleep"); }, 30000);
+  setInterval(() => { if (!document.body.classList.contains("open") && !document.body.classList.contains("busy") && Date.now() - lastTouch > 10 * 60 * 1000 && mood !== "sleep") setMood("sleep"); }, 30000);
   const wake = () => { lastTouch = Date.now(); if (mood === "sleep") setMood(""); };
 
   function greeting() {
@@ -254,24 +341,316 @@ button { font: inherit; color: inherit; }
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("open")) setOpen(false); });
 
   // ── Reiter ────────────────────────────────────────────────────────────────────────────
-  let tab = "guide";
-  ["guide", "clips", "tools"].forEach((t) => {
+  let tab = "live";
+  const TABS = ["live", "guide", "clips", "tools"];
+  TABS.forEach((t) => {
     $("#tab-" + t).onclick = () => { tab = t; render(); };
   });
   document.querySelector('[role="tablist"]').addEventListener("keydown", (e) => {
     if (!["ArrowLeft", "ArrowRight"].includes(e.key)) return;
-    const order = ["guide", "clips", "tools"];
-    tab = order[(order.indexOf(tab) + (e.key === "ArrowRight" ? 1 : 2)) % 3];
+    tab = TABS[(TABS.indexOf(tab) + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
     render();
     $("#tab-" + tab).focus();
   });
   function render() {
-    ["guide", "clips", "tools"].forEach((t) => $("#tab-" + t).setAttribute("aria-selected", String(t === tab)));
-    ({ guide: renderGuide, clips: renderClips, tools: renderTools })[tab]();
+    TABS.forEach((t) => $("#tab-" + t).setAttribute("aria-selected", String(t === tab)));
+    ({ live: renderLive, guide: renderGuide, clips: renderClips, tools: renderTools })[tab]();
   }
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
   const button = (label, onclick, cls) => { const b = el("button", "btn " + (cls || ""), label); b.type = "button"; b.onclick = onclick; return b; };
   const openApp = (view, text) => { if (bridge) post({ action: "open", view, text: text || "" }); else window.open("/#" + view, "_blank"); };
+
+  // ── Live: was Benthic gerade tut ─────────────────────────────────────────────────────
+  // Läufe, Anfragen unterwegs, die letzten Antworten der Dienste, verbundene Werkzeuge und die Plugins (/api/live).
+  const lv = {};
+  const section = (title, body) => { const s = el("section"); s.append(el("h3", null, title), body); return s; };
+  const liveRoot = el("div", "live");
+  {
+    const now = el("div", "now");
+    lv.scope = el("div", "scope");
+    lv.sweep = el("i", "sweep");
+    lv.scope.appendChild(lv.sweep);
+    const words = el("div", "now-words");
+    lv.title = el("b", null, T("Lädt …"));
+    lv.sub = el("span");
+    words.append(lv.title, lv.sub);
+    now.append(lv.scope, words);
+    lv.bar = el("div", "progress");
+    lv.fill = el("i");
+    lv.bar.appendChild(lv.fill);
+    lv.active = el("ul", "rows");
+    lv.services = el("div", "svcs");
+    lv.log = el("ul", "rows log");
+    lv.ai = el("ul", "rows");
+    lv.plugins = el("div", "plugins");
+    lv.activeSec = section(T("Unterwegs"), lv.active);
+    lv.servicesSec = section(T("Dienste heute"), lv.services);
+    lv.logSec = section(T("Letzte Antworten"), lv.log);
+    lv.aiSec = section(T("KI über MCP"), lv.ai);
+    liveRoot.append(now, lv.bar, lv.activeSec, lv.servicesSec, lv.logSec, lv.aiSec, section(T("Plugins"), lv.plugins));
+    lv.bar.hidden = lv.activeSec.hidden = lv.servicesSec.hidden = lv.logSec.hidden = lv.aiSec.hidden = true;  // bis die erste Antwort da ist
+  }
+  const ring = { fill: $(".ring-fill"), ping: $(".ring-ping") };
+  function renderLive() {
+    $("#pane").replaceChildren(liveRoot);
+    loadPlugins();
+  }
+
+  const SOURCE = { openalex: "OpenAlex", europepmc: "Europe PMC", openlibrary: "Open Library", dnb: "DNB" };
+  function stepText(a) {
+    const source = SOURCE[a.source] || a.source || "";
+    if ((a.phase || "").startsWith("route_")) return T("Zusatzweg: {label}", { label: a.target || a.route || "" });
+    switch (a.phase) {
+      case "lookup": case "provider_start": case "provider_done": return T("fragt {source}", { source });
+      case "search": return T("sucht nach dem Titel");
+      case "download_start": return T("lädt PDF von {source}", { source });
+      case "download_fail": return T("{source}: kein PDF", { source });
+      case "download_ok": return T("PDF von {source} geladen", { source });
+      default: return T("startet …");
+    }
+  }
+  const names = {};
+  const where = (url) => { try { const u = new URL(url); return { host: u.host, path: decodeURIComponent(u.pathname + u.search) }; } catch (e) { return { host: "", path: String(url) }; } };
+  const serviceName = (key, w) => (key === "web" || key === "local" ? w.host : names[key] || key);
+  const ago = (t, now) => { const m = Math.round((now - t) / 60); return m < 1 ? T("gerade eben") : m < 60 ? T("vor {n} min", { n: m }) : T("vor {n} h", { n: Math.round(m / 60) }); };
+  const clock = (t) => new Date(t * 1000).toLocaleTimeString(window.PD_LOCALE || undefined, { hour: "2-digit", minute: "2-digit" });
+
+  // Zeilen nach Schlüssel abgleichen: neue steigen auf wie Blasen, verschwundene verblassen, bleibende werden nur
+  // nachgeführt (nicht neu eingesetzt), damit ihre Bewegung weiterläuft.
+  const RISE = [{ opacity: 0, transform: "translateY(10px) scale(.98)" }, { opacity: 1, transform: "none" }];
+  const FADE = [{ opacity: 1 }, { opacity: 0, transform: "translateY(-4px)" }];
+  const kept = (n) => { while (n && n.classList.contains("gone")) n = n.nextSibling; return n; };
+  function sync(list, items, make, draw) {
+    const old = new Map([...list.children].filter((n) => !n.classList.contains("gone")).map((n) => [n.dataset.key, n]));
+    let at = kept(list.firstChild);
+    items.forEach((it) => {
+      let node = old.get(it.key);
+      if (node) old.delete(it.key);
+      else {
+        node = make();
+        node.dataset.key = it.key;
+        if (!still.matches) node.animate(RISE, { duration: 420, easing: "cubic-bezier(.16, 1, .3, 1)" });
+      }
+      draw(node, it);
+      if (node === at) at = kept(at.nextSibling);
+      else list.insertBefore(node, at);
+    });
+    old.forEach((n) => {
+      n.classList.add("gone");
+      if (still.matches) n.remove();
+      else n.animate(FADE, { duration: 240, easing: "ease-in" }).onfinish = () => n.remove();
+    });
+  }
+  function makeRow() {
+    const li = el("li", "row");
+    const t = el("div", "t");
+    t.append(el("span", "m"), el("span", "s"));
+    li.append(el("i", "dot"), t, el("span", "meta"));
+    return li;
+  }
+  function drawRow(li, it) {
+    li.className = "row " + (it.cls || "");
+    li.querySelector(".m").textContent = it.main;
+    li.querySelector(".s").textContent = it.sub || "";
+    li.querySelector(".meta").textContent = it.meta || "";
+    li.title = it.title || "";
+  }
+  function makeChip() {
+    const c = el("span", "svc");
+    c.append(el("i", "dot"), el("span"), el("b"));
+    return c;
+  }
+  function drawChip(c, s) {
+    c.classList.toggle("paused", !!s.paused_until);
+    c.children[1].textContent = T(s.name);
+    c.children[2].textContent = String(s.today);
+    c.title = s.paused_until ? T("Pause bis {time}", { time: clock(s.paused_until) }) : T(s.limit_text || "");
+  }
+  const ping = (dot) => { dot.classList.remove("ping"); void dot.offsetWidth; dot.classList.add("ping"); };
+
+  // Ein Echo erscheint dort, wo der Strahl des Sonars gerade steht, kurz hinter seiner Kante.
+  function blip() {
+    const b = el("i", "blip");
+    const sweep = lv.sweep.getAnimations()[0];
+    const turn = sweep && sweep.currentTime != null ? (sweep.currentTime % 3200) / 3200 : Math.random();
+    const angle = 2 * Math.PI * (turn - .03 - Math.random() * .05), r = 7 + Math.random() * 13;
+    b.style.left = `${22 + r * Math.sin(angle)}px`;
+    b.style.top = `${22 - r * Math.cos(angle)}px`;
+    b.addEventListener("animationend", () => b.remove());
+    lv.scope.appendChild(b);
+  }
+  let lastPing = 0;
+  function echo(fresh) {
+    new Set(fresh.map((e) => e.service)).forEach((key) => {
+      const chip = lv.services.querySelector(`[data-key="${CSS.escape(key)}"]`);
+      if (chip) ping(chip.firstChild);
+    });
+    if (still.matches) return;
+    if (liveRoot.isConnected && document.body.classList.contains("open")) fresh.slice(0, 5).forEach((e, i) => setTimeout(blip, i * 140));
+    if (Date.now() - lastPing > 1200) {
+      lastPing = Date.now();
+      ring.ping.animate([{ opacity: .7, transform: "scale(.75)" }, { opacity: 0, transform: "scale(1.3)" }], { duration: 1100, easing: "ease-out" });
+    }
+  }
+
+  // Arbeit im Hintergrund lässt Grimpo nachdenken; ist sie vorbei, kehrt er zu seiner vorigen Ruhe zurück.
+  let liveThink = false;
+  function setBusy(busy) {
+    document.body.classList.toggle("busy", busy);
+    if (busy && (!mood || mood === "sleep")) { liveThink = true; setMood("think"); }
+    else if (!busy && liveThink) { liveThink = false; if (mood === "think") setMood(""); }
+  }
+
+  function drawNow(j) {
+    const jobs = j.jobs, flying = j.inflight, ai = j.calls.filter((c) => c.status === "running");
+    const done = jobs.reduce((n, x) => n + x.done, 0), total = jobs.reduce((n, x) => n + x.total, 0);
+    const pct = total ? Math.round(100 * done / total) : 0;
+    const sub = [];
+    let title;
+    if (jobs.length) {
+      const job = jobs[0], n = { done, total };
+      title = job.mode === "verify" ? T("Prüft {done} von {total}", n) : job.mode === "download" ? T("Lädt {done} von {total}", n) : T("Sieht nach: {done} von {total}", n);
+      if (jobs.length > 1) sub.push(T("{n} Läufe zugleich", { n: jobs.length }));
+      if (job.who) sub.push(T("über {client}", { client: job.who }));  // von einem KI-Werkzeug über MCP gestartet
+      else if (job.project_name) sub.push(job.project_name);
+    } else if (ai.length) {
+      title = T("{name} arbeitet über MCP", { name: ai[0].name });
+      sub.push(ai[0].summary || ai[0].tool);
+    } else if (flying.length) {
+      title = T("Fragt {service}", { service: serviceName(flying[0].service, where(flying[0].url)) });
+    } else {
+      title = T("Alles ruhig");
+      const today = j.services.reduce((n, s) => n + s.today, 0);
+      sub.push(today ? T("Heute {n} Anfragen, gerade keine.", { n: today }) : T("Gerade läuft nichts."));
+    }
+    if (flying.length) sub.push(T("Anfragen unterwegs: {n}", { n: flying.length }));
+    lv.title.textContent = title;
+    lv.sub.textContent = sub.join(" · ");
+    lv.bar.hidden = !jobs.length;
+    lv.fill.style.width = `${pct}%`;
+    document.body.classList.toggle("running", jobs.length > 0);
+    ring.fill.style.strokeDasharray = `${jobs.length ? Math.max(pct, 2) : 0} 100`;
+    setBusy(jobs.length > 0 || flying.length > 0 || ai.length > 0);
+  }
+
+  const AI_STATUS = { running: T("Läuft"), done: T("Fertig"), error: T("Fehler"), gone: T("Ohne Abschluss") };
+  let lastAt = 0, recent = [], running = new Set();
+  function drawLive(j) {
+    j.services.forEach((s) => { names[s.key] = T(s.name); });
+    const first = !lastAt;
+    lastAt = j.log.length ? j.log[0].at : (lastAt || j.now);
+    drawNow(j);
+
+    const busy = [];
+    j.jobs.forEach((job) => job.active.forEach((a) => busy.push({ key: `a|${job.id}|${a.identifier}`, cls: "busy", main: a.identifier, sub: stepText(a), title: a.identifier })));
+    j.inflight.forEach((r) => {
+      const w = where(r.url), secs = j.now - r.at;
+      busy.push({ key: `r|${r.at}|${r.url}`, cls: "busy", main: serviceName(r.service, w), sub: w.path, meta: secs >= 1 ? `${Math.round(secs)} s` : "", title: r.url });
+    });
+    sync(lv.active, busy.slice(0, 6), makeRow, drawRow);
+    lv.activeSec.hidden = !busy.length;
+
+    sync(lv.services, j.services, makeChip, drawChip);
+    lv.servicesSec.hidden = !j.services.length;
+
+    recent = j.log.map((e) => {
+      const w = where(e.url);
+      return { key: `${e.at}|${e.url}`, cls: e.status && e.status < 400 ? "ok" : "bad", main: serviceName(e.service, w),
+               sub: e.service === "web" || e.service === "local" ? w.path : w.path.replace(/^\/+/, ""),
+               meta: `${e.status || T("Fehler")} · ${e.ms} ms`, title: e.url };
+    }).concat(recent).slice(0, 8);
+    sync(lv.log, recent, makeRow, drawRow);
+    lv.logSec.hidden = !recent.length;
+
+    // Jeder Aufruf eines KI-Werkzeugs: was es tut, sein Stand und wie viel Text an das Werkzeug zurückging.
+    const ai = j.clients.map((c) => ({ key: `c|${c.client}`, cls: "ok", main: c.name, sub: T("verbunden") }))
+      .concat(j.calls.map((c) => ({
+        key: `k|${c.client}|${c.id}`, cls: { running: "busy", done: "ok", error: "bad" }[c.status] || "", main: c.summary || c.tool, title: c.tool,
+        sub: [AI_STATUS[c.status], c.chars != null ? T("{n} Zeichen an {name}", { n: c.chars.toLocaleString(window.PD_LOCALE || undefined), name: c.name }) : c.name]
+          .filter(Boolean).join(" · "),
+        meta: ago(c.ts, j.now) })));
+    sync(lv.ai, ai, makeRow, drawRow);
+    lv.aiSec.hidden = !ai.length;
+
+    if (!first && j.log.length) echo(j.log);
+    const ids = new Set(j.jobs.map((x) => x.id));
+    if ([...running].some((id) => !ids.has(id))) poll();  // ein Lauf ist fertig: gleich melden, nicht erst nach 30 s
+    running = ids;
+  }
+  async function pulse() {
+    const j = await api("/api/live?after=" + lastAt);
+    if (j.error) {
+      lv.title.textContent = j.error;
+      lv.sub.textContent = T("Benthic antwortet gerade nicht.");
+      lv.bar.hidden = true;
+      document.body.classList.remove("running");
+      setBusy(false);
+    } else drawLive(j);
+    const watching = document.body.classList.contains("open") && tab === "live";
+    setTimeout(pulse, watching || document.body.classList.contains("busy") ? 1000 : 4000);
+  }
+
+  // Plugins: Zusatzwege an oder aus, eigene Plugins einzeln (wirkt nach dem Neustart, wie in den Einstellungen).
+  const PLUGIN_STATE = { loaded: T("Aktiv"), error: T("Fehler"), new: T("Neu, wirkt nach dem Neustart"), off: T("Aus"),
+                         removed: T("Entfernt, weg nach dem Neustart"), stopping: T("Ausgeschaltet, aus nach dem Neustart") };
+  function toggle(label, sub, on, change) {
+    const row = el("label", "switch");
+    const box = el("input");
+    box.type = "checkbox";
+    box.setAttribute("role", "switch");
+    box.checked = on;
+    box.disabled = !change;
+    if (change) box.onchange = () => change(box.checked);
+    const words = el("span");
+    words.append(el("strong", null, label), el("span", "hint", sub));
+    row.append(box, el("span", "track"), words);
+    return row;
+  }
+  async function loadPlugins() {
+    const [p, s] = await Promise.all([api("/api/plugins"), api("/api/settings")]);
+    const list = p.plugins || [];
+    if (p.error || !list.length) {
+      lv.plugins.replaceChildren(el("p", "hint", p.error || T("Noch keine Plugins. Öffne den Plugin-Ordner und leg eines hinein.")),
+        button(T("Plugin-Ordner öffnen"), async () => { await api("/api/plugin-folder", { method: "POST" }); loadPlugins(); }));
+      return;
+    }
+    const rows = [toggle(T("Zusatzwege nutzen"), T("Wege aus installierten Plugins; nur wenn keine Open-Access-Kopie bekannt ist. KI-Werkzeuge nutzen sie nie."),
+      !!s.extra_routes, async (on) => {
+        const r = await api("/api/settings", json({ extra_routes: on }));
+        if (r.error) { showNote(r.error); loadPlugins(); return; }
+        try { localStorage.setItem("benthic-routes", String(Date.now())); } catch (e) { /* privat */ }  // das Hauptfenster zieht nach
+      })];
+    list.forEach((pl) => {
+      const sub = pl.error ? `${PLUGIN_STATE.error}: ${pl.error}` : PLUGIN_STATE[pl.state] || pl.state;
+      const on = ["loaded", "new", "error"].includes(pl.state);
+      rows.push(toggle(pl.name, sub, on, pl.own && pl.state !== "removed" ? async (want) => {
+        const r = await api("/api/plugins/switch", json({ name: pl.name, on: want }));
+        if (r.error) showNote(r.error);
+        loadPlugins();
+      } : null));
+    });
+    if (list.some((pl) => ["new", "removed", "stopping"].includes(pl.state))) {
+      const row = el("div", "restart");
+      const go = button(T("Benthic neu starten"), () => restart(go, row.firstChild), "primary");
+      row.append(el("span", "hint", T("Änderungen wirken nach dem Neustart.")), go);
+      rows.push(row);
+    }
+    lv.plugins.replaceChildren(...rows);
+  }
+  async function restart(go, hint) {
+    go.disabled = true;
+    const before = (await api("/api/health")).started;
+    const r = await api("/api/restart", { method: "POST" });
+    if (r.error) { go.disabled = false; showNote(r.error); return; }
+    hint.textContent = T("Benthic startet neu …");
+    // Das neue Backend erkennt man an seiner Startzeit; das alte ist oft weniger als eine halbe Sekunde weg.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((res) => setTimeout(res, 500));
+      const started = (await api("/api/health")).started;
+      if (started && started !== before) break;
+    }
+    loadPlugins();
+  }
 
   // ── Der Weg durch die Arbeit ─────────────────────────────────────────────────────────
   let guide = null, shownStep = null;
@@ -423,6 +802,7 @@ button { font: inherit; color: inherit; }
   }
   poll();
   setInterval(poll, 30000);
+  pulse();
 
   document.title = "Grimpo";
   if (!bridge) document.body.classList.add("browser");

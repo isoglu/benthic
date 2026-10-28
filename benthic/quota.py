@@ -62,6 +62,7 @@ _lock = threading.RLock()
 _tl = threading.local()  # Probleme der laufenden Prüfung (je Thread), siehe track() und problems()
 _state: Dict[str, Dict] = {}
 _log: deque = deque(maxlen=250)
+_inflight: Dict[int, Dict] = {}  # Anfragen, die gerade unterwegs sind (für Grimpo)
 _last_call: Dict[str, float] = {}
 _dirty = 0
 _installed = False
@@ -245,11 +246,16 @@ def install() -> None:
             after_blocked = requests.exceptions.ConnectionError(str(exc), request=request)
             raise after_blocked
         started = time.time()
+        with _lock:
+            _inflight[id(request)] = {"at": started, "service": service_of(url), "url": _clean_url(url)[:300]}
         try:
             resp = original(self, request, **kwargs)
         except Exception:
             after(url, None, None, time.time() - started)
             raise
+        finally:
+            with _lock:
+                _inflight.pop(id(request), None)
         body = ""
         if resp.status_code == 429 and not kwargs.get("stream"):
             try:
@@ -285,6 +291,12 @@ def status() -> Dict:
             })
         web = [l for l in _log if l["service"] == "web"]
         return {"services": services, "log": list(_log)[:150], "web_today": len(web)}
+
+
+def inflight() -> List[Dict]:
+    """Anfragen, die gerade unterwegs sind, älteste zuerst."""
+    with _lock:
+        return sorted(_inflight.values(), key=lambda r: r["at"])
 
 
 def paused(service: str) -> Optional[Dict]:

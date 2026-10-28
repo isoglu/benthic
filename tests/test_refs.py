@@ -180,6 +180,9 @@ These should give you a solid start."""
           <author><style face="normal">Harris, C. R.</style></author>
           <author><style face="normal">Millman, K. J.</style></author>
         </authors>
+        <secondary-authors>
+          <author><style face="normal">Editor, E.</style></author>
+        </secondary-authors>
       </contributors>
       <titles>
         <title><style face="normal">Array programming with NumPy</style></title>

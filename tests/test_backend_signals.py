@@ -71,6 +71,7 @@ class StopOnSigterm(unittest.TestCase):
                     health = json.loads(resp.read())
             except (urllib.error.URLError, OSError):
                 time.sleep(0.2)
+        self.assertIsInstance((health or {}).pop("started", None), float)  # Startzeit, neu nach jedem Neustart
         self.assertEqual(health, {"app": "Benthic", "version": __version__, "ok": True})
 
         started = time.monotonic()

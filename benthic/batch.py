@@ -240,8 +240,9 @@ def _check_one(batch: Dict, index: int, cancel: threading.Event) -> None:
             if job:
                 result.update(summary_row(row["name"], job))
                 result["job_id"] = job_id
-                result["job"] = {k: job.get(k) for k in ("id", "mode", "schema", "status", "results", "document", "style",
-                                                         "quote_check", "created_at", "finished_at", "origin")}
+                result["job"] = {k: job.get(k) for k in ("id", "mode", "schema", "status", "results", "verdicts", "total", "done",
+                                                         "document", "style", "quote_check", "overlap_check", "missing_works",
+                                                         "docx_path", "docx_name", "created_at", "finished_at", "origin")}
     except ValueError as exc:
         result["error"] = str(exc) or "unreadable"
     except Exception:

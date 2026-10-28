@@ -178,18 +178,39 @@ def overview() -> List[Dict]:
     Neue und entfernte Plugins wirken erst nach einem Neustart (Flask nimmt danach keine Endpunkte mehr an).
     """
     out = []
+    folder = user_folder()
+    stopping = set()
     for key, error in _status.items():
         path = Path(key)
-        state = "removed" if not path.exists() else "error" if error else "loaded"
-        out.append({"name": _plugin_name(path), "state": state, "error": error})
-    folder = user_folder()
+        twin = path.with_name("_" + path.name)
+        if not path.exists() and twin.exists():  # seit dem Start ausgeschaltet
+            state = "stopping"
+            stopping.add(twin)
+        else:
+            state = "removed" if not path.exists() else "error" if error else "loaded"
+        out.append({"name": _plugin_name(path), "state": state, "error": error, "own": path.parent == folder})
     if folder.is_dir():
         for path in sorted(folder.iterdir()):
-            if str(path) in _status or path.name.startswith((".", "__")) or not (path.suffix == ".py" or path.is_dir()):
+            if str(path) in _status or path in stopping or path.name.startswith((".", "__")) \
+                    or not (path.suffix == ".py" or path.is_dir()):
                 continue
             off = path.name.startswith("_")
-            out.append({"name": _plugin_name(path).lstrip("_"), "state": "off" if off else "new", "error": None})
+            out.append({"name": _plugin_name(path).lstrip("_"), "state": "off" if off else "new", "error": None, "own": True})
     return out
+
+
+def switch(name: str, on: bool) -> None:
+    """Schaltet ein eigenes Plugin ein oder aus, wie von Hand: ein _ vor dem Namen heißt aus. Wirkt nach dem Neustart."""
+    folder = user_folder()
+    found = [p for p in (folder.iterdir() if folder.is_dir() else ())
+             if not p.name.startswith((".", "__")) and (p.suffix == ".py" or p.is_dir())
+             and _plugin_name(p).lstrip("_") == name]
+    if len(found) != 1:
+        raise ValueError(tr("Plugin nicht gefunden"))
+    path = found[0]
+    target = path.with_name(path.name.lstrip("_") if on else "_" + path.name.lstrip("_"))
+    if target != path:
+        path.rename(target)
 
 
 def registered() -> List[Route]:

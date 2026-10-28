@@ -281,7 +281,9 @@ def analyse(files: Dict[str, str]) -> Dict:
         ref = r[0] if r else refs._empty("bibtex", entries[key])
         if ref.get("arxiv") and not ref.get("doi"):
             ref["doi"] = refs.arxiv_doi(str(ref["arxiv"]))
-        ref.update(entry=i, number=None, key=key)
+        m_type = re.match(r"\s*@\s*(\w+)", entries[key])
+        bib_type = m_type.group(1).lower() if m_type else "article"
+        ref.update(entry=i, number=None, key=key, bib_type=bib_type, raw_entry=entries[key])
         ref["label"] = refs.label(ref) or key
         parsed.append(ref)
 
@@ -302,6 +304,7 @@ def analyse(files: Dict[str, str]) -> Dict:
                                     for k, r in ((k, (refs.parse_bibtex(entries[k]) or [{}])[0]) for k in entries)
                                     if k not in cited_keys][:200]
     quotes = document.find_quotes(plain, citations)
+    signals = document.find_writing_signals(plain, citations)
     return {
         "has_bibliography": bool(entries),
         "style": "latex",
@@ -314,11 +317,22 @@ def analyse(files: Dict[str, str]) -> Dict:
         "claims": [c for c in citations if c.get("entry") is not None][:600],
         "quotes": quotes,
         "integrity": integrity.scan(plain),
+        **signals,
         "main_file": main,
         "bib_files": bib_keys,
         "refs_text": "\n".join(entries[k] for k in to_check),
         "refs": parsed,
     }
+
+
+def _extract_raw_bib_field(raw: str, name: str) -> str:
+    if not raw:
+        return ""
+    m = re.search(rf"\b{name}\s*=\s*\{{([^{{}}]*(?:\{{[^{{}}]*\}}[^{{}}]*)*)\}}", raw, re.IGNORECASE)
+    if m:
+        return re.sub(r"\s+", " ", m.group(1)).strip()
+    m = re.search(rf'\b{name}\s*=\s*"([^"]*)"', raw, re.IGNORECASE)
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
 
 
 def export_cleaned_bib(results: List[Dict]) -> str:
@@ -330,35 +344,51 @@ def export_cleaned_bib(results: List[Dict]) -> str:
     Einträge mit Problem (retracted, not_found, mismatch) werden auskommentiert
     und mit einem Benthic-Hinweis versehen.
     """
+    from .i18n import tr
+
     if not results:
         return ""
     sorted_res = sorted(results, key=lambda r: r.get("order", 0))
     entries = []
     for i, res in enumerate(sorted_res):
+        ref_obj = res.get("ref") or {}
+        raw = ref_obj.get("raw_entry") or ref_obj.get("raw") or res.get("input") or ""
+        m_type = re.match(r"\s*@\s*(\w+)\s*\{\s*([^,\s]+)", raw) if raw else None
         key = (
             res.get("bib_key")
-            or (res.get("ref") or {}).get("bib_key")
-            or (res.get("ref") or {}).get("key")
+            or ref_obj.get("bib_key")
+            or ref_obj.get("key")
             or res.get("cite_key")
             or res.get("key")
+            or (m_type.group(2) if m_type else None)
             or f"ref_{i + 1}"
         )
-        bib_type = (res.get("ref") or {}).get("bib_type") or res.get("bib_type") or "article"
+        bib_type = (
+            ref_obj.get("bib_type")
+            or res.get("bib_type")
+            or (m_type.group(1).lower() if m_type else None)
+            or "article"
+        )
         verdict = res.get("verdict", "")
         found = res.get("found") or {}
+        field_diffs = res.get("field_diffs") or {}
 
         if verdict in ("verified", "corrected", "partial") and found:
-            title = found.get("title") or (res.get("claimed") or {}).get("title") or (res.get("ref") or {}).get("title")
-            authors = found.get("authors") or (res.get("claimed") or {}).get("authors") or (res.get("ref") or {}).get("authors") or []
-            if isinstance(authors, list):
-                authors_str = " and ".join(str(a) for a in authors if a)
+            title = found.get("title") or (res.get("claimed") or {}).get("title") or ref_obj.get("title")
+            raw_author = _extract_raw_bib_field(raw, "author")
+            if raw_author and "authors" not in field_diffs:
+                authors_str = raw_author
             else:
-                authors_str = str(authors)
-            year = found.get("year") or (res.get("claimed") or {}).get("year") or (res.get("ref") or {}).get("year")
-            venue = found.get("venue") or (res.get("claimed") or {}).get("venue") or (res.get("ref") or {}).get("venue")
-            volume = found.get("volume")
-            issue = found.get("issue")
-            pages = found.get("pages")
+                authors = found.get("authors") or (res.get("claimed") or {}).get("authors") or ref_obj.get("authors") or []
+                if isinstance(authors, list):
+                    authors_str = " and ".join(str(a) for a in authors if a)
+                else:
+                    authors_str = str(authors)
+            year = found.get("year") or (res.get("claimed") or {}).get("year") or ref_obj.get("year")
+            venue = found.get("venue") or (res.get("claimed") or {}).get("venue") or ref_obj.get("venue")
+            volume = found.get("volume") or _extract_raw_bib_field(raw, "volume")
+            issue = found.get("issue") or _extract_raw_bib_field(raw, "number")
+            pages = found.get("pages") or _extract_raw_bib_field(raw, "pages")
             doi = found.get("doi") or res.get("doi") or (res.get("claimed") or {}).get("doi")
             isbn = found.get("isbn") or (res.get("claimed") or {}).get("isbn")
 
@@ -390,19 +420,30 @@ def export_cleaned_bib(results: List[Dict]) -> str:
             entry_body = ",\n".join(fields)
             pub = res.get("published_version") or {}
             pub_comment = (
-                f"% [Benthic: Veröffentlichte Fassung verfügbar: {pub.get('doi')} ({pub.get('venue') or ''}, {pub.get('year') or ''})]\n"
+                f"% [Benthic: {tr('Veröffentlichte Fassung verfügbar')}: {pub.get('doi')} ({pub.get('venue') or ''}, {pub.get('year') or ''})]\n"
                 if pub.get("doi") else ""
             )
             entries.append(f"{pub_comment}@{bib_type}{{{key},\n{entry_body}\n}}")
+        elif verdict == "uncertain":
+            note = (res.get("note") or verdict).replace("\u2014", "-")
+            info_header = f"% [Benthic {tr('HINWEIS')}: {verdict}] {note}".strip()
+            if raw and raw.lstrip().startswith("@"):
+                entries.append(f"{info_header}\n{raw.strip()}")
+            else:
+                title = (res.get("claimed") or {}).get("title") or ref_obj.get("title") or ""
+                year = (res.get("claimed") or {}).get("year") or ref_obj.get("year") or ""
+                fields = [f"  title = {{{title}}}"]
+                if year:
+                    fields.append(f"  year = {{{year}}}")
+                entries.append(f"{info_header}\n@{bib_type}{{{key},\n" + ",\n".join(fields) + "\n}")
         else:
-            raw = (res.get("ref") or {}).get("raw") or res.get("input") or ""
-            note = res.get("note") or verdict
-            warning_header = f"% [Benthic WARNUNG: {verdict}] {note}".strip()
+            note = (res.get("note") or verdict).replace("\u2014", "-")
+            warning_header = f"% [Benthic {tr('WARNUNG')}: {verdict}] {note}".strip()
             if raw:
                 commented_lines = "\n".join("% " + l for l in raw.strip().splitlines())
                 entries.append(f"{warning_header}\n{commented_lines}")
             else:
-                title = (res.get("claimed") or {}).get("title") or (res.get("ref") or {}).get("title") or ""
+                title = (res.get("claimed") or {}).get("title") or ref_obj.get("title") or ""
                 entries.append(f"{warning_header}\n% @{bib_type}{{{key},\n%   title = {{{title}}}\n% }}")
 
     return "\n\n".join(entries) + "\n"
