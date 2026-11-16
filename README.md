@@ -132,8 +132,11 @@ talks to the scholarly services listed below.
   `benthic://check?text=…` link.
 - **Open-access downloads.** Library first, then arXiv, OpenAlex, Unpaywall, Europe
   PMC, Semantic Scholar, CORE, publisher APIs (Elsevier with your own key) and
-  Crossref. If a free copy is known but cannot be fetched automatically, Benthic
-  says so and links to it. Otherwise, it offers your library proxy link (EZproxy
+  Crossref. When a source lists a paper as free but gives no working PDF link,
+  Benthic asks the publisher's page for its PDF, politely and only where its
+  robots.txt allows. If a free copy is known but cannot be fetched automatically
+  (for example behind a site's check for human visitors, which Benthic never
+  works around), Benthic says why and links straight to the PDF. Otherwise, it offers your library proxy link (EZproxy
   or OpenAthens, or your library's OpenURL link resolver with `{doi}` in the
   address) and a polite request to the authors for a copy, with the publisher's
   page and their ORCID profiles.
@@ -437,6 +440,7 @@ benthic/guide.py          the nine steps through a paper
 benthic/watch.py          retraction watch for project sources
 benthic/zotero.py         Zotero: send through the connector, scan the library
 benthic/questionable.py   DOAJ lists and hijacked journal websites
+benthic/ocr.py            optional Unlimited-OCR for scanned pages, when installed
 benthic/refs.py           reference parser (LLM answers, BibTeX, RIS, Markdown)
 benthic/routes.py         extension point for plugin routes
 benthic/mcp_server.py     MCP server (standard library only)

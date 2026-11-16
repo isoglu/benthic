@@ -1,0 +1,64 @@
+{
+"doi": "10.4337/9781800880863.00114",
+"recorded": "2026-11-08",
+"benthic": "1.2.2",
+"api": [
+{
+"url": "https://api.openalex.org/works/doi:10.4337/9781800880863.00114",
+"params": {
+"mailto": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"id\": \"https://openalex.org/W7203489649\", \"doi\": \"https://doi.org/10.4337/9781800880863.00114\", \"title\": \"Middle managers\", \"display_name\": \"Middle managers\", \"publication_year\": 2026, \"publication_date\": \"2026-08-13\", \"ids\": {\"openalex\": \"https://openalex.org/W7203489649\", \"doi\": \"https://doi.org/10.4337/9781800880863.00114\"}, \"language\": \"en\", \"primary_location\": {\"id\": \"doi:10.4337/9781800880863.00114\", \"doi\": \"https://doi.org/10.4337/9781800880863.00114\", \"is_oa\": false, \"landing_page_url\": \"https://doi.org/10.4337/9781800880863.00114\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4306463223\", \"display_name\": \"Edward Elgar Publishing eBooks\", \"issn_l\": null, \"issn\": null, \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": false, \"listed_in\": [], \"host_organization\": \"https://openalex.org/P4310320353\", \"host_organization_name\": \"Edward Elgar Publishing\", \"host_organization_lineage\": [\"https://openalex.org/P4310320353\"], \"host_organization_lineage_names\": [\"Edward Elgar Publishing\"], \"type\": \"ebook platform\"}, \"license\": null, \"license_id\": null, \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"Elgar Encyclopedia of Mergers and Acquisitions\", \"raw_type\": \"book-chapter\"}, \"volume\": {\"id\": \"https://openalex.org/W7203494494\", \"display_name\": \"Elgar Encyclopedia of Mergers and Acquisitions\"}, \"type\": \"reference-entry\", \"is_traditional\": false, \"indexed_in\": [\"crossref\"], \"open_access\": {\"is_oa\": false, \"oa_status\": \"closed\", \"oa_url\": null, \"any_repository_has_fulltext\": false}, \"authorships\": [{\"author_position\": \"first\", \"author\": {\"id\": \"https://openalex.org/A5089051724\", \"display_name\": \"Gustavo Birollo\", \"orcid\": \"https://orcid.org/0000-0001-6680-4640\", \"observed_orcids\": [\"https://orcid.org/0000-0001-6680-4640\"]}, \"countries\": [], \"is_corresponding\": true, \"raw_author_name\": \"Gustavo Birollo\", \"raw_orcid\": null}], \"countries_distinct_count\": 0, \"institutions_distinct_count\": 0, \"corresponding_author_ids\": [\"https://openalex.org/A5089051724\"], \"corresponding_institution_ids\": [], \"apc_list\": null, \"apc_paid\": null, \"fwci\": null, \"has_fulltext\": false, \"cited_by_count\": 0, \"citation_normalized_percentile\": null, \"cited_by_percentile_year\": null, \"biblio\": {\"volume\": null, \"issue\": null, \"first_page\": \"286\", \"last_page\": \"288\"}, \"is_retracted\": false, \"is_paratext\": false, \"is_xpac\": false, \"locations_count\": 1, \"locations\": [{\"id\": \"doi:10.4337/9781800880863.00114\", \"doi\": \"https://doi.org/10.4337/9781800880863.00114\", \"is_oa\": false, \"landing_page_url\": \"https://doi.org/10.4337/9781800880863.00114\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4306463223\", \"display_name\": \"Edward Elgar Publishing eBooks\", \"issn_l\": null, \"issn\": null, \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": false, \"listed_in\": [], \"host_organization\": \"https://openalex.org/P4310320353\", \"host_organization_name\": \"Edward Elgar Publishing\", \"host_organization_lineage\": [\"https://openalex.org/P4310320353\"], \"host_organization_lineage_names\": [\"Edward Elgar Publishing\"], \"type\": \"ebook platform\"}, \"license\": null, \"license_id\": null, \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"Elgar Encyclopedia of Mergers and Acquisitions\", \"raw_type\": \"book-chapter\"}], \"sustainable_development_goals\": [], \"study_designs\": [], \"awards\": [], \"funders\": [], \"has_content\": {\"grobid_xml\": false, \"pdf\": false}, \"content_urls\": null, \"referenced_works_count\": 0, \"updated_date\": \"2026-10-28T10:33:24.094632\", \"created_date\": \"2026-08-15T00:00:00\"}"
+},
+{
+"url": "https://api.unpaywall.org/v2/10.4337/9781800880863.00114",
+"params": {
+"email": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"data_standard\": 2, \"doi\": \"10.4337/9781800880863.00114\", \"doi_url\": \"https://doi.org/10.4337/9781800880863.00114\", \"first_oa_location\": null, \"genre\": \"book-chapter\", \"has_repository_copy\": false, \"is_oa\": false, \"is_paratext\": false, \"journal_is_in_doaj\": false, \"journal_is_oa\": false, \"journal_issn_l\": null, \"journal_issns\": null, \"journal_name\": \"Edward Elgar Publishing eBooks\", \"oa_locations\": [], \"oa_locations_embargoed\": [], \"oa_status\": \"closed\", \"published_date\": \"2026-08-13\", \"publisher\": \"Edward Elgar Publishing\", \"title\": \"Middle managers\", \"updated\": \"2026-08-15T13:14:25Z\", \"year\": 2026, \"z_authors\": [{\"author_position\": \"first\", \"is_corresponding\": true, \"raw_author_name\": \"Gustavo Birollo\"}]}"
+},
+{
+"url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+"params": {
+"query": "DOI:\"10.4337/9781800880863.00114\"",
+"resultType": "core",
+"format": "json",
+"pageSize": 1
+},
+"status": 200,
+"type": "application/json;charset=UTF-8",
+"body": "{\"version\": \"6.9\", \"hitCount\": 0, \"request\": {\"queryString\": \"DOI:\\\"10.4337/9781800880863.00114\\\"\", \"resultType\": \"core\", \"cursorMark\": \"*\", \"pageSize\": 1, \"sort\": \"\", \"synonym\": false}, \"resultList\": {\"result\": []}}"
+},
+{
+"url": "https://api.semanticscholar.org/graph/v1/paper/DOI:10.4337/9781800880863.00114",
+"params": {
+"fields": "openAccessPdf"
+},
+"status": 404,
+"type": "application/json",
+"body": "{\"error\": \"Paper with id DOI:10.4337/9781800880863.00114 not found\"}"
+},
+{
+"url": "https://api.core.ac.uk/v3/search/works",
+"params": {
+"q": "doi:\"10.4337/9781800880863.00114\"",
+"limit": 3
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"totalHits\": 0, \"limit\": 3, \"offset\": 0, \"results\": [], \"searchId\": \"f3ac47c17c2101706a4458d1920e4fac\"}"
+},
+{
+"url": "https://api.crossref.org/works/10.4337/9781800880863.00114",
+"params": {},
+"status": 200,
+"type": "application/json",
+"body": "{\"status\": \"ok\", \"message-type\": \"work\", \"message-version\": \"1.0.0\", \"message\": {\"indexed\": {\"date-parts\": [[2026, 8, 14]], \"date-time\": \"2026-08-14T18:42:01Z\", \"timestamp\": 1786732921789, \"version\": \"build-2736575974\"}, \"reference-count\": 0, \"publisher\": \"Edward Elgar Publishing\", \"isbn-type\": [{\"value\": \"9781800880863\", \"type\": \"electronic\"}, {\"value\": \"9781800880856\", \"type\": \"print\"}, {\"value\": \"9781800880863\", \"type\": \"electronic\"}, {\"value\": \"9781049405902\", \"type\": \"electronic\"}], \"content-domain\": {\"domain\": [], \"crossmark-restriction\": false}, \"short-container-title\": [], \"published-print\": {\"date-parts\": [[2026, 8, 13]]}, \"DOI\": \"10.4337/9781800880863.00114\", \"type\": \"book-chapter\", \"created\": {\"date-parts\": [[2026, 8, 14]], \"date-time\": \"2026-08-14T18:23:44Z\", \"timestamp\": 1786731824000}, \"page\": \"286-288\", \"source\": \"Crossref\", \"is-referenced-by-count\": 0, \"title\": [\"Middle managers\"], \"prefix\": \"10.4337\", \"author\": [{\"given\": \"Gustavo\", \"family\": \"Birollo\", \"sequence\": \"first\", \"affiliation\": [], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}], \"member\": \"2918\", \"container-title\": [\"Elgar Encyclopedia of Mergers and Acquisitions\"], \"original-title\": [], \"link\": [{\"URL\": \"https://www.elgaronline.com/view/book/9781800880863/chapter108.xml\", \"content-type\": \"text/html\", \"content-version\": \"vor\", \"intended-application\": \"text-mining\"}, {\"URL\": \"https://www.elgaronline.com/view/book/9781800880863/9781800880863.xml\", \"content-type\": \"text/html\", \"content-version\": \"vor\", \"intended-application\": \"syndication\"}, {\"URL\": \"https://www.elgaronline.com/view/book/9781800880863/9781800880863.xml\", \"content-type\": \"unspecified\", \"content-version\": \"vor\", \"intended-application\": \"similarity-checking\"}], \"deposited\": {\"date-parts\": [[2026, 8, 14]], \"date-time\": \"2026-08-14T18:23:49Z\", \"timestamp\": 1786731829000}, \"score\": 1, \"resource\": {\"primary\": {\"URL\": \"https://www.elgaronline.com/view/book/9781800880863/chapter108.xml\"}}, \"subtitle\": [], \"short-title\": [], \"issued\": {\"date-parts\": [[2026, 8, 13]]}, \"ISBN\": [\"9781800880863\", \"9781800880856\", \"9781800880863\", \"9781049405902\"], \"references-count\": 0, \"URL\": \"https://doi.org/10.4337/9781800880863.00114\", \"relation\": {}, \"subject\": [], \"published\": {\"date-parts\": [[2026, 8, 13]]}}}"
+}
+],
+"pages": []
+}

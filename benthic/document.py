@@ -171,12 +171,17 @@ def _docx_text(data: bytes) -> str:
     return "\n".join(parts)
 
 
-def _pdf_text(data: bytes) -> str:
+def _pdf_text(data: bytes, scans: Optional[List[Dict]] = None) -> str:
+    """Text aller Seiten; Scanseiten noch ohne Text kommen in ``scans`` (siehe ocr.pages)."""
     import logging
     from pypdf import PdfReader  # erst hier: das Prüfen von Listen braucht es nicht
+    from . import ocr
     logging.getLogger("pypdf").setLevel(logging.ERROR)  # Schrift-Hinweise ohne Belang für den Text
     reader = PdfReader(io.BytesIO(data))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    pages = ocr.pages(reader, data)
+    if scans is not None:
+        scans.extend(d for d in pages if d.get("scan"))
+    return "\n".join(d["text"] for d in pages)
 
 
 _MD_LINK_ANGLE = re.compile(r"\[([^\]\n]+)\]\(<[^>\n]*>\)")
@@ -228,8 +233,9 @@ def manuscript(text: str) -> Optional[Dict]:
     return analyse(text)
 
 
-def extract_text(name: str, data: bytes) -> str:
-    """Text einer Datei nach ihrer Endung; ValueError bei unbekanntem Typ oder Lesefehler."""
+def extract_text(name: str, data: bytes, scans: Optional[List[Dict]] = None) -> str:
+    """Text einer Datei nach ihrer Endung; ValueError bei unbekanntem Typ oder Lesefehler. Bei einer PDF kommen
+    Scanseiten ohne Text in ``scans``."""
     suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if suffix not in TYPES:
         raise ValueError("type")
@@ -237,7 +243,7 @@ def extract_text(name: str, data: bytes) -> str:
         raise ValueError("size")
     try:
         if suffix == ".pdf":
-            return _pdf_text(data)
+            return _pdf_text(data, scans)
         if suffix == ".docx":
             return _docx_text(data)
         text = data.decode("utf-8", errors="replace")

@@ -1,0 +1,95 @@
+{
+"doi": "10.1111/1475-679x.12618",
+"recorded": "2026-11-08",
+"benthic": "1.2.2",
+"api": [
+{
+"url": "https://api.openalex.org/works/doi:10.1111/1475-679x.12618",
+"params": {
+"mailto": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"id\": \"https://openalex.org/W4409570488\", \"doi\": \"https://doi.org/10.1111/1475-679x.12618\", \"title\": \"Accounting for Goodwill\", \"display_name\": \"Accounting for Goodwill\", \"publication_year\": 2025, \"publication_date\": \"2025-04-18\", \"ids\": {\"openalex\": \"https://openalex.org/W4409570488\", \"doi\": \"https://doi.org/10.1111/1475-679x.12618\"}, \"language\": \"en\", \"primary_location\": {\"id\": \"doi:10.1111/1475-679x.12618\", \"doi\": \"https://doi.org/10.1111/1475-679x.12618\", \"is_oa\": true, \"landing_page_url\": \"https://doi.org/10.1111/1475-679x.12618\", \"pdf_url\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"source\": {\"id\": \"https://openalex.org/S111116695\", \"display_name\": \"Journal of Accounting Research\", \"issn_l\": \"0021-8456\", \"issn\": [\"0021-8456\", \"1475-679X\"], \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": true, \"listed_in\": [\"abdc-a-star\", \"anvur-class-a\", \"anvur-scientific\", \"cwts-core\", \"erih-plus\", \"fnege-1-star\", \"ft50\", \"jufo-3\", \"norway-2\", \"poland-200\", \"russia-white-list-1\", \"utd24\", \"vabb-shw\"], \"host_organization\": \"https://openalex.org/P4310320595\", \"host_organization_name\": \"Wiley\", \"host_organization_lineage\": [\"https://openalex.org/P4310320595\"], \"host_organization_lineage_names\": [\"Wiley\"], \"type\": \"journal\"}, \"license\": \"cc-by-nc\", \"license_id\": \"https://openalex.org/licenses/cc-by-nc\", \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"Journal of Accounting Research\", \"raw_type\": \"journal-article\"}, \"volume\": null, \"type\": \"article\", \"is_traditional\": true, \"indexed_in\": [\"crossref\"], \"open_access\": {\"is_oa\": true, \"oa_status\": \"hybrid\", \"oa_url\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"any_repository_has_fulltext\": false}, \"authorships\": [{\"author_position\": \"first\", \"author\": {\"id\": null, \"display_name\": \"STEFAN J. HUBER\", \"orcid\": null, \"observed_orcids\": []}, \"countries\": [\"US\"], \"is_corresponding\": false, \"raw_author_name\": \"STEFAN J. HUBER\", \"raw_orcid\": null}, {\"author_position\": \"last\", \"author\": {\"id\": \"https://openalex.org/A5066791789\", \"display_name\": \"CHARLES G. MCCLURE\", \"orcid\": \"https://orcid.org/0000-0003-2863-1894\", \"observed_orcids\": [\"https://orcid.org/0000-0003-2863-1894\"]}, \"countries\": [\"US\"], \"is_corresponding\": true, \"raw_author_name\": \"CHARLES G. MCCLURE\", \"raw_orcid\": \"https://orcid.org/0000-0003-2863-1894\"}], \"countries_distinct_count\": 1, \"institutions_distinct_count\": 2, \"corresponding_author_ids\": [\"https://openalex.org/A5066791789\"], \"corresponding_institution_ids\": [\"https://openalex.org/I40347166\"], \"apc_list\": {\"value\": 4420, \"currency\": \"USD\", \"value_usd\": 4420}, \"apc_paid\": {\"value\": 4420, \"currency\": \"USD\", \"value_usd\": 4420}, \"fwci\": 6.8188, \"has_fulltext\": true, \"cited_by_count\": 7, \"citation_normalized_percentile\": {\"value\": 0.96711587, \"is_in_top_1_percent\": false, \"is_in_top_10_percent\": true}, \"cited_by_percentile_year\": {\"min\": 98, \"max\": 99}, \"biblio\": {\"volume\": \"63\", \"issue\": \"3\", \"first_page\": \"1145\", \"last_page\": \"1185\"}, \"is_retracted\": false, \"is_paratext\": false, \"is_xpac\": false, \"locations_count\": 2, \"locations\": [{\"id\": \"doi:10.1111/1475-679x.12618\", \"doi\": \"https://doi.org/10.1111/1475-679x.12618\", \"is_oa\": true, \"landing_page_url\": \"https://doi.org/10.1111/1475-679x.12618\", \"pdf_url\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"source\": {\"id\": \"https://openalex.org/S111116695\", \"display_name\": \"Journal of Accounting Research\", \"issn_l\": \"0021-8456\", \"issn\": [\"0021-8456\", \"1475-679X\"], \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": true, \"listed_in\": [\"abdc-a-star\", \"anvur-class-a\", \"anvur-scientific\", \"cwts-core\", \"erih-plus\", \"fnege-1-star\", \"ft50\", \"jufo-3\", \"norway-2\", \"poland-200\", \"russia-white-list-1\", \"utd24\", \"vabb-shw\"], \"host_organization\": \"https://openalex.org/P4310320595\", \"host_organization_name\": \"Wiley\", \"host_organization_lineage\": [\"https://openalex.org/P4310320595\"], \"host_organization_lineage_names\": [\"Wiley\"], \"type\": \"journal\"}, \"license\": \"cc-by-nc\", \"license_id\": \"https://openalex.org/licenses/cc-by-nc\", \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"Journal of Accounting Research\", \"raw_type\": \"journal-article\"}, {\"id\": \"pmh:oai:uchicago.tind.io:14897\", \"doi\": null, \"is_oa\": false, \"landing_page_url\": \"https://doi.org/10.1111/1475-679X.12618\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4306402460\", \"display_name\": \"Knowledge@UChicago (University of Chicago)\", \"issn_l\": null, \"issn\": null, \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": false, \"listed_in\": [], \"host_organization\": \"https://openalex.org/I40347166\", \"host_organization_name\": \"University of Chicago\", \"host_organization_lineage\": [\"https://openalex.org/I40347166\"], \"host_organization_lineage_names\": [], \"type\": \"repository\"}, \"license\": null, \"license_id\": null, \"version\": \"submittedVersion\", \"is_accepted\": false, \"is_published\": false, \"raw_source_name\": \"http://knowledge.uchicago.edu/record/14897\", \"raw_type\": \"Text\"}], \"sustainable_development_goals\": [], \"study_designs\": [], \"awards\": [], \"funders\": [], \"has_content\": {\"pdf\": true, \"grobid_xml\": true}, \"content_urls\": {\"pdf\": \"https://content.openalex.org/works/W4409570488.pdf\", \"grobid_xml\": \"https://content.openalex.org/works/W4409570488.grobid-xml\"}, \"referenced_works_count\": 63, \"updated_date\": \"2026-11-04T10:54:05.112534\", \"created_date\": \"2025-04-18T00:00:00\"}"
+},
+{
+"url": "https://api.unpaywall.org/v2/10.1111/1475-679x.12618",
+"params": {
+"email": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"data_standard\": 2, \"doi\": \"10.1111/1475-679x.12618\", \"doi_url\": \"https://doi.org/10.1111/1475-679x.12618\", \"first_oa_location\": {\"endpoint_id\": null, \"evidence\": \"deprecated\", \"host_type\": \"publisher\", \"is_best\": true, \"license\": \"cc-by-nc\", \"oa_date\": \"2025-04-18\", \"pmh_id\": null, \"repository_institution\": null, \"updated\": \"deprecated\", \"url\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"url_for_landing_page\": \"https://doi.org/10.1111/1475-679x.12618\", \"url_for_pdf\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"version\": \"publishedVersion\"}, \"genre\": \"journal-article\", \"has_repository_copy\": false, \"is_oa\": true, \"is_paratext\": false, \"journal_is_in_doaj\": false, \"journal_is_oa\": false, \"journal_issn_l\": \"0021-8456\", \"journal_issns\": \"0021-8456,1475-679X\", \"journal_name\": \"Journal of Accounting Research\", \"oa_locations\": [{\"endpoint_id\": null, \"evidence\": \"deprecated\", \"host_type\": \"publisher\", \"is_best\": true, \"license\": \"cc-by-nc\", \"oa_date\": \"2025-04-18\", \"pmh_id\": null, \"repository_institution\": null, \"updated\": \"deprecated\", \"url\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"url_for_landing_page\": \"https://doi.org/10.1111/1475-679x.12618\", \"url_for_pdf\": \"https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618\", \"version\": \"publishedVersion\"}], \"oa_locations_embargoed\": [], \"oa_status\": \"hybrid\", \"published_date\": \"2025-04-18\", \"publisher\": \"Wiley\", \"title\": \"Accounting for Goodwill\", \"updated\": \"2025-08-04T14:10:34Z\", \"year\": 2025, \"z_authors\": [{\"author_position\": \"first\", \"is_corresponding\": false, \"raw_author_name\": \"STEFAN J. HUBER\"}, {\"author_position\": \"last\", \"is_corresponding\": true, \"raw_author_name\": \"CHARLES G. MCCLURE\"}]}"
+},
+{
+"url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+"params": {
+"query": "DOI:\"10.1111/1475-679x.12618\"",
+"resultType": "core",
+"format": "json",
+"pageSize": 1
+},
+"status": 200,
+"type": "application/json;charset=UTF-8",
+"body": "{\"version\": \"6.9\", \"hitCount\": 0, \"request\": {\"queryString\": \"DOI:\\\"10.1111/1475-679x.12618\\\"\", \"resultType\": \"core\", \"cursorMark\": \"*\", \"pageSize\": 1, \"sort\": \"\", \"synonym\": false}, \"resultList\": {\"result\": []}}"
+},
+{
+"url": "https://api.semanticscholar.org/graph/v1/paper/DOI:10.1111/1475-679x.12618",
+"params": {
+"fields": "openAccessPdf"
+},
+"status": 404,
+"type": "application/json",
+"body": "{\"error\": \"Paper with id DOI:10.1111/1475-679x.12618 not found\"}"
+},
+{
+"url": "https://api.core.ac.uk/v3/search/works",
+"params": {
+"q": "doi:\"10.1111/1475-679x.12618\"",
+"limit": 3
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"totalHits\": 1, \"limit\": 3, \"offset\": 0, \"results\": [{\"acceptedDate\": \"\", \"arxivId\": null, \"authors\": [{\"name\": \"McClure, Charles G.\"}, {\"name\": \"Huber, Stefan J.\"}], \"citationCount\": 0, \"contributors\": [], \"outputs\": [\"https://api.core.ac.uk/v3/outputs/651441439\"], \"createdDate\": \"2025-12-12T07:50:05+00:00\", \"dataProviders\": [{\"id\": 21117, \"name\": \"Knowledge@UChicago\", \"url\": \"https://api.core.ac.uk/v3/data-providers/21117\", \"logo\": \"https://api.core.ac.uk/data-providers/21117/logo\"}], \"depositedDate\": \"2025-04-19T21:29:47+01:00\", \"documentType\": null, \"doi\": \"10.1111/1475-679x.12618\", \"downloadUrl\": \"https://core.ac.uk/download/651441439.pdf\", \"fieldOfStudy\": \"Text\", \"fullText\": \"Not available for public API users.\", \"id\": 191681173, \"identifiers\": [{\"identifier\": \"651441439\", \"type\": \"core_id\"}, {\"identifier\": \"10.1111/1475-679x.12618\", \"type\": \"doi\"}, {\"identifier\": \"oai:uchicago.tind.io:14897\", \"type\": \"oai_id\"}, {\"identifier\": \"oai:uchicago.tind.io:14897\", \"type\": \"oai\"}], \"title\": \"Accounting for Goodwill\", \"language\": {\"code\": \"en\", \"name\": \"English\"}, \"magId\": null, \"oaiIds\": [\"oai:uchicago.tind.io:14897\"], \"publishedDate\": \"\", \"publisher\": \"\", \"pubmedId\": null, \"references\": [], \"sourceFulltextUrls\": [\"https://core.ac.uk/download/651441439.pdf\"], \"updatedDate\": \"\", \"yearPublished\": 2025, \"journals\": [], \"links\": [{\"type\": \"download\", \"url\": \"https://core.ac.uk/download/651441439.pdf\"}, {\"type\": \"reader\", \"url\": \"https://core.ac.uk/reader/651441439\"}, {\"type\": \"thumbnail_m\", \"url\": \"https://core.ac.uk/image/651441439/large\"}, {\"type\": \"thumbnail_l\", \"url\": \"https://core.ac.uk/image/651441439/large\"}, {\"type\": \"display\", \"url\": \"https://core.ac.uk/works/191681173\"}]}], \"searchId\": \"bfefb08ffe50e585d46cc866f66ab11c\"}"
+},
+{
+"url": "https://api.crossref.org/works/10.1111/1475-679x.12618",
+"params": {},
+"status": 200,
+"type": "application/json",
+"body": "{\"status\": \"ok\", \"message-type\": \"work\", \"message-version\": \"1.0.0\", \"message\": {\"indexed\": {\"date-parts\": [[2026, 7, 10]], \"date-time\": \"2026-07-10T17:20:16Z\", \"timestamp\": 1783704016347, \"version\": \"3.55.0\"}, \"reference-count\": 65, \"publisher\": \"Wiley\", \"issue\": \"3\", \"license\": [{\"start\": {\"date-parts\": [[2025, 4, 18]], \"date-time\": \"2025-04-18T00:00:00Z\", \"timestamp\": 1744934400000}, \"content-version\": \"vor\", \"delay-in-days\": 0, \"URL\": \"http://creativecommons.org/licenses/by-nc/4.0/\"}], \"content-domain\": {\"domain\": [\"onlinelibrary.wiley.com\"], \"crossmark-restriction\": true}, \"short-container-title\": [\"J of Accounting Research\"], \"published-print\": {\"date-parts\": [[2025, 6]]}, \"DOI\": \"10.1111/1475-679x.12618\", \"type\": \"journal-article\", \"created\": {\"date-parts\": [[2025, 4, 18]], \"date-time\": \"2025-04-18T14:15:56Z\", \"timestamp\": 1744985756000}, \"page\": \"1145-1185\", \"update-policy\": \"https://doi.org/10.1002/crossmark_policy\", \"source\": \"Crossref\", \"is-referenced-by-count\": 9, \"title\": [\"Accounting for Goodwill\"], \"prefix\": \"10.1111\", \"volume\": \"63\", \"author\": [{\"given\": \"STEFAN J.\", \"family\": \"HUBER\", \"sequence\": \"first\", \"affiliation\": [{\"name\": \"Jones Graduate School of Business Rice University\"}], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}, {\"ORCID\": \"https://orcid.org/0000-0003-2863-1894\", \"authenticated-orcid\": false, \"given\": \"CHARLES G.\", \"family\": \"MCCLURE\", \"sequence\": \"additional\", \"affiliation\": [{\"name\": \"Booth School of Business University of Chicago\"}], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}], \"member\": \"311\", \"published-online\": {\"date-parts\": [[2025, 4, 18]]}, \"container-title\": [\"Journal of Accounting Research\"], \"original-title\": [], \"language\": \"en\", \"link\": [{\"URL\": \"https://onlinelibrary.wiley.com/doi/pdf/10.1111/1475-679X.12618\", \"content-type\": \"unspecified\", \"content-version\": \"vor\", \"intended-application\": \"similarity-checking\"}], \"deposited\": {\"date-parts\": [[2025, 4, 25]], \"date-time\": \"2025-04-25T07:17:55Z\", \"timestamp\": 1745565475000}, \"score\": 1, \"resource\": {\"primary\": {\"URL\": \"https://onlinelibrary.wiley.com/doi/10.1111/1475-679X.12618\"}}, \"subtitle\": [], \"short-title\": [], \"issued\": {\"date-parts\": [[2025, 4, 18]]}, \"references-count\": 65, \"journal-issue\": {\"issue\": \"3\", \"published-print\": {\"date-parts\": [[2025, 6]]}}, \"alternative-id\": [\"10.1111/1475-679X.12618\"], \"URL\": \"https://doi.org/10.1111/1475-679x.12618\", \"archive\": [\"Portico\"], \"relation\": {}, \"ISSN\": [\"0021-8456\", \"1475-679X\"], \"issn-type\": [{\"value\": \"0021-8456\", \"type\": \"print\"}, {\"value\": \"1475-679X\", \"type\": \"electronic\"}], \"subject\": [], \"published\": {\"date-parts\": [[2025, 4, 18]]}, \"assertion\": [{\"value\": \"2023-12-01\", \"order\": 0, \"name\": \"received\", \"label\": \"Received\", \"group\": {\"name\": \"publication_history\", \"label\": \"Publication History\"}}, {\"value\": \"2025-03-06\", \"order\": 2, \"name\": \"accepted\", \"label\": \"Accepted\", \"group\": {\"name\": \"publication_history\", \"label\": \"Publication History\"}}, {\"value\": \"2025-04-18\", \"order\": 3, \"name\": \"published\", \"label\": \"Published\", \"group\": {\"name\": \"publication_history\", \"label\": \"Publication History\"}}]}}"
+}
+],
+"pages": [
+{
+"url": "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618",
+"final": "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/1475-679X.12618",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://core.ac.uk/download/651441439.pdf",
+"final": "https://core.ac.uk/download/651441439.pdf",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://doi.org/10.1111/1475-679x.12618",
+"final": "https://onlinelibrary.wiley.com/doi/10.1111/1475-679X.12618",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+}
+]
+}

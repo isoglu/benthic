@@ -135,12 +135,15 @@ def fulltext(doi: str, start: int = 0, max_chars: int = 30000) -> Dict:
         return {"doi": doi, "available": False,
                 "error": "No downloaded PDF for this DOI. Fetch it first (fetch_papers)."}
     from pypdf import PdfReader  # erst hier: nur nötig, wenn jemand Volltext will
+    from . import ocr
 
     try:
         reader = PdfReader(str(p))
+        pages = ocr.pages(reader, p)
         parts = []
-        for i, page in enumerate(reader.pages, start=1):
-            parts.append(f"[Page {i}]\n{(page.extract_text() or '').strip()}")
+        for d in pages:
+            mark = ", Unlimited-OCR" if d.get("ocr") else ", scan without a text layer" if d.get("scan") else ""
+            parts.append(f"[Page {d['page']}{mark}]\n{d['text'].strip()}")
         text = "\n\n".join(parts)
     except Exception as exc:  # beschädigte oder verschlüsselte PDF
         return {"doi": doi, "available": False, "error": tr("PDF nicht lesbar: {exc}", exc=exc)}
@@ -148,5 +151,5 @@ def fulltext(doi: str, start: int = 0, max_chars: int = 30000) -> Dict:
     return {
         "doi": doi, "available": True, "file": p.name, "pages": len(reader.pages),
         "total_chars": len(text), "start": start, "end": start + len(chunk),
-        "truncated": start + len(chunk) < len(text), "text": chunk,
+        "truncated": start + len(chunk) < len(text), "text": chunk, **ocr.summary(pages),
     }

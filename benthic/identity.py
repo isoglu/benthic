@@ -206,11 +206,13 @@ def _read(source: Union[Path, bytes]) -> Tuple[List[str], int]:
     """Rohtext der ersten und letzten Seiten und die Seitenzahl. Roh, weil die eigene DOI oft in der Kopfzeile steht,
     die ``support._pages`` als wiederkehrende Zeile entfernt."""
     from pypdf import PdfReader
+    from . import ocr
     logging.getLogger("pypdf").setLevel(logging.ERROR)
     reader = PdfReader(io.BytesIO(source) if isinstance(source, bytes) else str(source))
     n = len(reader.pages)
     picks = sorted(set(range(min(n, SAMPLE))) | set(range(max(0, n - SAMPLE), n)))
-    return [reader.pages[i].extract_text() or "" for i in picks], n
+    # Nur schon erkannte Scanseiten: Der Ausweis läuft bei jedem Laden und in Listen, die Erkennung dauert Minuten.
+    return [d["text"] for d in ocr.pages(reader, source, picks, start=False)], n
 
 
 def _own_work(dois: List[str], first: str) -> Optional[Dict]:
@@ -272,6 +274,8 @@ def held(doi: str, title: Optional[str] = None, pages: object = None) -> Tuple[O
         if key in _cache:
             return path, _cache[key]
     info = check(path, doi, title, pages)
+    if info.get("copy") == "no_text":  # ein Scan: Sobald seine Seiten erkannt sind, gilt ein anderer Ausweis
+        return path, info
     with _lock:
         if len(_cache) > 200:
             _cache.clear()

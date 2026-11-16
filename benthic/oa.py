@@ -24,8 +24,10 @@ from __future__ import annotations
 import re
 import threading
 import time
+from html import unescape
 from typing import Callable, Dict, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.robotparser import RobotFileParser
 
 import requests
 
@@ -45,6 +47,8 @@ PROVIDERS: List[str] = [
     "arxiv", "openalex", "unpaywall", "europepmc",
     "semantic_scholar", "core", "elsevier", "crossref",
 ]
+# Ohne Key antworten diese Quellen nicht (CORE mit 429, Elsevier gar nicht).
+NEEDS_KEY = {"core": "core_api_key", "elsevier": "elsevier_api_key"}
 
 VERSION_RANK = {"published": 0, "accepted": 1, "submitted": 2, "unknown": 3}
 VERSION_LABEL = {
@@ -147,6 +151,12 @@ def openalex_work(doi: str, email: str = "") -> Optional[Dict]:
             _work_cache.clear()
         _work_cache[doi] = work
     return work
+
+
+def known_work(doi: str) -> Optional[Dict]:
+    """Das OpenAlex-Werk, wenn die Kaskade es schon geholt hat; fragt nicht neu."""
+    with _work_lock:
+        return _work_cache.get(doi)
 
 
 def _surname(display_name: str) -> str:
@@ -401,8 +411,11 @@ def resolve_candidates(doi: str, providers: Optional[List[str]] = None, email: s
     Rückgabe: ``(candidates, landing_pages)``. Kandidaten sind nach Fassung
     sortiert (Verlagsversion zuerst), Duplikate entfernt.
     """
-    names = providers or PROVIDERS
     ctx = {"email": email, "core_api_key": core_api_key, "elsevier_api_key": elsevier_api_key}
+    names = providers or PROVIDERS
+    if all(n in NEEDS_KEY and not (ctx[NEEDS_KEY[n]] or "").strip() for n in names):
+        # Nur Quellen ohne ihren Key gewählt: wie eine leere Liste, sonst hieße jede DOI still "kein Open Access".
+        names = PROVIDERS
     candidates: List[Candidate] = []
     pages: List[str] = []
     seen: set = set()
@@ -442,57 +455,174 @@ def resolve_candidates(doi: str, providers: Optional[List[str]] = None, email: s
 
 
 _PDF_LINK_RE = re.compile(r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']', re.IGNORECASE)
+# citation_pdf_url (Highwire, fast alle Verlage), bepress_citation_pdf_url (Digital Commons), in beiden Reihenfolgen
+_META_PDF = r'(?:bepress_)?citation_pdf_url'
+
+# Verlagsseiten, die ihren PDF-Link nicht als Meta-Tag nennen (oder die Seite nur einem Menschen zeigen): die
+# Adresse hinter dem Download-Knopf, aus der Adresse der Landingpage. (Rechner, Pfad der Landingpage, PDF-Adresse)
+_DOI_PATH = re.compile(r"^/doi/(?:abs/|full/|epdf/)?(10\.\d{4,9}/.+)$", re.IGNORECASE)
+_PUBLISHER_PDF = [
+    (("journals.sagepub.com", "tandfonline.com", "pnas.org"), _DOI_PATH, "https://{host}/doi/pdf/{id}?download=true"),
+    (("onlinelibrary.wiley.com",), _DOI_PATH, "https://{host}/doi/pdfdirect/{id}?download=true"),
+    (("linkinghub.elsevier.com", "sciencedirect.com"), re.compile(r"/pii/([A-Z0-9]+)", re.IGNORECASE),
+     "https://www.sciencedirect.com/science/article/pii/{id}/pdfft?isDTMRedir=true&download=true"),
+]
+# Seiten, die erst prüfen, ob ein Mensch davorsitzt (Cloudflare, Anubis). Benthic umgeht das nie.
+_BOT_CHECK = ("/cdn-cgi/challenge-platform", "just a moment...", "_cf_chl_opt", "anubis_challenge")
 
 
 def _extract_pdf_url(html: str, base_url: str) -> Optional[str]:
     """Sucht in einer Landingpage nach einem PDF-Link (citation_pdf_url zuerst)."""
     m = re.search(
-        r'<meta[^>]+name=["\']citation_pdf_url["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+name=["\']{_META_PDF}["\'][^>]+content=["\']([^"\']+)["\']',
         html, re.IGNORECASE,
     )
     if not m:
         m = re.search(
-            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']citation_pdf_url["\']',
+            rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']{_META_PDF}["\']',
             html, re.IGNORECASE,
         )
     if m:
-        return urljoin(base_url, m.group(1))
+        return urljoin(base_url, unescape(m.group(1)))
     m = _PDF_LINK_RE.search(html)
     if m:
-        return urljoin(base_url, m.group(1))
+        return urljoin(base_url, unescape(m.group(1)))
     return None
 
 
+def publisher_pdf_url(page_url: str) -> Optional[str]:
+    """Adresse des Download-Knopfs auf einer Verlagsseite (SAGE, Wiley, Taylor & Francis, PNAS, Elsevier)."""
+    parsed = urlparse(page_url or "")
+    host = (parsed.hostname or "").lower()
+    for hosts, pattern, template in _PUBLISHER_PDF:
+        if any(host == h or host.endswith("." + h) for h in hosts):
+            m = pattern.search(parsed.path)
+            if m:
+                return template.format(host=host, id=m.group(1))
+    return None
+
+
+def _bot_check(resp) -> bool:
+    """Will die Seite erst einen Menschen sehen? Dann bleibt es beim Link für den Browser."""
+    if (resp.headers.get("cf-mitigated") or "").lower() == "challenge":
+        return True
+    head = ("" if resp.content.startswith(b"%PDF-") else resp.content[:8000].decode("utf-8", "replace")).lower()
+    return any(marker in head for marker in _BOT_CHECK)
+
+
+_robots: Dict[str, RobotFileParser] = {}
+_robots_lock = threading.Lock()
+_last_hit: Dict[str, float] = {}
+_polite_lock = threading.Lock()
+
+
+def _robots_for(url: str) -> RobotFileParser:
+    """robots.txt des Rechners, einmal je Programmlauf gelesen. Antwortet er nicht oder verbietet er das Lesen,
+    gilt: nichts automatisch laden."""
+    parsed = urlparse(url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    with _robots_lock:
+        if base in _robots:
+            return _robots[base]
+    rp = RobotFileParser()
+    try:
+        resp = requests.get(base + "/robots.txt", headers={"User-Agent": API_USER_AGENT}, timeout=15)
+    except requests.exceptions.RequestException:
+        rp.disallow_all = True
+        return rp  # Netzfehler nicht merken: beim nächsten Mal erneut fragen
+    if resp.status_code in (401, 403) or resp.status_code >= 500:
+        rp.disallow_all = True
+    elif resp.status_code >= 400:
+        rp.allow_all = True
+    else:
+        rp.parse(resp.text.splitlines())
+    with _robots_lock:
+        _robots[base] = rp
+    return rp
+
+
+def _robots_allow(rules: RobotFileParser, url: str) -> bool:
+    """Wie RobotFileParser.can_fetch für Benthic, aber mit den Platzhaltern * und $, die Verlage nutzen
+    (ScienceDirect: ``Disallow: */pdfft*``); die Standardbibliothek kennt nur Präfixe. Erste passende Regel gilt."""
+    if rules.disallow_all:
+        return False
+    if rules.allow_all:
+        return True
+    parsed = urlparse(url)
+    path = quote(unquote(parsed.path)) or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+    entry = next((e for e in rules.entries if e.applies_to("Benthic")), rules.default_entry)
+    for line in (entry.rulelines if entry else []):
+        # RuleLine.path ist schon kodiert: * steht als %2A, $ als %24
+        pattern = re.escape(line.path).replace("%2A", ".*")
+        pattern = pattern[:-3] + "$" if pattern.endswith("%24") else pattern
+        if re.match(pattern, path):
+            return line.allowance
+    return True
+
+
+def _polite(url: str, delay: float = 1.0) -> None:
+    """Höchstens ein Abruf je Rechner und Sekunde (oder Crawl-delay), auch wenn mehrere Downloads parallel laufen."""
+    host = (urlparse(url).hostname or "").lower()
+    with _polite_lock:
+        now = time.monotonic()
+        at = max(now, _last_hit.get(host, 0.0) + delay)
+        _last_hit[host] = at
+    if at > now:
+        time.sleep(at - now)
+
+
 def download_pdf(url: str, headers: Optional[Dict[str, str]] = None,
-                 timeout: float = 60.0) -> Optional[bytes]:
+                 timeout: float = 60.0, why: Optional[Dict] = None) -> Optional[bytes]:
     """Lädt ein OA-PDF und validiert es anhand der Magic Bytes (``%PDF-``).
 
-    Ist die Antwort HTML (Landingpage), wird dort ein PDF-Link gesucht
-    (``citation_pdf_url`` oder ``.pdf``) und dieser nachgeladen.
+    Ist die Antwort HTML (Landingpage), wird dort ein PDF-Link gesucht (``citation_pdf_url``, ``.pdf`` oder die
+    Adresse des Download-Knopfs bekannter Verlage) und nachgeladen wie ein Klick im Browser, aber nur, wenn
+    robots.txt das erlaubt. ``why`` bekommt, warum nichts kam: ``bot_check`` (Rechner, der erst einen Menschen
+    sehen will; nie umgangen), ``robots`` (Rechner, der automatische Abrufe verbietet) und ``pdf_url`` (die
+    Adresse für den Klick im Browser).
     """
+    why = {} if why is None else why
     hdrs = {"User-Agent": PDF_USER_AGENT, "Accept": "application/pdf,*/*"}
     hdrs.update(headers or {})
+    _polite(url)
     try:
         resp = requests.get(url, headers=hdrs, timeout=timeout, allow_redirects=True)
     except requests.exceptions.RequestException:
         return None
+    content = resp.content
+    if resp.status_code == 200 and content.startswith(b"%PDF-"):
+        return content
+    if _bot_check(resp):
+        why.setdefault("bot_check", (urlparse(resp.url).hostname or "").lower())
+        pdf_url = publisher_pdf_url(resp.url)
+        if pdf_url:
+            why.setdefault("pdf_url", pdf_url)
+        return None
     if resp.status_code != 200:
         return None
-    content = resp.content
-    if content.startswith(b"%PDF-"):
-        return content
     # Kein PDF → ggf. Landingpage: PDF-Link extrahieren und nachladen.
     ctype = (resp.headers.get("Content-Type") or "").lower()
     if "html" in ctype or content[:1] in (b"<",):
-        pdf_url = _extract_pdf_url(resp.text, resp.url)
+        pdf_url = _extract_pdf_url(resp.text, resp.url) or publisher_pdf_url(resp.url)
         if pdf_url and pdf_url != url:
+            why.setdefault("pdf_url", pdf_url)
+            rules = _robots_for(pdf_url)
+            if not _robots_allow(rules, pdf_url):
+                why.setdefault("robots", (urlparse(pdf_url).hostname or "").lower())
+                return None
             # Ein Link aus fremdem HTML bekommt keine Zugangsdaten (etwa den Elsevier-Key), außer er bleibt beim selben Rechner
             same = (urlparse(pdf_url).hostname or "").lower() == (urlparse(url).hostname or "").lower()
             plain = {"User-Agent": PDF_USER_AGENT, "Accept": "application/pdf,*/*"}
-            try:
-                r2 = requests.get(pdf_url, headers=hdrs if same else plain, timeout=timeout, allow_redirects=True)
+            _polite(pdf_url, max(1.0, min(float(rules.crawl_delay("Benthic") or 1.0), 10.0)))
+            try:  # wie ein Klick auf der Seite: mit ihr als Herkunft
+                r2 = requests.get(pdf_url, headers={**(hdrs if same else plain), "Referer": resp.url},
+                                  timeout=timeout, allow_redirects=True)
                 if r2.status_code == 200 and r2.content.startswith(b"%PDF-"):
                     return r2.content
+                if _bot_check(r2):
+                    why.setdefault("bot_check", (urlparse(r2.url).hostname or "").lower())
             except requests.exceptions.RequestException:
                 pass
     return None

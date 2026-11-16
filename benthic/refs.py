@@ -13,7 +13,7 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote
 from xml.etree import ElementTree
 
@@ -22,8 +22,9 @@ Ref = Dict[str, object]
 # --------------------------------------------------------------------------
 # Kennungen
 # --------------------------------------------------------------------------
-# DOI: Präfix 10.NNNN/ und ein Suffix ohne Leerraum und ohne typische Begrenzer.
-_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>{}|\\^`\[\]]+", re.IGNORECASE)
+# DOI: Präfix 10.NNNN/ und ein Suffix ohne Leerraum und ohne typische Begrenzer. Spitze Klammern nur in der
+# SICI-Form alter Wiley-DOIs: 10.1002/(sici)1097-0266(199707)18:1+<15::aid-smj916>3.0.co;2-1.
+_DOI_RE = re.compile(r"10\.\d{4,9}/(?:[^\s\"'<>{}|\\^`\[\]]|<\d+::[^\s<>]+>)+", re.IGNORECASE)
 _DOI_URL_RE = re.compile(r"(?:https?://)?(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)", re.IGNORECASE)
 _ARXIV_RE = re.compile(
     r"(?:arxiv(?:\.org/(?:abs|pdf)/|:\s*|\s+)|10\.48550/arxiv\.)"
@@ -71,8 +72,8 @@ def clean_doi(value: str) -> Optional[str]:
         if doi[-1] == ")" and doi.count("(") >= doi.count(")"):
             break
         doi = doi[:-1]
-    # Dateiendungen und Anker aus kopierten Links abschneiden.
-    doi = re.sub(r"(?:\.pdf|/full|/abstract|/pdf|#.*)$", "", doi, flags=re.IGNORECASE)
+    # Dateiendungen und Anker aus kopierten Links abschneiden; "#" nach ";2-" ist das Prüfzeichen einer SICI-DOI.
+    doi = re.sub(r"(?:\.pdf|/full|/abstract|/pdf|(?<!;2-)#.*)$", "", doi, flags=re.IGNORECASE)
     return doi if re.match(r"^10\.\d{4,9}/.+", doi) else None
 
 
@@ -595,15 +596,39 @@ def _initials_first(plain: str):
     return names[:8], title
 
 
+# Kennungen in eingefügten Listen werden am Muster erkannt, nicht durch Teilen an ";": SICI-DOIs enthalten eins.
+# Eine Kennung endet vor Leerraum, am Textende oder an ";"/"," vor Leerraum oder der nächsten Kennung.
+_ID_END = r"(?=[;,]?(?:\s|$)|[;,](?:10\.\d|https?://|doi:|arxiv:))"
+_LIST_ID_RE = re.compile(r"(?:https?://|arxiv:\s*|(?:doi:?\s*|(?:dx\.)?doi\.org/)?(?<![\w.])10\.\d{4,9}/)\S+?" + _ID_END,
+                         re.IGNORECASE)
+
+
+def identifier_list(text: str) -> Optional[Tuple[List[str], List[str]]]:
+    """Eine eingefügte Liste von Kennungen: (DOIs und Links in Reihenfolge, Stücke ohne Kennung), sonst None.
+
+    Eine Liste ist es, solange die Kennungen die Stücke mit Text überwiegen. So macht ein fremdes Stück aus
+    17 DOIs keine einzelne Literaturangabe, und eine Literaturangabe mit DOI bleibt eine.
+    """
+    ids = []
+    for m in _LIST_ID_RE.finditer(text or ""):
+        arxiv = _ARXIV_RE.search(m.group(0))
+        ids.append(clean_doi(m.group(0)) or (arxiv_doi(arxiv.group(1)) if arxiv else m.group(0)))
+    pieces = re.split(r"[;,\n]+", _LIST_ID_RE.sub("\0", text or ""))
+    words = [p.strip() for p in pieces if re.search(r"[^\W_]", p)]  # mehr als Kennung und Satzzeichen
+    if not ids or len(words) >= len(ids):
+        return None
+    return ids, [p for p in words if "\0" not in p]
+
+
 def parse_text(text: str) -> List[Ref]:
     refs: List[Ref] = []
     for line in text.splitlines():
         if not line.strip():
             continue
         # Reine Listen von Kennungen ("10.1/a; 10.2/b") in Einzelteile zerlegen.
-        tokens = [t for t in re.split(r"[;,\s]+", line.strip()) if t]
-        if len(tokens) > 1 and all(clean_doi(t) or _ARXIV_RE.search(t) for t in tokens):
-            for t in tokens:
+        found = identifier_list(line)
+        if found and len(found[0]) > 1:
+            for t in found[0] + found[1]:
                 ref = _text_ref(t)
                 if ref:
                     refs.append(ref)

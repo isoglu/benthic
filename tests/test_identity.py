@@ -361,7 +361,7 @@ class Download(unittest.TestCase):
         from benthic import fetcher
         cands = [{"url": url, "source": "Test", "version": "publishedVersion"} for url in files]
         with mock.patch("benthic.oa.resolve_candidates", return_value=(cands, ["https://example.org/landing"])), \
-                mock.patch("benthic.oa.download_pdf", side_effect=lambda url, headers=None: files[url]), \
+                mock.patch("benthic.oa.download_pdf", side_effect=lambda url, headers=None, **kw: files[url]), \
                 mock.patch("benthic.oa.resolve_metadata",
                            side_effect=lambda d, *a: {"title": CLAIMED_TITLE if d == CLAIMED_DOI else OTHER_TITLE,
                                                       "pages": "112–131"}):
@@ -390,7 +390,7 @@ class Download(unittest.TestCase):
 
     def test_failed_extra_routes_are_reported_in_each_language(self):
         from benthic import fetcher, mcp_server, routes
-        from benthic.i18n import tr_part
+        from benthic.i18n import tr_parts
 
         class Missing(routes.Route):
             id, label = "missing", "Weg A"
@@ -409,13 +409,13 @@ class Download(unittest.TestCase):
                            side_effect=lambda d, *a: {"title": CLAIMED_TITLE if d == CLAIMED_DOI else OTHER_TITLE}):
             out = Path(self.tmp.name) / "papers"
             r = fetcher.BenthicDownloader(out, skip_existing=False, route_list=[Missing(), Alien()]).download_one(CLAIMED_DOI)
-        self.assertEqual(r["status"], "error")
-        en, de = tr_part(r["error_parts"][0], "en"), tr_part(r["error_parts"][0], "de")
-        self.assertIn("No open-access copy; extra routes without success: Weg A: no copy; Weg B: The PDF is a different "
-                      f"work: DOI {OTHER_DOI}", en)
+        self.assertEqual(r["status"], "absent")  # keine freie Kopie: kein Fehler, auch wenn Zusatzwege nichts fanden
+        en, de = tr_parts(r["error_parts"], "en"), tr_parts(r["error_parts"], "de")
+        self.assertIn("No open-access copy found. Extra routes without success: Weg A: no copy; Weg B: The PDF is a "
+                      f"different work: DOI {OTHER_DOI}", en)
         self.assertNotIn("Zusatzwege", en)
         self.assertIn(f"Zusatzwege ohne Erfolg: Weg A: no copy; Weg B: Das PDF ist ein anderes Werk: DOI {OTHER_DOI}", de)
-        self.assertIn("extra routes without success", mcp_server._fmt_download({"results": [r], "status": "done"}))
+        self.assertIn("Extra routes without success", mcp_server._fmt_download({"results": [r], "status": "done"}))
         self.assertEqual(list(out.iterdir()), [])
 
 

@@ -19,7 +19,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import identity
+from . import identity, ocr
 
 _STOP = set("""
 a an and are as at be been being but by can could did do does for from had has have he her his how i if in
@@ -114,7 +114,7 @@ def _strip_running_headers(pages: List[Dict]) -> List[Dict]:
             break
 
         cleaned_text = "\n".join(lines[start_idx:end_idx])
-        out.append({"page": p.get("page", 1), "text": cleaned_text})
+        out.append({**p, "page": p.get("page", 1), "text": cleaned_text})
 
     return out
 
@@ -127,10 +127,12 @@ def _pages(path: Path) -> List[Dict]:
             return _cache[key]
     import logging
     from pypdf import PdfReader
+    from . import ocr
     logging.getLogger("pypdf").setLevel(logging.ERROR)
     reader = PdfReader(str(path))
-    pages = [{"page": i, "text": (p.extract_text() or "")} for i, p in enumerate(reader.pages, start=1)]
-    pages = _strip_running_headers(pages)
+    pages = _strip_running_headers(ocr.pages(reader, path))
+    if any(p.get("scan") for p in pages):  # Scanseiten noch ohne Text: beim nächsten Mal nachsehen, ob sie erkannt sind
+        return pages
     with _lock:
         if len(_cache) > 40:
             _cache.clear()
@@ -253,4 +255,5 @@ def find(doi: str, claim: str, k: int = 3, translated: Optional[str] = None) -> 
     return {"doi": doi, "available": True, "file": path.name, "copy": ident.get("copy"), "claim": claim, "passages": top,
             "level": level(top[0] if top else None), "claim_language": claim_lang, "source_language": source_lang,
             "translated": query if query != claim else None,
-            "needs_translation": bool(source_lang and claim_lang and source_lang != claim_lang and query == claim)}
+            "needs_translation": bool(source_lang and claim_lang and source_lang != claim_lang and query == claim),
+            **ocr.summary(pages)}

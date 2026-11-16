@@ -1,10 +1,12 @@
 """Downloader: Bibliothek, dann Open Access, dann optionale Zusatzwege.
 
 Die Kaskade prüft zuerst die eigene Bibliothek, dann alle
-Open-Access-Quellen (siehe ``oa``). Ist eine OA-Kopie bekannt, aber nicht
-automatisch abrufbar, bleibt es beim Hinweis „im Browser öffnen“. Erst wenn
-keine OA-Kopie bekannt ist, kommen angemeldete Zusatzwege an die Reihe
-(``routes``), und nur, wenn sie eingeschaltet sind.
+Open-Access-Quellen (siehe ``oa``). Nennt eine Quelle die Verlagsseite als frei
+lesbar, aber ohne PDF, fragt Benthic die Seite selbst nach ihrem PDF-Link. Ist
+eine OA-Kopie bekannt, aber nicht automatisch abrufbar, bleibt es beim Hinweis
+„im Browser öffnen“ (mit dem Grund und, wenn bekannt, dem PDF-Link für den
+Klick). Erst wenn keine OA-Kopie bekannt ist, kommen angemeldete Zusatzwege an
+die Reihe (``routes``), und nur, wenn sie eingeschaltet sind.
 """
 
 from __future__ import annotations
@@ -17,9 +19,15 @@ from typing import Dict, List, Optional
 from urllib.parse import quote
 
 from . import crossref, identity, library, oa, routes
-from .i18n import each_lang, note_part, tr, tr_part
+from .i18n import each_lang, note_part, tr, tr_parts
 
 logger = logging.getLogger("benthic")
+
+# Arten von Werken bei OpenAlex, für den Grund „geschlossener Zugang“
+_KIND = {"article": "Zeitschriftenartikel", "review": "Zeitschriftenartikel", "book-chapter": "Buchkapitel",
+         "reference-entry": "Lexikonartikel", "book": "Buch"}
+_WALL = {"bot_check": "Prüfung, ob ein Mensch die Seite öffnet, bei {hosts}; Benthic umgeht sie nicht.",
+         "robots": "Keine automatischen Downloads erlaubt bei {hosts} (robots.txt)."}
 
 
 class BenthicDownloader:
@@ -64,7 +72,9 @@ class BenthicDownloader:
                 "legal": bool | None,
                 "title": str | None,
                 "proxy_url": str | None,  # ohne freie Kopie: Link über den Proxy der Hochschule
-                "error": str | None,
+                "pdf_url": str,           # nur "blocked": das PDF für den Klick im Browser
+                "blocked_by": [str],      # nur "blocked": Rechner mit Prüfung auf Menschen oder robots-Verbot
+                "error": str | None,      # Grund; "error_parts" dasselbe als note_parts
             }
         """
         identifier = identifier.strip()
@@ -95,12 +105,6 @@ class BenthicDownloader:
             "error": None,
         }
 
-        def finish_error(msg: str, retryable: bool = False) -> Dict:
-            result["error"] = msg
-            result["retryable"] = retryable
-            emit("done", status="error", error=msg, landing_url=result.get("landing_url"))
-            return result
-
         # 0) Bereits in der Bibliothek? (lernende Deduplikation)
         if self.skip_existing and _is_doi(identifier):
             existing = library.get(identifier)
@@ -120,6 +124,8 @@ class BenthicDownloader:
         # 1) Open-Access-Quellen zuerst (alle Kandidaten, mit Fallback).
         oa_known = False
         wrong: Optional[Dict] = None  # eine geladene Datei, die ein anderes Werk ist
+        walls: Dict[str, str] = {}  # Rechner -> "bot_check" | "robots": dort lädt nur ein Mensch im Browser
+        manual: List = []  # (Rang der Fassung, Reihenfolge, PDF-Adresse) für den Klick im Browser
         if _is_doi(identifier):
             candidates, pages = oa.resolve_candidates(
                 identifier,
@@ -133,10 +139,22 @@ class BenthicDownloader:
             oa_known = bool(candidates)
             if pages:
                 result["landing_url"] = pages[0]
+            publisher = f"https://doi.org/{identifier}"
+            if oa_known and any(p.lower() == publisher.lower() for p in pages) \
+                    and all(c["url"].lower() != publisher.lower() for c in candidates):
+                # Eine Quelle nennt die Verlagsseite frei lesbar, aber ohne PDF: die Seite selbst fragen
+                candidates.append({"url": publisher, "source": "publisher", "version": "published", "landing": True})
             for cand in candidates:
                 emit("download_start", source=cand["source"], version=cand.get("version"))
-                content = oa.download_pdf(cand["url"], headers=cand.get("headers"))
+                why: Dict = {}
+                content = oa.download_pdf(cand["url"], headers=cand.get("headers"), why=why)
                 if content is None:
+                    for kind in _WALL:
+                        if why.get(kind):
+                            walls.setdefault(why[kind], kind)
+                    link = why.get("pdf_url") or (None if cand.get("landing") or cand.get("headers") else cand["url"])
+                    if link and (why.get("bot_check") or why.get("robots")):
+                        manual.append((oa.VERSION_RANK.get(cand.get("version"), 3), len(manual), link))
                     emit("download_fail", source=cand["source"])
                     continue  # toter Link / Landingpage → nächster Kandidat
                 meta = oa.resolve_metadata(identifier, self.oa_email)
@@ -179,11 +197,26 @@ class BenthicDownloader:
         #    Eigener Status "blocked": frei verfügbar, braucht nur einen manuellen Schritt.
         if oa_known:
             best = candidates[0]
-            msg = tr("Open Access bekannt, PDF aber nicht automatisch abrufbar: im Browser öffnen") \
-                if result.get("landing_url") else tr("Open Access bekannt, PDF aber nicht automatisch abrufbar")
-            if wrong:
-                msg = identity.note(wrong)
+            parts: List[Dict] = []
+            for kind, msgid in _WALL.items():
+                hosts = sorted(h for h, k in walls.items() if k == kind)
+                if hosts:
+                    parts.append(note_part(msgid, hosts=", ".join(hosts)))
+            link = bool(result.get("landing_url") or manual)
+            if parts:  # weitere Sätze folgen: mit Punkt
+                lead = note_part("Open Access bekannt, PDF aber nicht automatisch abrufbar: im Browser öffnen."
+                                 if link else "Open Access bekannt, PDF aber nicht automatisch abrufbar.")
+            else:
+                lead = note_part("Open Access bekannt, PDF aber nicht automatisch abrufbar: im Browser öffnen"
+                                 if link else "Open Access bekannt, PDF aber nicht automatisch abrufbar")
+            parts.insert(0, lead)
+            if wrong:  # das andere Werk zuerst: sein Hinweis ersetzt alle anderen
                 result.update(wrong_file=True, file_doi=wrong.get("file_doi"), file_title=wrong.get("file_title"))
+            msg = identity.note(wrong) if wrong else tr_parts(parts)
+            if manual:
+                result["pdf_url"] = min(manual)[2]  # Verlagsfassung zuerst
+            if walls:
+                result["blocked_by"] = sorted(walls)
             result.update(
                 status="blocked",
                 source=best["source"],
@@ -191,6 +224,7 @@ class BenthicDownloader:
                 legal=True,
                 version=best.get("version") or "unknown",
                 error=msg,
+                error_parts=None if wrong else parts,
             )
             emit("done", status="blocked", error=msg, landing_url=result.get("landing_url"))
             return result
@@ -201,9 +235,7 @@ class BenthicDownloader:
 
         # 4) Zusatzwege (nur wenn eingeschaltet und angemeldet).
         if not self.routes:
-            result.update(status="absent", error=tr("Keine Open-Access-Kopie gefunden"))
-            emit("done", status="absent", error=result["error"], landing_url=result.get("landing_url"))
-            return result
+            return self._absent(result, identifier, emit)
 
         misses: List = []  # je Weg eine Funktion: Sprache -> „Weg: Grund“
         retryable = False
@@ -261,10 +293,36 @@ class BenthicDownloader:
             emit("done", status="ok", channel=route.id, route_label=label, source=hit.source, filename=filename)
             return result
 
-        part = note_part("Keine Open-Access-Kopie; Zusatzwege ohne Erfolg: {misses}",
-                         misses=each_lang(lambda lang: "; ".join(miss(lang) for miss in misses)))
-        result["error_parts"] = [part]  # für den KI-Assistenten auf Englisch, in der App in ihrer Sprache
-        return finish_error(tr_part(part), retryable=retryable)
+        return self._absent(result, identifier, emit, misses, retryable)
+
+    def _absent(self, result: Dict, identifier: str, emit, misses: Optional[List] = None,
+                retryable: bool = False) -> Dict:
+        """Keine freie Kopie: sauber als "absent", mit dem Grund (laut OpenAlex geschlossen, Art und Ort des Werks),
+        dem Link zum Verlag und, falls Zusatzwege liefen, was sie meldeten. Hinweise als note_parts: für den
+        KI-Assistenten auf Englisch, in der App in ihrer Sprache."""
+        parts: List[Dict] = []
+        work = oa.known_work(identifier)  # schon von der Kaskade geholt, keine neue Anfrage
+        if ((work or {}).get("open_access") or {}).get("oa_status") == "closed":
+            venue = (((work.get("primary_location") or {}).get("source") or {}).get("display_name") or "").strip()
+            kind = str(work.get("type") or "")
+
+            def what(lang: str) -> str:
+                bits = [b for b in (tr(_KIND[kind], lang) if kind in _KIND else "", venue) if b]
+                return f" ({', '.join(bits)})" if bits else ""
+            parts.append(note_part("Keine Open-Access-Kopie: laut OpenAlex geschlossener Zugang{what}.",
+                                   what=each_lang(what)))
+            result["landing_url"] = f"https://doi.org/{identifier}"  # nur der Verlag hat es
+        if misses:
+            if not parts:
+                parts.append(note_part("Keine Open-Access-Kopie gefunden."))
+            parts.append(note_part("Zusatzwege ohne Erfolg: {misses}.",
+                                   misses=each_lang(lambda lang: "; ".join(miss(lang) for miss in misses))))
+        result.update(status="absent", retryable=retryable,
+                      error=tr_parts(parts) if parts else tr("Keine Open-Access-Kopie gefunden"))
+        if parts:
+            result["error_parts"] = parts
+        emit("done", status="absent", error=result["error"], landing_url=result.get("landing_url"))
+        return result
 
     def check_one(self, identifier: str) -> Dict:
         """Prüft eine DOI ohne Download: bereits vorhanden? OA verfügbar?"""

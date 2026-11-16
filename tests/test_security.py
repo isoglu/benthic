@@ -457,12 +457,16 @@ class Schluessel(unittest.TestCase):
         html = b"<html><head><meta name='citation_pdf_url' content='https://other.example/a.pdf'></head></html>"
         first = mock.Mock(status_code=200, content=html, text=html.decode(), url="https://api.elsevier.com/x",
                           headers={"Content-Type": "text/html"})
+        robots = mock.Mock(status_code=404, text="", headers={})
         second = mock.Mock(status_code=200, content=b"%PDF-1.4", headers={"Content-Type": "application/pdf"})
-        with mock.patch.object(oa.requests, "get", side_effect=[first, second]) as get:
+        oa._robots.clear()
+        with mock.patch.object(oa.requests, "get", side_effect=[first, robots, second]) as get:
             self.assertEqual(oa.download_pdf("https://api.elsevier.com/x", headers={"X-ELS-APIKey": "ELS"}), b"%PDF-1.4")
         self.assertEqual(get.call_args_list[0].kwargs["headers"]["X-ELS-APIKey"], "ELS")
-        self.assertEqual(get.call_args_list[1].args[0], "https://other.example/a.pdf")
-        self.assertNotIn("X-ELS-APIKey", get.call_args_list[1].kwargs["headers"])
+        self.assertEqual(get.call_args_list[1].args[0], "https://other.example/robots.txt")
+        self.assertEqual(get.call_args_list[2].args[0], "https://other.example/a.pdf")
+        for call in get.call_args_list[1:]:
+            self.assertNotIn("X-ELS-APIKey", call.kwargs["headers"])
 
 
 class Export(unittest.TestCase):

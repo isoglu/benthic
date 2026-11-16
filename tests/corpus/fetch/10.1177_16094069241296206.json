@@ -1,0 +1,133 @@
+{
+"doi": "10.1177/16094069241296206",
+"recorded": "2026-11-08",
+"benthic": "1.2.2",
+"api": [
+{
+"url": "https://api.openalex.org/works/doi:10.1177/16094069241296206",
+"params": {
+"mailto": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"id\": \"https://openalex.org/W4403755554\", \"doi\": \"https://doi.org/10.1177/16094069241296206\", \"title\": \"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative Review, Empirical Guidance, and Next Steps\", \"display_name\": \"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative Review, Empirical Guidance, and Next Steps\", \"publication_year\": 2024, \"publication_date\": \"2024-01-01\", \"ids\": {\"openalex\": \"https://openalex.org/W4403755554\", \"doi\": \"https://doi.org/10.1177/16094069241296206\"}, \"language\": \"en\", \"primary_location\": {\"id\": \"doi:10.1177/16094069241296206\", \"doi\": \"https://doi.org/10.1177/16094069241296206\", \"is_oa\": true, \"landing_page_url\": \"https://doi.org/10.1177/16094069241296206\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4210182004\", \"display_name\": \"International Journal of Qualitative Methods\", \"issn_l\": \"1609-4069\", \"issn\": [\"1609-4069\"], \"is_oa\": true, \"is_in_doaj\": true, \"is_core\": true, \"listed_in\": [\"anvur-class-a\", \"anvur-scientific\", \"cwts-core\", \"doaj\", \"jufo-1\", \"ki-jl-1\", \"norway-2\", \"poland-40\", \"russia-white-list-1\", \"vabb-shw\"], \"host_organization\": \"https://openalex.org/P4310320017\", \"host_organization_name\": \"SAGE Publishing\", \"host_organization_lineage\": [\"https://openalex.org/P4310320017\"], \"host_organization_lineage_names\": [\"SAGE Publishing\"], \"type\": \"journal\"}, \"license\": \"cc-by-nc\", \"license_id\": \"https://openalex.org/licenses/cc-by-nc\", \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"International Journal of Qualitative Methods\", \"raw_type\": \"journal-article\"}, \"volume\": null, \"type\": \"article\", \"is_traditional\": true, \"indexed_in\": [\"crossref\", \"doaj\"], \"open_access\": {\"is_oa\": true, \"oa_status\": \"gold\", \"oa_url\": \"https://doi.org/10.1177/16094069241296206\", \"any_repository_has_fulltext\": true}, \"authorships\": [{\"author_position\": \"first\", \"author\": {\"id\": \"https://openalex.org/A5031460077\", \"display_name\": \"Amber Wutich\", \"orcid\": \"https://orcid.org/0000-0003-4164-1632\", \"observed_orcids\": [\"https://orcid.org/0000-0003-4164-1632\"]}, \"countries\": [\"US\"], \"is_corresponding\": false, \"raw_author_name\": \"Amber Wutich\", \"raw_orcid\": null}, {\"author_position\": \"middle\", \"author\": {\"id\": \"https://openalex.org/A5063471639\", \"display_name\": \"Melissa Beresford\", \"orcid\": \"https://orcid.org/0000-0002-5707-3943\", \"observed_orcids\": [\"https://orcid.org/0000-0002-5707-3943\"]}, \"countries\": [\"US\"], \"is_corresponding\": true, \"raw_author_name\": \"Melissa Beresford\", \"raw_orcid\": \"https://orcid.org/0000-0002-5707-3943\"}, {\"author_position\": \"last\", \"author\": {\"id\": \"https://openalex.org/A5042386376\", \"display_name\": \"H. Russell Bernard\", \"orcid\": \"https://orcid.org/0000-0002-1367-2813\", \"observed_orcids\": [\"https://orcid.org/0000-0002-1367-2813\"]}, \"countries\": [\"US\"], \"is_corresponding\": false, \"raw_author_name\": \"H. Russell Bernard\", \"raw_orcid\": null}], \"countries_distinct_count\": 1, \"institutions_distinct_count\": 2, \"corresponding_author_ids\": [\"https://openalex.org/A5063471639\"], \"corresponding_institution_ids\": [\"https://openalex.org/I51504820\"], \"apc_list\": {\"value\": 2650, \"currency\": \"USD\", \"value_usd\": 2650}, \"apc_paid\": {\"value\": 2650, \"currency\": \"USD\", \"value_usd\": 2650}, \"fwci\": 205.5758, \"has_fulltext\": false, \"cited_by_count\": 508, \"citation_normalized_percentile\": {\"value\": 0.99989863, \"is_in_top_1_percent\": true, \"is_in_top_10_percent\": true}, \"cited_by_percentile_year\": {\"min\": 98, \"max\": 100}, \"biblio\": {\"volume\": \"23\", \"issue\": null, \"first_page\": null, \"last_page\": null}, \"is_retracted\": false, \"is_paratext\": false, \"is_xpac\": false, \"locations_count\": 3, \"locations\": [{\"id\": \"doi:10.1177/16094069241296206\", \"doi\": \"https://doi.org/10.1177/16094069241296206\", \"is_oa\": true, \"landing_page_url\": \"https://doi.org/10.1177/16094069241296206\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4210182004\", \"display_name\": \"International Journal of Qualitative Methods\", \"issn_l\": \"1609-4069\", \"issn\": [\"1609-4069\"], \"is_oa\": true, \"is_in_doaj\": true, \"is_core\": true, \"listed_in\": [\"anvur-class-a\", \"anvur-scientific\", \"cwts-core\", \"doaj\", \"jufo-1\", \"ki-jl-1\", \"norway-2\", \"poland-40\", \"russia-white-list-1\", \"vabb-shw\"], \"host_organization\": \"https://openalex.org/P4310320017\", \"host_organization_name\": \"SAGE Publishing\", \"host_organization_lineage\": [\"https://openalex.org/P4310320017\"], \"host_organization_lineage_names\": [\"SAGE Publishing\"], \"type\": \"journal\"}, \"license\": \"cc-by-nc\", \"license_id\": \"https://openalex.org/licenses/cc-by-nc\", \"version\": \"publishedVersion\", \"is_accepted\": true, \"is_published\": true, \"raw_source_name\": \"International Journal of Qualitative Methods\", \"raw_type\": \"journal-article\"}, {\"id\": \"pmh:oai:scholarworks.sjsu.edu:faculty_rsca-6791\", \"doi\": null, \"is_oa\": true, \"landing_page_url\": \"https://scholarworks.sjsu.edu/faculty_rsca/5792\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4377196389\", \"display_name\": \"San José State University ScholarWorks (San Jose State University)\", \"issn_l\": null, \"issn\": null, \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": false, \"listed_in\": [], \"host_organization\": \"https://openalex.org/I51504820\", \"host_organization_name\": \"San Jose State University\", \"host_organization_lineage\": [\"https://openalex.org/I51504820\"], \"host_organization_lineage_names\": [], \"type\": \"repository\"}, \"license\": \"cc-by-nc\", \"license_id\": \"https://openalex.org/licenses/cc-by-nc\", \"version\": \"submittedVersion\", \"is_accepted\": false, \"is_published\": false, \"raw_source_name\": \"Faculty Research, Scholarly, and Creative Activity\", \"raw_type\": \"text\"}, {\"id\": \"pmh:oai:doaj.org/article:110db1b030a14a1d9dfd04b4bf9047e7\", \"doi\": null, \"is_oa\": true, \"landing_page_url\": \"https://doaj.org/article/110db1b030a14a1d9dfd04b4bf9047e7\", \"pdf_url\": null, \"source\": {\"id\": \"https://openalex.org/S4306401280\", \"display_name\": \"DOAJ (DOAJ: Directory of Open Access Journals)\", \"issn_l\": null, \"issn\": null, \"is_oa\": false, \"is_in_doaj\": false, \"is_core\": false, \"listed_in\": [], \"host_organization\": null, \"host_organization_name\": null, \"host_organization_lineage\": [], \"host_organization_lineage_names\": [], \"type\": \"repository\"}, \"license\": \"cc-by-sa\", \"license_id\": \"https://openalex.org/licenses/cc-by-sa\", \"version\": \"submittedVersion\", \"is_accepted\": false, \"is_published\": false, \"raw_source_name\": \"International Journal of Qualitative Methods, Vol 23 (2024)\", \"raw_type\": \"article\"}], \"sustainable_development_goals\": [], \"study_designs\": [], \"awards\": [{\"id\": \"https://openalex.org/G7650909442\", \"display_name\": \"The Cultural Anthropology Methods Program (CAMP): Advanced Research Training for Ph.D. Students\", \"funder_award_id\": \"2017491\", \"funder_id\": \"https://openalex.org/F4320306076\", \"funder_display_name\": \"National Science Foundation\"}, {\"id\": \"https://openalex.org/G8593952201\", \"display_name\": \"CAREER: Moral Economies in Water Markets: Implications for Understanding Human Responses to Water Insecurity\", \"funder_award_id\": \"2143766\", \"funder_id\": \"https://openalex.org/F4320306076\", \"funder_display_name\": \"National Science Foundation\"}], \"funders\": [{\"id\": \"https://openalex.org/F4320306076\", \"display_name\": \"National Science Foundation\", \"ror\": \"https://ror.org/021nxhr62\"}], \"has_content\": {\"pdf\": false, \"grobid_xml\": false}, \"content_urls\": null, \"referenced_works_count\": 124, \"updated_date\": \"2026-11-07T11:25:07.637180\", \"created_date\": \"2024-10-26T00:00:00\"}"
+},
+{
+"url": "https://api.unpaywall.org/v2/10.1177/16094069241296206",
+"params": {
+"email": "benthic-demo@example.org"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"data_standard\": 2, \"doi\": \"10.1177/16094069241296206\", \"doi_url\": \"https://doi.org/10.1177/16094069241296206\", \"first_oa_location\": {\"endpoint_id\": null, \"evidence\": \"deprecated\", \"host_type\": \"publisher\", \"is_best\": true, \"license\": \"cc-by-nc\", \"oa_date\": \"2024-01-01\", \"pmh_id\": null, \"repository_institution\": null, \"updated\": \"deprecated\", \"url\": \"https://doi.org/10.1177/16094069241296206\", \"url_for_landing_page\": \"https://doi.org/10.1177/16094069241296206\", \"url_for_pdf\": null, \"version\": \"publishedVersion\"}, \"genre\": \"journal-article\", \"has_repository_copy\": true, \"is_oa\": true, \"is_paratext\": false, \"journal_is_in_doaj\": true, \"journal_is_oa\": true, \"journal_issn_l\": \"1609-4069\", \"journal_issns\": \"1609-4069\", \"journal_name\": \"International Journal of Qualitative Methods\", \"oa_locations\": [{\"endpoint_id\": null, \"evidence\": \"deprecated\", \"host_type\": \"publisher\", \"is_best\": true, \"license\": \"cc-by-nc\", \"oa_date\": \"2024-01-01\", \"pmh_id\": null, \"repository_institution\": null, \"updated\": \"deprecated\", \"url\": \"https://doi.org/10.1177/16094069241296206\", \"url_for_landing_page\": \"https://doi.org/10.1177/16094069241296206\", \"url_for_pdf\": null, \"version\": \"publishedVersion\"}, {\"endpoint_id\": \"2cf2a4a9de35d1bd8c1\", \"evidence\": \"deprecated\", \"host_type\": \"repository\", \"is_best\": false, \"license\": \"cc-by-nc\", \"oa_date\": \"2024-01-01\", \"pmh_id\": \"oai:scholarworks.sjsu.edu:faculty_rsca-6791\", \"repository_institution\": \"San Jose State University\", \"updated\": \"deprecated\", \"url\": \"https://scholarworks.sjsu.edu/faculty_rsca/5792\", \"url_for_landing_page\": \"https://scholarworks.sjsu.edu/faculty_rsca/5792\", \"url_for_pdf\": null, \"version\": \"submittedVersion\"}, {\"endpoint_id\": \"8e556f4518885d9a235\", \"evidence\": \"deprecated\", \"host_type\": \"repository\", \"is_best\": false, \"license\": \"cc-by-sa\", \"oa_date\": \"2024-01-01\", \"pmh_id\": \"oai:doaj.org/article:110db1b030a14a1d9dfd04b4bf9047e7\", \"repository_institution\": null, \"updated\": \"deprecated\", \"url\": \"https://doaj.org/article/110db1b030a14a1d9dfd04b4bf9047e7\", \"url_for_landing_page\": \"https://doaj.org/article/110db1b030a14a1d9dfd04b4bf9047e7\", \"url_for_pdf\": null, \"version\": \"submittedVersion\"}], \"oa_locations_embargoed\": [], \"oa_status\": \"gold\", \"published_date\": \"2024-01-01\", \"publisher\": \"SAGE Publications\", \"title\": \"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative Review, Empirical Guidance, and Next Steps\", \"updated\": \"2026-11-06T12:24:21Z\", \"year\": 2024, \"z_authors\": [{\"author_position\": \"first\", \"is_corresponding\": false, \"raw_author_name\": \"Amber Wutich\"}, {\"author_position\": \"middle\", \"is_corresponding\": true, \"raw_author_name\": \"Melissa Beresford\"}, {\"author_position\": \"last\", \"is_corresponding\": false, \"raw_author_name\": \"H. Russell Bernard\"}]}"
+},
+{
+"url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+"params": {
+"query": "DOI:\"10.1177/16094069241296206\"",
+"resultType": "core",
+"format": "json",
+"pageSize": 1
+},
+"status": 200,
+"type": "application/json;charset=UTF-8",
+"body": "{\"version\": \"6.9\", \"hitCount\": 0, \"request\": {\"queryString\": \"DOI:\\\"10.1177/16094069241296206\\\"\", \"resultType\": \"core\", \"cursorMark\": \"*\", \"pageSize\": 1, \"sort\": \"\", \"synonym\": false}, \"resultList\": {\"result\": []}}"
+},
+{
+"url": "https://api.semanticscholar.org/graph/v1/paper/DOI:10.1177/16094069241296206",
+"params": {
+"fields": "openAccessPdf"
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"paperId\": \"b680632a6d4334152acd039e0651955a03b5e6d9\", \"openAccessPdf\": {\"url\": \"https://doi.org/10.1177/16094069241296206\", \"status\": \"GOLD\", \"license\": \"CCBYNC\"}}"
+},
+{
+"url": "https://api.core.ac.uk/v3/search/works",
+"params": {
+"q": "doi:\"10.1177/16094069241296206\"",
+"limit": 3
+},
+"status": 200,
+"type": "application/json",
+"body": "{\"totalHits\": 1, \"limit\": 3, \"offset\": 0, \"results\": [{\"acceptedDate\": \"\", \"arxivId\": null, \"authors\": [{\"name\": \"Beresford, Melissa\"}, {\"name\": \"Wutich, Amber\"}, {\"name\": \"Bernard, H. Russell\"}], \"citationCount\": 0, \"contributors\": [], \"outputs\": [\"https://api.core.ac.uk/v3/outputs/644497842\"], \"createdDate\": \"2025-03-01T00:02:17+00:00\", \"dataProviders\": [{\"id\": 2185, \"name\": \"SJSU ScholarWorks\", \"url\": \"https://api.core.ac.uk/v3/data-providers/2185\", \"logo\": \"https://api.core.ac.uk/data-providers/2185/logo\"}], \"depositedDate\": \"2025-02-03T20:42:03+00:00\", \"documentType\": \"text\", \"doi\": \"10.1177/16094069241296206\", \"downloadUrl\": \"https://core.ac.uk/download/644497842.pdf\", \"fieldOfStudy\": null, \"fullText\": \"Not available for public API users.\", \"id\": 173180501, \"identifiers\": [{\"identifier\": \"644497842\", \"type\": \"core_id\"}, {\"identifier\": \"10.1177/16094069241296206\", \"type\": \"doi\"}, {\"identifier\": \"oai:scholarworks.sjsu.edu:faculty_rsca-6791\", \"type\": \"oai_id\"}, {\"identifier\": \"oai:scholarworks.sjsu.edu:faculty_rsca-6791\", \"type\": \"oai\"}], \"title\": \"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative Review, Empirical Guidance, and Next Steps\", \"language\": {\"code\": \"en\", \"name\": \"English\"}, \"magId\": null, \"oaiIds\": [\"oai:scholarworks.sjsu.edu:faculty_rsca-6791\"], \"publishedDate\": \"\", \"publisher\": \"SJSU ScholarWorks\", \"pubmedId\": null, \"references\": [], \"sourceFulltextUrls\": [\"https://core.ac.uk/download/644497842.pdf\"], \"updatedDate\": \"2026-10-19T04:20:59+01:00\", \"yearPublished\": 2024, \"journals\": [], \"links\": [{\"type\": \"download\", \"url\": \"https://core.ac.uk/download/644497842.pdf\"}, {\"type\": \"reader\", \"url\": \"https://core.ac.uk/reader/644497842\"}, {\"type\": \"thumbnail_m\", \"url\": \"https://core.ac.uk/image/644497842/large\"}, {\"type\": \"thumbnail_l\", \"url\": \"https://core.ac.uk/image/644497842/large\"}, {\"type\": \"display\", \"url\": \"https://core.ac.uk/works/173180501\"}]}], \"searchId\": \"af3c59e6c8c287bf5dc6b8f3c9493add\"}"
+},
+{
+"url": "https://api.crossref.org/works/10.1177/16094069241296206",
+"params": {},
+"status": 200,
+"type": "application/json",
+"body": "{\"status\": \"ok\", \"message-type\": \"work\", \"message-version\": \"1.0.0\", \"message\": {\"indexed\": {\"date-parts\": [[2026, 11, 7]], \"date-time\": \"2026-11-07T20:15:25Z\", \"timestamp\": 1794082525647, \"version\": \"4.8.0\"}, \"reference-count\": 138, \"publisher\": \"SAGE Publications\", \"license\": [{\"start\": {\"date-parts\": [[2024, 1, 1]], \"date-time\": \"2024-01-01T00:00:00Z\", \"timestamp\": 1704067200000}, \"content-version\": \"unspecified\", \"delay-in-days\": 0, \"URL\": \"https://creativecommons.org/licenses/by-nc/4.0/\"}], \"funder\": [{\"DOI\": \"10.13039/100000001\", \"name\": \"National Science Foundation\", \"doi-asserted-by\": \"publisher\", \"award\": [\"BCS-2143766\"], \"award-info\": [{\"award-number\": [\"BCS-2143766\"]}], \"id\": [{\"id\": \"10.13039/100000001\", \"id-type\": \"DOI\", \"asserted-by\": \"publisher\"}]}, {\"DOI\": \"10.13039/100000001\", \"name\": \"National Science Foundation\", \"doi-asserted-by\": \"publisher\", \"award\": [\"SBE-2017491\"], \"award-info\": [{\"award-number\": [\"SBE-2017491\"]}], \"id\": [{\"id\": \"10.13039/100000001\", \"id-type\": \"DOI\", \"asserted-by\": \"publisher\"}]}], \"content-domain\": {\"domain\": [\"journals.sagepub.com\"], \"crossmark-restriction\": true}, \"short-container-title\": [\"International Journal of Qualitative Methods\"], \"published-print\": {\"date-parts\": [[2024, 1]]}, \"DOI\": \"10.1177/16094069241296206\", \"type\": \"journal-article\", \"created\": {\"date-parts\": [[2024, 10, 25]], \"date-time\": \"2024-10-25T22:45:43Z\", \"timestamp\": 1729896343000}, \"update-policy\": \"https://doi.org/10.1177/sage-journals-update-policy\", \"source\": \"Crossref\", \"is-referenced-by-count\": 355, \"title\": [\"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative Review, Empirical Guidance, and Next Steps\"], \"prefix\": \"10.1177\", \"volume\": \"23\", \"author\": [{\"given\": \"Amber\", \"family\": \"Wutich\", \"sequence\": \"first\", \"affiliation\": [{\"name\": \"School of Human Evolution & Social Change, Arizona State University, USA\"}], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}, {\"ORCID\": \"https://orcid.org/0000-0002-5707-3943\", \"authenticated-orcid\": false, \"given\": \"Melissa\", \"family\": \"Beresford\", \"sequence\": \"additional\", \"affiliation\": [{\"name\": \"Department of Anthropology, San José State University, USA\"}], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}, {\"given\": \"H. Russell\", \"family\": \"Bernard\", \"sequence\": \"additional\", \"affiliation\": [{\"name\": \"Institute for Social Science Research, Arizona State University, USA\"}], \"role\": [{\"vocabulary\": \"crossref\", \"role\": \"author\"}]}], \"member\": \"179\", \"published-online\": {\"date-parts\": [[2024, 10, 25]]}, \"container-title\": [\"International Journal of Qualitative Methods\"], \"original-title\": [], \"language\": \"en\", \"link\": [{\"URL\": \"https://journals.sagepub.com/doi/pdf/10.1177/16094069241296206\", \"content-type\": \"application/pdf\", \"content-version\": \"vor\", \"intended-application\": \"text-mining\"}, {\"URL\": \"https://journals.sagepub.com/doi/full-xml/10.1177/16094069241296206\", \"content-type\": \"application/xml\", \"content-version\": \"vor\", \"intended-application\": \"text-mining\"}, {\"URL\": \"https://journals.sagepub.com/doi/pdf/10.1177/16094069241296206\", \"content-type\": \"application/pdf\", \"content-version\": \"vor\", \"intended-application\": \"syndication\"}, {\"URL\": \"https://journals.sagepub.com/doi/pdf/10.1177/16094069241296206\", \"content-type\": \"unspecified\", \"content-version\": \"vor\", \"intended-application\": \"similarity-checking\"}], \"deposited\": {\"date-parts\": [[2026, 4, 29]], \"date-time\": \"2026-04-29T10:11:12Z\", \"timestamp\": 1777457472000}, \"score\": 1, \"resource\": {\"primary\": {\"URL\": \"https://journals.sagepub.com/doi/10.1177/16094069241296206\"}}, \"subtitle\": [], \"short-title\": [], \"issued\": {\"date-parts\": [[2024, 1]]}, \"references-count\": 138, \"alternative-id\": [\"10.1177/16094069241296206\"], \"URL\": \"https://doi.org/10.1177/16094069241296206\", \"relation\": {\"is-referenced-by\": [{\"id-type\": \"doi\", \"id\": \"10.1007/s10961-025-10262-2\", \"asserted-by\": \"object\"}]}, \"ISSN\": [\"1609-4069\", \"1609-4069\"], \"issn-type\": [{\"value\": \"1609-4069\", \"type\": \"print\"}, {\"value\": \"1609-4069\", \"type\": \"electronic\"}], \"subject\": [], \"published\": {\"date-parts\": [[2024, 1]]}, \"article-number\": \"16094069241296206\"}}"
+}
+],
+"pages": [
+{
+"url": "https://journals.sagepub.com/doi/pdf/10.1177/16094069241296206",
+"final": "https://journals.sagepub.com/doi/pdf/10.1177/16094069241296206",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://core.ac.uk/download/644497842.pdf",
+"final": "https://core.ac.uk/download/644497842.pdf",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://doi.org/10.1177/16094069241296206",
+"final": "https://journals.sagepub.com/doi/10.1177/16094069241296206",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://scholarworks.sjsu.edu/faculty_rsca/5792",
+"final": "https://scholarworks.sjsu.edu/faculty_rsca/5792/",
+"status": 200,
+"headers": {
+"content-type": "text/html; charset=UTF-8"
+},
+"body": "<html><head><title>\n\"Sample Sizes for 10 Types of Qualitative Data Analysis: An Integrative\" by Amber Wutich, Melissa Beresford et al.\n</title><meta name=\"bepress_citation_pdf_url\" content=\"https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?article=6791&amp;context=faculty_rsca\"></head><body></body></html>"
+},
+{
+"url": "https://scholarworks.sjsu.edu/robots.txt",
+"final": "https://scholarworks.sjsu.edu/robots.txt",
+"status": 200,
+"headers": {
+"content-type": "text/plain"
+},
+"body": "\nUser-agent: PopeTech-CrawlBot\nDisallow:\nUser-agent: PopeTech-ScanBot\nDisallow:\n\nUser-agent: ^Byte\nDisallow: /\n\nUser-agent: *\nDisallow: /cgi/areyousure.cgi\nDisallow: /cgi/author_dashboard.cgi\nDisallow: /cgi/author_downloads.cgi\nDisallow: /cgi/cgs_survey.cgi\nDisallow: /cgi/confirm.cgi\nDisallow: /cgi/disciplines.cgi\nDisallow: /cgi/editor.cgi\nDisallow: /cgi/errordoc.cgi\nDisallow: /cgi/help.cgi\nDisallow: /cgi/institutions.cgi\nDisallow: /cgi/ir_submit.cgi\nDisallow: /cgi/login.cgi\nDisallow: /cgi/mail_assets.cgi\nDisallow: /cgi/maileditor.cgi\nDisallow: /cgi/mysubscriptions.cgi\nDisallow: /cgi/nellco_setup.cgi\nDisallow: /cgi/notification.cgi\nDisallow: /cgi/openurl_forwarder.cgi\nDisallow: /cgi/proquest_setup.cgi\nDisallow: /cgi/query.cgi\nDisallow: /cgi/review_history.cgi\nDisallow: /cgi/site_setup.cgi\nDisallow: /cgi/submit.cgi\nDisallow: /cgi/submit_lawreview.cgi\nDisallow: /cgi/subscription_orders.cgi\nDisallow: /cgi/subscription_request.cgi\nDisallow: /cgi/unsubscribe.cgi\nDisallow: /cgi/upload_additional.cgi\nDisallow: /cgi/user_subscribe.cgi\nDisallow: /cgi/useradd.cgi\nDisallow: /areyousure.cgi\nDisallow: /author_dashboard.cgi\nDisallow: /author_downloads.cgi\nDisallow: /cgs_survey.cgi\nDisallow: /confirm.cgi\nDisallow: /disciplines.cgi\nDisallow: /editor.cgi\nDisallow: /errordoc.cgi\nDisallow: /help.cgi\nDisallow: /institutions.cgi\nDisallow: /ir_submit.cgi\nDisallow: /login.cgi\nDisallow: /mail_assets.cgi\nDisallow: /maileditor.cgi\nDisallow: /mysubscriptions.cgi\nDisallow: /nellco_setup.cgi\nDisallow: /notification.cgi\nDisallow: /openurl_forwarder.cgi\nDisallow: /proquest_setup.cgi\nDisallow: /query.cgi\nDisallow: /review_history.cgi\nDisallow: /site_setup.cgi\nDisallow: /submit.cgi\nDisallow: /submit_lawreview.cgi\nDisallow: /subscription_orders.cgi\nDisallow: /subscription_request.cgi\nDisallow: /unsubscribe.cgi\nDisallow: /upload_additional.cgi\nDisallow: /user_subscribe.cgi\nDisallow: /useradd.cgi\nDisallow: /do/email_editor\nDisallow: /do/\nDisallow: /fe-journals/\n\nsitemap: https://scholarworks.sjsu.edu/siteindex.xml\nsitemap: https://scholarworks.sjsu.edu/exhibit/sitemap.xml\n"
+},
+{
+"url": "https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?article=6791&context=faculty_rsca",
+"final": "https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?article=6791&context=faculty_rsca",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+},
+{
+"url": "https://doaj.org/article/110db1b030a14a1d9dfd04b4bf9047e7",
+"final": "https://doaj.org/article/110db1b030a14a1d9dfd04b4bf9047e7",
+"status": 403,
+"headers": {
+"content-type": "text/html; charset=UTF-8",
+"cf-mitigated": "challenge"
+},
+"body": "<html><head><title>Just a moment...</title></head><body><!-- bot check, page trimmed for the recording: /cdn-cgi/challenge-platform just a moment... _cf_chl_opt --></body></html>"
+}
+]
+}

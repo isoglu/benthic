@@ -6,6 +6,34 @@ gesetzten Stichworte der neuesten Version erscheinen in der App als
 Update-Hinweis; die Website zeigt diese Datei als Versionsgeschichte. Die
 englische Fassung steht in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.2.3
+
+Gescannte PDFs mit Unlimited-OCR lesen, Open-Access-PDFs von Verlagsseiten laden und klare Antworten bei geschlossenen Arbeiten.
+
+- **Gescannte Seiten, gelesen von Unlimited-OCR.** Eine gescannte PDF hat keine
+  Textebene. Ihre Seiten blieben deshalb leer, wenn ein KI-Assistent einen
+  Artikel las, darin eine Belegstelle suchte oder ein Zitat verglich, und wenn
+  du eine gescannte Arbeit geprüft hast. Benthic sagt jetzt, welche Seiten
+  Scans sind. Ist Unlimited-OCR (Baidu, MIT-Lizenz) auf deinem Mac unter
+  `~/unlimited-ocr` installiert und schaltest du in den Einstellungen unter
+  „Verhalten“ die Option „Gescannte Seiten mit Unlimited-OCR lesen“ ein, liest
+  Benthic diese Seiten damit im Hintergrund, etwa eine Minute je Seite, und
+  behält den Text für das nächste Mal. Die Funktion ist standardmäßig aus, das
+  Modell gehört nicht zu Benthic, und ohne Unlimited-OCR arbeitet Benthic wie
+  bisher.
+- **Das PDF hinter dem Download-Knopf.** Meldet eine Quelle eine Arbeit als
+  Open Access, aber ohne funktionierenden PDF-Link, fragt Benthic jetzt die
+  Seite des Verlags nach ihrem PDF (das Tag `citation_pdf_url` oder der
+  Download-Knopf von SAGE, Wiley, Taylor & Francis, PNAS und Elsevier) und lädt
+  es wie ein Klick, eine Anfrage je Seite und Sekunde und nur, wo die robots.txt
+  der Seite es erlaubt. Eine Seite, die erst prüft, ob ein Mensch sie öffnet,
+  umgeht Benthic nie: Es nennt die Seite und verlinkt direkt das PDF, sodass ein
+  Klick im Browser es lädt.
+- **Eine klare Antwort bei geschlossenen Arbeiten.** Eine Arbeit ohne
+  Open-Access-Kopie endet nicht mehr als Fehler, wenn auch die Zusatzwege
+  nichts finden. Benthic sagt, dass sie geschlossen ist, welche Art Werk es ist
+  und wo es erschienen ist, und verlinkt den Verlag.
+
 ## 1.2.2
 
 Sehen, was Benthic gerade tut, und alles, was ein KI-Assistent damit macht.

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Benthic · Quellen prüfen und laden</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/tokens.css?v=1.2.2">
-  <link rel="stylesheet" href="/static/style.css?v=1.2.2">
+  <link rel="stylesheet" href="/static/tokens.css?v=1.2.3">
+  <link rel="stylesheet" href="/static/style.css?v=1.2.3">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
@@ -703,6 +703,7 @@
           <div class="settings-stack">
             <label class="check"><input type="checkbox" id="set-skip"><span>Vorhandene überspringen</span></label>
             <label class="check"><input type="checkbox" id="set-prefer"><span>Verlagsversion bevorzugen</span></label>
+            <label class="check"><input type="checkbox" id="set-ocr"><span>Gescannte Seiten mit Unlimited-OCR lesen, wenn es auf diesem Mac installiert ist (im Hintergrund, etwa eine Minute je Seite)</span></label>
             <label class="field">Parallele Downloads <input type="number" id="set-concurrency" min="1" max="8" step="1"></label>
           </div>
         </div>
@@ -889,6 +890,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script src="/i18n.js"></script>
-  <script src="/static/app.js?v=1.2.2"></script>
+  <script src="/static/app.js?v=1.2.3"></script>
 </body>
 </html>

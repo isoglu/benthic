@@ -128,7 +128,7 @@ class ExtraRoutes(unittest.TestCase):
         self.assertEqual(out["routes"], [{"id": "demo", "label": "Demo-Weg", "legal": None, "targets": ["demo.example"]}])
         self.assertEqual(out["off"], "absent")
         self.assertEqual(out["on"], {"status": "ok", "channel": "demo", "source": "demo.example", "route_label": "Demo-Weg"})
-        self.assertEqual(out["miss"], "error")
+        self.assertEqual(out["miss"], "absent")  # ohne freie Kopie, auch wenn der Weg nichts fand
         self.assertEqual(out["proxy_miss"], "https://proxy.example/login?url=https://doi.org/10.1234/missing")
         self.assertTrue(out["settings"])
 

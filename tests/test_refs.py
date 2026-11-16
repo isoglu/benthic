@@ -32,6 +32,15 @@ class CleanDoi(unittest.TestCase):
     def test_rejects_non_doi(self):
         self.assertIsNone(refs.clean_doi("no identifier here"))
 
+    def test_sici_doi_survives(self):
+        sici = "10.1002/(sici)1097-0266(199707)18:1+<15::aid-smj916>3.0.co;2-1"
+        self.assertEqual(refs.clean_doi(sici + ";"), sici)
+        self.assertEqual(refs.clean_doi("https://doi.org/" + sici), sici)
+        hash_check = "10.1002/(SICI)1097-0266(199709)18:8<637::AID-SMJ914>3.0.CO;2-#"  # "#" ist das Prüfzeichen
+        self.assertEqual(refs.clean_doi(hash_check), hash_check)
+        self.assertEqual(refs.clean_doi("10.1038/nature12373#abstract"), "10.1038/nature12373")
+        self.assertEqual(refs.clean_doi('<a href="x">10.1038/nature12373</a>'), "10.1038/nature12373")
+
 
 class CleanIsbn(unittest.TestCase):
     def test_valid_isbn10(self):

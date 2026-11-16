@@ -73,6 +73,7 @@ DEFAULT_SETTINGS: dict = {
     "retraction_watch": True,  # Projektquellen täglich auf Rückzüge prüfen (watch.py)
     "journal_lists": True,     # DOAJ-Listen (entfernte Zeitschriften, falsche Angaben), questionable.py
     "hijacked_check": False,   # Retraction Watch Hijacked Journal Checker (Lizenz offen, daher aus)
+    "ocr_scans": False,        # Scanseiten mit Unlimited-OCR lesen, wenn installiert (ocr.py); belegt ~11 GB, daher aus
 }
 
 
@@ -94,7 +95,7 @@ def _clean(data: dict) -> dict:
     # Reihenfolge immer nach ALL_PROVIDERS, damit die Kaskade stabil bleibt.
     cleaned["oa_providers"] = [p for p in ALL_PROVIDERS if p in providers] or list(DEFAULT_SETTINGS["oa_providers"])
     for key in ("extra_routes", "skip_existing", "prefer_published", "setup_complete", "journal_jufo",
-                "retraction_watch", "journal_lists", "hijacked_check"):
+                "retraction_watch", "journal_lists", "hijacked_check", "ocr_scans"):
         cleaned[key] = bool(cleaned[key])
     for key in ("unpaywall_email", "core_api_key", "openalex_api_key", "semanticscholar_api_key", "elsevier_api_key", "download_dir",
                 "proxy_prefix", "institution", "update_url", "house_rules", "house_style"):

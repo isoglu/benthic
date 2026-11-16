@@ -36,6 +36,7 @@ const PROVIDERS = [
 ];
 const SOURCE_LABELS = Object.fromEntries(PROVIDERS);
 SOURCE_LABELS.Bibliothek = T("Bibliothek");
+SOURCE_LABELS.publisher = T("Verlagsseite");  // die Seite des Verlags selbst, nach den Open-Access-Quellen
 
 const VERSION_LABELS = {
   published: T("Verlagsversion"),
@@ -164,6 +165,7 @@ function renderSettings() {
   $("#set-jufo").checked = settings.journal_jufo !== false;
   $("#set-lists").checked = settings.journal_lists !== false;
   $("#set-hijacked").checked = !!settings.hijacked_check;
+  $("#set-ocr").checked = !!settings.ocr_scans;
   loadListState();
   $("#quick-skip").checked = !!settings.skip_existing;
   $("#set-prefer").checked = !!settings.prefer_published;
@@ -250,6 +252,7 @@ function collectSettings() {
   s.journal_jufo = $("#set-jufo").checked;
   s.journal_lists = $("#set-lists").checked;
   s.hijacked_check = $("#set-hijacked").checked;
+  s.ocr_scans = $("#set-ocr").checked;
   s.prefer_published = $("#set-prefer").checked;
   s.concurrency = parseInt($("#set-concurrency").value, 10) || 3;
   s.unpaywall_email = $("#set-email").value.trim();
@@ -572,8 +575,9 @@ window.Benthic = {
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
+// Teilt nur an ";" oder "," vor Leerraum oder der nächsten Kennung: SICI-DOIs (…3.0.co;2-1) enthalten ein ";".
 function parseIdentifiers(text) {
-  return text.split(/[;,\n]+/).map((s) => s.trim()).filter(Boolean);
+  return text.split(/[;,]?\s+|[;,](?=10\.\d|https?:\/\/|doi:|arxiv:)/i).map((s) => s.trim()).filter(Boolean);
 }
 
 // Ein Feld für alles: Was darin steht, entscheidet, welcher Knopf leuchtet. Nur DOIs: Laden. Erkannte Angaben:
@@ -1018,7 +1022,8 @@ function resultRow(res) {
   act.className = "c-act";
   // Ohne freie Kopie führt der Link über den Proxy der Hochschule, sonst zur Landingpage.
   const viaProxy = (key === "absent" || key === "fail") && !!res.proxy_url;
-  const link = webUrl(viaProxy ? res.proxy_url : (res.landing_url || res.proxy_url));
+  // Mit bekanntem PDF-Link lädt ein Klick das PDF selbst, nicht erst die Seite mit dem Download-Knopf.
+  const link = webUrl(viaProxy ? res.proxy_url : (res.pdf_url || res.landing_url || res.proxy_url));
   if (link && key !== "legal" && key !== "route" && key !== "library") {
     const a = document.createElement("a");
     const label = viaProxy ? T("Über deine Hochschule öffnen") : T("Im Browser öffnen");
@@ -1117,6 +1122,7 @@ async function toggleCopyRequest(tr, btn, doi) {
 function noteFor(res, key) {
   if (key === "legal" || key === "route") return "";
   if (key === "library") return res.status === "skipped" ? T("Bereits in der Bibliothek, nicht erneut geladen.") : "";
+  if (key === "blocked" && (res.error_parts || []).length > 1) return (res.error || "").replace(/https?:\/\//g, "");
   if (key === "blocked") return T("Freie Fassung bekannt, das PDF lässt sich aber nicht automatisch laden. Im Browser öffnen.");
   if (key === "oa") return T("Freie Fassung verfügbar.");
   const text = (res.error || "").replace(/https?:\/\//g, "");

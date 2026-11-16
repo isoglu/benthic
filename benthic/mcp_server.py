@@ -26,7 +26,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import __version__, identity
+from . import __version__, identity, ocr
 from .i18n import catalog, tr, tr_part
 
 PORT = int(os.environ.get("BENTHIC_PORT", "8327"))
@@ -298,8 +298,8 @@ def _fmt_download(job: Dict) -> str:
             if r.get("filename"):
                 line += f", file {r['filename']}"
         if r.get("status") in ("blocked", "absent", "error") and (r.get("landing_url") or r.get("proxy_url")):
-            line += f". Link: {r.get('proxy_url') or r.get('landing_url')}"
-        if r.get("status") in ("absent", "error") and r.get("error"):
+            line += f". Link: {r.get('pdf_url') or r.get('proxy_url') or r.get('landing_url')}"
+        if (r.get("status") in ("absent", "error") or len(r.get("error_parts") or []) > 1) and r.get("error"):
             line += f" ({_en(r.get('error_parts') or r['error'])})"
         lines.append(line)
     out = [f"{len(results)} of {job.get('total', len(results))} done (open access only)."]
@@ -356,6 +356,9 @@ def _fmt_document(job: Dict) -> str:
         if uncited:
             head.append(("In the .bib files but not cited (they will not appear in the bibliography): " if latex_doc
                          else "In the reference list but never cited: ") + "; ".join(u["label"] for u in uncited[:25]))
+    note = _scan_note(d)
+    if note:
+        head.append(note)
     quotes = d.get("quotes") or []
     if quotes:
         head.append(f"{len(quotes)} direct quotations with a cited source; call check_quotes with job_id "
@@ -535,6 +538,9 @@ def t_find_support(a: Dict) -> str:
         lines.append(f"{i}. Page {p['page']} (coverage {round(p['coverage'] * 100)} % of the claim's key words): {p['text']}")
     if not data.get("passages"):
         lines.append("No passage shares the claim's key words. The paper may not make this claim, or uses other words.")
+    note = _scan_note(data)
+    if note:
+        lines.append(note)
     if data.get("needs_translation"):
         lines.append(f"Note: the claim looks {data.get('claim_language')} and the paper {data.get('source_language')}. "
                      f"Matching is by wording, so translate the claim into the paper's language and call find_support "
@@ -593,6 +599,15 @@ def t_search_library(a: Dict) -> str:
     return f"{len(hits)} paper(s) in the library:\n" + "\n".join(rows)
 
 
+def _scan_note(data: Dict) -> str:
+    """Scanseiten ohne Text und vom Modell gelesene Seiten (ocr.summary), für den Assistenten; leer ohne beides."""
+    out = ocr.note(data.get("scan_pages") or [], data.get("ocr"), "en")
+    if data.get("ocr_pages"):
+        out += (" Pages marked Unlimited-OCR were read from a scan by a model: check a verbatim quotation against "
+                "the PDF before using it.")
+    return out.strip()
+
+
 def t_get_fulltext(a: Dict) -> str:
     q = {"doi": str(a.get("doi") or ""), "start": int(a.get("start") or 0), "max_chars": int(a.get("max_chars") or 30000)}
     _activity("get_fulltext", tr("liest {doi}", doi=q["doi"]))
@@ -601,7 +616,8 @@ def t_get_fulltext(a: Dict) -> str:
         raise ValueError((data or {}).get("error") if isinstance(data, dict) else "not available")
     tail = (f"\n\n[Truncated at character {data['end']} of {data['total_chars']}. "
             f"Call again with start={data['end']} for more.]" if data.get("truncated") else "")
-    return f"{data['file']} ({data['pages']} pages)\n\n{data['text']}{tail}"
+    note = _scan_note(data)
+    return f"{data['file']} ({data['pages']} pages)" + (f"\n{note}" if note else "") + f"\n\n{data['text']}{tail}"
 
 
 def t_list_projects(a: Dict) -> str:

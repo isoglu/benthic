@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, Response, has_request_context, jsonify, request, send_file, send_from_directory
 
-from . import __app_name__, __version__, activity, batch, biblio, clips, config, connect, document, export, finder, guide, history, house, i18n, integrity, journals, latex, library, oa, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
+from . import __app_name__, __version__, activity, batch, biblio, clips, config, connect, document, export, finder, guide, history, house, i18n, integrity, journals, latex, library, oa, ocr, overlap, preprints, projects, questionable, quota, quotes, refs, related, report, routes, stats, style, support, updates, verify, watch, watchfile, zotero
 from .i18n import tr
 from .fetcher import BenthicDownloader
 
@@ -187,35 +187,15 @@ def start_background() -> None:
     watchfile.start()
 
 
-def _parse_identifiers(text: str) -> List[str]:
-    """Zerlegt pastete Eingaben in Identifier (getrennt durch ; , oder Zeilen)."""
-    if not text:
-        return []
-    tokens = re.split(r"[;,\n]+", text)
-    seen = set()
-    result = []
-    for token in tokens:
-        token = token.strip()
-        if not token:
-            continue
-        doi = library.normalize_doi(token)
-        ident = doi if doi else token
-        if ident in seen:
-            continue
-        seen.add(ident)
-        result.append(ident)
-    return result
-
-
 def _download_identifiers(text: str):
     """Kennungen für Download und Prüfung, dazu die Zahl der Angaben ohne Kennung.
 
-    Saubere Listen (nur DOIs und Links) bleiben wie bisher. Alles andere
+    Listen von DOIs und Links erkennt refs.identifier_list am Muster. Alles andere
     (LLM-Antwort, BibTeX, RIS, Literaturliste) geht durch den Referenz-Parser.
     """
-    tokens = [t.strip() for t in re.split(r"[;,\n]+", text or "") if t.strip()]
-    if tokens and all(library.normalize_doi(t) or t.startswith(("http://", "https://")) for t in tokens):
-        return _parse_identifiers(text), 0
+    found = refs.identifier_list(text or "")
+    if found:
+        return list(dict.fromkeys(found[0])), len(found[1])
     items = refs.parse(text or "")
     ids: List[str] = []
     for r in items:
@@ -720,6 +700,7 @@ def check_document():
     if not analysis["entries"]:
         msg = (tr("Keine .bib-Datei mit zitierten Einträgen gefunden.") if analysis.get("style") == "latex"
                else tr("In dieser Datei steht kein Literaturverzeichnis, das Benthic erkennt."))
+        msg = f"{msg} {ocr.note(analysis.get('scan_pages') or [], analysis.get('ocr'))}".strip()
         return jsonify({"error": msg, "document": {k: v for k, v in analysis.items() if k not in ("refs_text", "refs")}}), 400
     identifiers = analysis.pop("refs")  # Reihenfolge = Einträge: Ergebnis "order" ist die Eintragsnummer
     analysis.pop("refs_text", None)
@@ -792,8 +773,10 @@ def _analyse_document(items, path=None):
     name, data = items[0]
     if path is not None:
         data = path.read_bytes()
-    text = document.extract_text(name, data)
+    scans: List[Dict] = []
+    text = document.extract_text(name, data, scans)
     analysis = document.analyse(text)
+    analysis.update(ocr.summary(scans))
     if name.lower().endswith(".docx"):  # Formatierung, die den Text verbirgt, steht nur in der Datei
         analysis["integrity"]["hidden"] = integrity.docx_hidden(data)
     analysis["sha256"] = hashlib.sha256(data).hexdigest()  # Fingerabdruck der Datei für das Siegel im Bericht
@@ -2048,7 +2031,7 @@ def library_check():
     """Schneller Abgleich pasteter DOIs gegen die Bibliothek (ohne Netzwerk)."""
     data = request.get_json(silent=True) or {}
     text = data.get("text", "")
-    identifiers = _parse_identifiers(str(text)) if not isinstance(text, list) else [str(i) for i in text]
+    identifiers = _download_identifiers(str(text))[0] if not isinstance(text, list) else [str(i) for i in text]
     out = []
     for ident in identifiers:
         entry = library.get(ident)

@@ -5,6 +5,32 @@ All notable changes to Benthic, newest first. Version numbers follow
 version become the update notice inside the app; the website shows this file as
 its version history. The German twin is [CHANGELOG.de.md](CHANGELOG.de.md).
 
+## 1.2.3
+
+Read scanned PDFs with Unlimited-OCR, fetch open-access PDFs from publisher pages, and see clear answers for closed-access papers.
+
+- **Scanned pages, read by Unlimited-OCR.** A scanned PDF has no text layer, so
+  its pages came back empty when an AI assistant read a paper, searched it for
+  a claim or compared a quotation, and when you checked a scanned thesis.
+  Benthic now says which pages are scans. If Unlimited-OCR (Baidu, MIT licence)
+  is installed on your Mac in `~/unlimited-ocr` and you turn on "Read scanned
+  pages with Unlimited-OCR" in Settings › Behaviour, Benthic reads those pages
+  with it in the background, about a minute a page, and keeps the text for the
+  next time. It is off by default, the model is not part of Benthic, and
+  without Unlimited-OCR Benthic works as before.
+- **The PDF behind the download button.** When a source says a paper is open
+  access but gives no working PDF link, Benthic now asks the publisher's own
+  page for its PDF (the `citation_pdf_url` tag, or the download button of SAGE,
+  Wiley, Taylor & Francis, PNAS and Elsevier) and fetches it as a click would,
+  one request per site and second, and only where the site's robots.txt allows
+  it. A site that first checks whether a person is visiting is never worked
+  around: Benthic says which site it was and links straight to the PDF, so one
+  click in your browser downloads it.
+- **A clean answer for closed papers.** A paper with no open-access copy no
+  longer ends as an error when extra routes find nothing either. Benthic says it
+  is closed access, what kind of work it is and where it appeared, and links
+  to the publisher.
+
 ## 1.2.2
 
 See what Benthic is doing, and everything an AI assistant does with it.
